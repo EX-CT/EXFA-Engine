@@ -25,34 +25,82 @@ inline bool ev_less(const Ev& a, const Ev& b) {
   if (a.inj != b.inj) return a.inj < b.inj;
   return a.seq < b.seq;
 }
-// binary min-heap
+// binary min-heap over indices into a slot array. Same sift rules as Rust's BinaryHeap (classic sift-up on
+// push; pop's sift-down-to-bottom + sift-up gives the same layout as classic sift-down for a total order), so
+// the final element order (used by the avg-drain sum) is identical to the reference.
 struct Heap {
-  std::vector<Ev> v;
+  std::vector<Ev> slots;
+  std::vector<uint32_t> free_;
+  std::vector<uint32_t> v;  // heap of slot indices
+  bool less(uint32_t a, uint32_t b) const {
+    const Ev& x = slots[a];
+    const Ev& y = slots[b];
+    if (x.t != y.t) return x.t < y.t;
+    return ev_less(x, y);
+  }
   void push(const Ev& e) {
-    v.push_back(e);
+    uint32_t id;
+    if (!free_.empty()) {
+      id = free_.back();
+      free_.pop_back();
+      slots[id] = e;
+    } else {
+      id = (uint32_t)slots.size();
+      slots.push_back(e);
+    }
+    v.push_back(id);
     size_t i = v.size() - 1;
     while (i > 0) {
       size_t p = (i - 1) / 2;
-      if (!ev_less(v[i], v[p])) break;
-      std::swap(v[i], v[p]);
+      if (!less(id, v[p])) break;
+      v[i] = v[p];
       i = p;
     }
+    v[i] = id;
   }
   bool pop(Ev& out) {
     if (v.empty()) return false;
-    out = v[0];
-    v[0] = v.back();
+    uint32_t top = v[0];
+    out = slots[top];
+    free_.push_back(top);
+    uint32_t last = v.back();
     v.pop_back();
-    size_t n = v.size(), i = 0;
+    size_t n = v.size();
+    if (n == 0) return true;
+    size_t i = 0;
     while (true) {
-      size_t l = 2 * i + 1, r = l + 1, m = i;
-      if (l < n && ev_less(v[l], v[m])) m = l;
-      if (r < n && ev_less(v[r], v[m])) m = r;
-      if (m == i) break;
-      std::swap(v[i], v[m]);
+      size_t l = 2 * i + 1, r = l + 1, m;
+      if (l >= n) break;
+      m = (r < n && less(v[r], v[l])) ? r : l;
+      if (!less(v[m], last)) break;
+      v[i] = v[m];
       i = m;
     }
+    v[i] = last;
     return true;
+  }
+  std::vector<Ev> into_vec() const {
+    std::vector<Ev> o;
+    o.reserve(v.size() + 1);
+    for (uint32_t id : v) o.push_back(slots[id]);
+    return o;
+  }
+};
+// memo of exp(dt / tau) for recurring time steps (exact: same input bits -> same result)
+struct ExpMemo {
+  uint64_t k[16];
+  double r[16];
+  bool used[16] = {};
+  double get(double a) {
+    uint64_t b;
+    memcpy(&b, &a, 8);
+    unsigned h = (unsigned)((b ^ (b >> 29) ^ (b >> 41)) & 15);
+    if (used[h] && k[h] == b) return r[h];
+    double e = std::exp(a);
+    used[h] = true;
+    k[h] = b;
+    r[h] = e;
+    return e;
   }
 };
 uint64_t gcd(uint64_t a, uint64_t b) { return b == 0 ? a : gcd(b, a % b); }
@@ -69,6 +117,9 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
                    bool stagger, double t_max_ms) {
   const double tau = recharge_ms / 5.0;
   Heap heap;
+  heap.slots.reserve(64);
+  heap.v.reserve(64);
+  ExpMemo em;
   uint64_t seq = 0, period = 1;
   bool disable_period = false;
   std::vector<std::pair<Drain, uint32_t>> groups;
@@ -150,7 +201,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
     }
     if (t_now > t_last && cap_max > 0.0 && tau > 0.0) {
       double x = std::sqrt(std::max(cap / cap_max, 0.0));
-      double y = 1.0 + (x - 1.0) * std::exp((t_last - t_now) / tau);
+      double y = 1.0 + (x - 1.0) * em.get((t_last - t_now) / tau);
       cap = y * y * cap_max;
     }
     if (t_now != t_last) {
@@ -219,7 +270,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
     }
     refire(ev, t_now);
   }
-  std::vector<Ev> all = std::move(heap.v);
+  std::vector<Ev> all = heap.into_vec();
   if (has_last) all.push_back(last_ev);
   double avg_drain = -0.0;
   for (auto& e : all) avg_drain += e.cap_need / e.duration;

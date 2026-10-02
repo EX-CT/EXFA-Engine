@@ -79,6 +79,7 @@ Ids::Ids(const Dataset& ds) {
   duration = a("duration");
   capacitorNeed = a("capacitorNeed");
   reloadTime = a("reloadTime");
+  chargedArmorDamageMultiplier = a("chargedArmorDamageMultiplier");
   moduleReactivationDelay = a("moduleReactivationDelay");
   chargeRate = a("chargeRate");
   damageMultiplier = a("damageMultiplier");

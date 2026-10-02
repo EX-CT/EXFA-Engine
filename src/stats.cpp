@@ -740,6 +740,10 @@ void Calc::run(JW& w) {
       double sres = g(ps.item, K.energyNeutralizerSignatureResolution);
       if (sres != 0.0) need *= std::min(sig_now / sres, 1.0);
       double dur = g(ps.item, ps.duration);
+      if (need != 0.0 && dur > 0.0) {
+        if (need > 0.0) cap_used += need / (std::trunc(dur) / 1000.0);
+        else cap_added -= need / (std::trunc(dur) / 1000.0);
+      }
       if (need != 0.0 && dur > 0.0) drains.push_back(Drain{std::trunc(dur), need, 0, 0.0, false, false});
     }
   }
@@ -759,6 +763,93 @@ void Calc::run(JW& w) {
     }
     cs_eve = r.eve_stable * 100.0;
     cs_iter = r.iterations;
+  }
+
+  // ---------------- sustainable tank (Pyfa Fit.sustainableTank semantics, via eve-dogma-rs): when the capacitor is
+  // not stable (or reload is factored), local cap-using repairers only run as far as peak recharge allows.
+  double sus[3] = {shield_rep, armor_rep, hull_rep};
+  if (!cs_stable || factor_reload) {
+    auto spec = [&](uint32_t i, uint32_t& attr, bool& asb) -> int {
+      asb = false;
+      const GroupRec* gr = ds.group(f.items[i].group);
+      if (!gr) return -1;
+      std::string_view gn = ds.group_name(*gr);
+      if (gn == "Shield Booster" || gn == "Ancillary Shield Booster") {
+        attr = K.shieldBonus;
+        asb = gn == "Ancillary Shield Booster";
+        return 0;
+      }
+      if (gn == "Armor Repair Unit" || gn == "Ancillary Armor Repairer") {
+        attr = K.armorDamageAmount;
+        return 1;
+      }
+      if (gn == "Hull Repair Unit") {
+        attr = K.structureDamageAmount;
+        return 2;
+      }
+      return -1;
+    };
+    auto is_paste = [&](uint32_t i) { return f.items[i].charge >= 0 && tname(f.items[i].charge) == "Nanite Repair Paste"; };
+    auto cadm = [&](uint32_t i) {
+      double m = g(i, K.chargedArmorDamageMultiplier);
+      return m == 0.0 ? 1.0 : m;
+    };
+    double adj[3] = {0.0, 0.0, 0.0};
+    double used = cap_used;
+    struct Rep {
+      uint32_t i;
+      int l;
+      uint32_t attr;
+      double cap_use, eff;
+    };
+    std::vector<Rep> reps;
+    for (int layer = 0; layer < 3; layer++) {
+      for (uint32_t i : modules) {
+        if (!active(i)) continue;
+        uint32_t attr = 0;
+        bool asb;
+        int l = spec(i, attr, asb);
+        if (l < 0 || l != layer) continue;
+        double cn = g(i, K.capacitorNeed);
+        double avg = avg_cycle_ms(i, factor_reload);
+        double cap_use = (cn != 0.0 && avg > 0.0) ? cn / (avg / 1000.0) : 0.0;
+        double cyc = raw_cycle_ms(i);
+        if (cyc <= 0.0) continue;
+        double amount = g(i, attr);
+        if (cap_use != 0.0) {
+          used -= cap_use;
+          double mult = is_paste(i) ? cadm(i) : 1.0;
+          adj[l] -= amount * mult / (cyc / 1000.0);
+          reps.push_back(Rep{i, l, attr, cap_use, g(i, attr) * cadm(i) / g(i, K.capacitorNeed)});
+        } else if (asb) {
+          double reload = (factor_reload && f.items[i].charge >= 0) ? g(i, K.reloadTime) : 0.0;
+          double shots = (double)std::max<uint32_t>(num_shots(i), 1);
+          double off = reload / (shots * cyc + reload);
+          adj[l] -= amount * off / (cyc / 1000.0);
+        }
+      }
+    }
+    std::stable_sort(reps.begin(), reps.end(), [](const Rep& a, const Rep& b) { return a.eff > b.eff; });
+    double total_peak = peak + cap_added;
+    for (auto& r : reps) {
+      if (used > total_peak) break;
+      uint32_t i = r.i;
+      bool has_charge = f.items[i].charge >= 0;
+      double reload = (factor_reload && has_charge) ? g(i, K.reloadTime) : 0.0;
+      double cyc = raw_cycle_ms(i);
+      double sustain = std::min((total_peak - used) / r.cap_use, 1.0);
+      double amount = g(i, r.attr);
+      if (!has_charge) {
+        adj[r.l] += sustain * amount / (cyc / 1000.0);
+      } else {
+        double mult = is_paste(i) ? cadm(i) : 1.0;
+        double shots = (double)std::max<uint32_t>(num_shots(i), 1);
+        double on = shots * cyc / (shots * cyc + reload);
+        adj[r.l] += sustain * amount * on * mult / (cyc / 1000.0);
+      }
+      used += r.cap_use;
+    }
+    for (int l = 0; l < 3; l++) sus[l] += adj[l];
   }
 
   // ---------------- navigation
@@ -864,6 +955,9 @@ void Calc::run(JW& w) {
   w.key("tank").obj();
   tank4(w, "effective", effectivify(armor_rep, ra), effectivify(hull_rep, rh), effectivify(passive, rs), effectivify(shield_rep, rs));
   tank4(w, "raw", armor_rep, hull_rep, passive, shield_rep);
+  tank4(w, "sustained", sus[1], sus[2], passive, sus[0]);
+  tank4(w, "sustained_effective", effectivify(sus[1], ra), effectivify(sus[2], rh), effectivify(passive, rs),
+        effectivify(sus[0], rs));
   w.end_obj().end_obj();
   // drones
   w.key("drones").obj().ki("active", (int64_t)dr_active).kn("control_range_m", dr_range).kn("max_active", dr_max_active).end_obj();

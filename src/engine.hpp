@@ -48,6 +48,7 @@ struct Ids {
       energyNeutralizerRangeOptimal, energyNeutralizerSignatureResolution, radius, mass, agilityA, maxFOFTargetRange,
       scanStrengthPercent[4], scanStrengthG[4];
   uint32_t e_fof;
+  uint32_t chargedArmorDamageMultiplier;
 };
 
 struct Src {
