@@ -22,5 +22,5 @@ API (ES module `createEvej()`, C functions via `cwrap`; returned strings are val
 
 Output is byte-identical to the native build: the 326 bench 1.8.0 requests and the golden set give identical
 bytes. Measured in Node 20 on the shared box: dataset load ≈ 0.2 s, ≈ 0.6 ms/fit (single thread, no SIMD
-kernels; the native build is about 15× faster). `wasm/test_node.mjs` is the Node test driver (run by CTest above); `wasm/index.html` is a minimal page
+kernels; the native build is about 15× faster). `test/wasm_golden.mjs` is the Node test driver (run by CTest above); `wasm/index.html` is a minimal page
 (its file-picker flow has not been tested in an automated browser run).

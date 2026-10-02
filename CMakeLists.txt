@@ -42,7 +42,7 @@ if(EMSCRIPTEN)
   find_program(EVEJ_NODE node)
   if(EVEJ_NODE)
     enable_testing()
-    add_test(NAME wasm.golden COMMAND ${EVEJ_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/wasm/test_node.mjs
+    add_test(NAME wasm.golden COMMAND ${EVEJ_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/test/wasm_golden.mjs
              $<TARGET_FILE_DIR:eve-dogma-j-wasm>/evej.mjs)
   endif()
   return()

@@ -1,5 +1,5 @@
 // Run the golden regression set (test/golden) through the WASM build in Node:
-//   node wasm/test_node.mjs build-wasm/evej.mjs /path/to/dataset.json.gz
+//   node test/wasm_golden.mjs build-wasm/evej.mjs /path/to/dataset.json.gz
 // Prints "N passed, M failed"; exit code 1 on any mismatch.
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -17,7 +17,7 @@ const rpc = M.cwrap("evej_rpc", "string", ["string"]);
 const err = open("/dataset.json.gz");
 if (err) throw new Error("evej_open: " + err);
 
-const gold = join(here, "../test/golden");
+const gold = join(here, "golden");
 let pass = 0, fail = 0;
 for (const f of readdirSync(gold).filter((x) => x.endsWith(".req.json")).sort()) {
   const req = readFileSync(join(gold, f), "utf8").trim();
