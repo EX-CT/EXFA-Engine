@@ -4,6 +4,7 @@
 //! effect's modifiers. `calc(request) -> stats` is pure: no I/O, no clocks, no global state, no data loading.
 pub mod capsim;
 pub mod data;
+pub mod eft;
 pub mod engine;
 pub mod j;
 pub mod request;
@@ -101,6 +102,14 @@ pub fn rpc(line: &str) -> Value {
     let result = match v.get("method").and_then(|m| m.as_str()).unwrap_or("calc") {
         "calc" => match serde_json::from_value::<FitRequest>(p) {
             Ok(r) => serde_json::to_value(calc(&r)).unwrap_or(Value::Null),
+            Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
+        },
+        "eft_parse" => match eft::parse(p.get("text").and_then(|t| t.as_str()).unwrap_or("")) {
+            Ok(r) => serde_json::to_value(r).unwrap_or(Value::Null),
+            Err(e) => json!({"error": {"code": "EFT_PARSE", "message": e}}),
+        },
+        "eft_export" => match serde_json::from_value::<FitRequest>(p.get("fit").cloned().unwrap_or(Value::Null)) {
+            Ok(r) => json!({"text": eft::export(&r, p.get("name").and_then(|n| n.as_str()).unwrap_or("EXCT fit"))}),
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },
         "search" => search(p.get("query").and_then(|q| q.as_str()).unwrap_or(""), p.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize),

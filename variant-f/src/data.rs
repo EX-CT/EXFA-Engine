@@ -150,3 +150,14 @@ pub fn muta_attrs(id: u32) -> Option<&'static [(u16, f64, f64)]> {
     let (s, n) = MUTA_REC[k];
     Some(&MUTA_ATTRS[s as usize..(s + n) as usize])
 }
+
+/// Mutated type produced by applying `muta` to `base` (EFT import).
+pub fn muta_output(muta: u32, base: u32) -> Option<u32> {
+    let k = MUTA_MAP.partition_point(|x| (x.0, x.1) < (muta, base));
+    MUTA_MAP.get(k).filter(|x| x.0 == muta && x.1 == base).map(|x| x.2)
+}
+
+/// Attribute id by name (linear scan; only used by EFT import).
+pub fn attr_by_name(name: &str) -> Option<u16> {
+    (0..ATTR_DEFAULT.len() as u16).find(|&a| attr_name(a) == Some(name))
+}

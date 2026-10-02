@@ -666,6 +666,18 @@ fn main() {
         mattr.extend(av.into_iter().map(|x| x.1));
         mrec.push(format!("({s},{})", mattr.len() - s));
     }
+    // (mutaplasmid, input type, output type), sorted -- EFT import resolves base + mutaplasmid -> mutated type
+    let mut mmap: Vec<(u32, u32, u32)> = Vec::new();
+    for (id, m) in &ml {
+        for mp in m["mapping"].as_array().into_iter().flatten() {
+            let o = mp["output"].as_u64().unwrap() as u32;
+            for i in mp["inputs"].as_array().into_iter().flatten() {
+                mmap.push((*id, i.as_u64().unwrap() as u32, o));
+            }
+        }
+    }
+    mmap.sort();
+    arr(&mut out, "MUTA_MAP", "(u32, u32, u32)", &mmap.iter().map(|x| format!("({},{},{})", x.0, x.1, x.2)).collect::<Vec<_>>());
     arr(&mut out, "MUTA_IDS", "u32", &ml.iter().map(|x| x.0).collect::<Vec<_>>());
     arr(&mut out, "MUTA_REC", "(u32, u32)", &mrec);
     arr(&mut out, "MUTA_ATTRS", "(u16, f64, f64)", &mattr);

@@ -7,7 +7,8 @@ const USAGE: &str = "eve-dogma-f <command> [args]   (dataset compiled in; --data
 Commands:
   calc [FILE]            FitRequest JSON (file or stdin) -> FitStats JSON
   batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout
-  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|search|type|meta\",\"params\":..}
+  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|eft_parse|eft_export|search|type|meta\",\"params\":..}
+  eft [FILE]             EFT text (file or stdin) -> FitRequest JSON (add --calc to compute, --skills N)
   search QUERY           search types by name
   type ID|NAME           show type with base attributes
   meta                   compiled dataset info
@@ -54,6 +55,29 @@ fn main() {
             }
         }
         "batch" => batch(&mut out),
+        "eft" => {
+            let skills = args.iter().position(|a| a == "--skills").map(|p| {
+                let v = args.get(p + 1).cloned().unwrap_or_default();
+                args.drain(p..(p + 2).min(args.len()));
+                v
+            });
+            let do_calc = args.iter().any(|a| a == "--calc");
+            args.retain(|a| a != "--calc");
+            let s = read_input(args.get(1));
+            match eve_dogma_f::eft::parse(&s) {
+                Ok(mut r) => {
+                    if let Some(l) = skills {
+                        r.character.skills.default_level = l.parse().ok();
+                    }
+                    let v = if do_calc { serde_json::to_value(eve_dogma_f::calc(&r)).unwrap() } else { serde_json::to_value(&r).unwrap() };
+                    writeln!(out, "{}", serde_json::to_string_pretty(&v).unwrap()).unwrap();
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(2)
+                }
+            }
+        }
         "serve-stdio" => {
             eprintln!("eve-dogma-f serve-stdio ready (sde {})", eve_dogma_f::data::SDE_BUILD);
             for line in std::io::stdin().lock().lines() {
