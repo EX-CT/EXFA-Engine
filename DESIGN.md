@@ -51,7 +51,10 @@ FitRequest JSON --simdjson ondemand/DOM--> FitRequest --build--> Fit (items + at
 
 ### Capacitor simulation (src/capsim.*)
 A port of the reference's event-driven Pyfa capsim. It uses a binary min-heap with the same ordering and tie
-rules, plus the same stagger and clip semantics.
+rules, plus the same stagger and clip semantics. As in eve-dogma-rs 60de0b9, the static tie-break fields are
+replaced by their ranks and each event's order is packed into integer keys (two u64 for <= 256 sources, a general
+three-key layout otherwise; a unit test checks both layouts give bit-identical results). `cap_wrap` uses
+Python's `round(cap, 1)` (exact, ties to even).
 
 ### Stats and output (src/stats.*, src/jsonw.hpp)
 * Stats are computed in reference order, then emitted with a streaming writer that writes keys in sorted
@@ -98,7 +101,7 @@ rules, plus the same stagger and clip semantics.
 * Six-decimal numbers (almost all output) use a fast fixed-point formatter, which is proven equal to the shortest
   round-trip path for 1e-5 ≤ |v| < 1e9 and checked against it in `test/fmt_test.cpp` over 5 M random values.
   Everything else goes through `std::to_chars`.
-* Capsim: an index heap with `t` inline, in-place event slots (no 64-byte event copies) and a memo of
+* Capsim: rank-keyed 24-byte heap entries updated in place (one sift-down per event) and a memo of
   `exp(dt/tau)` for recurring time steps. The heap layout matches the reference's `BinaryHeap`, so the final
   avg-drain summation order is identical.
 
@@ -106,7 +109,8 @@ rules, plus the same stagger and clip semantics.
 * Byte-for-byte reference fidelity was chosen over independent re-derivation from Pyfa. Every value matches
   Pyfa wherever the reference does (all bench 1.8.0 values today, 326/326 cases). The cost is that J inherits any
   divergence the reference has, and that new reference features must be ported (done up to eve-dogma-rs
-  0e0b7ec, contract revision 1.4.3).
+  60de0b9, contract revision 1.4.3: incl. overheat-before-module application order and breacher pods, which are
+  pending for bench 1.9.0).
 * The binary cache costs about 110 ms once per dataset and ~20 MB of disk. It can be disabled.
 * The lazy evaluator only computes what the stats need. A full attribute dump (`type`) goes through the same
   path.
@@ -116,6 +120,23 @@ rules, plus the same stagger and clip semantics.
   attribute; always present), like eve-dogma-rs since 1d09341.
 * `search` follows the interim 1.4.1 spec (kinds, exact > prefix > substring, typeID ties, limit 20).
   Lowercasing covers ASCII, Latin-1/Ext-A, Greek, Cyrillic and fullwidth letters (Rust uses full Unicode).
+
+## Number semantics
+* Input: eve-dogma-rs parses JSON with serde_json without `float_roundtrip`, which does not always round
+  decimals correctly (19-digit significand, then one multiply/divide by a power of ten). `serdenum.cpp` scans the
+  raw request text once and rewrites only the number tokens whose serde value differs from the correctly
+  rounded one (>= 16 significant digits or large exponents), plus `-0` (a float -0.0 for serde), so simdjson's
+  exact parse yields serde's double. The common request has no such token and is not copied.
+* Output: shortest round-trip like serde_json 1.0.151 (zmij): `1.0` for integral values, exponents as `1e+16` /
+  `1e-7`. Lock time uses Rust's `asinh` formulation (log1p/hypot), so the last ulp matches.
+
+## Tests and builds
+* `ctest --test-dir build` (README "Test"): 7 unit tests and 116 golden regression tests whose stored outputs
+  were checked against eve-dogma-rs when recorded. Wider parity tooling lives in `tools/` (compare_ref,
+  fuzz_ref, randfit_ref, arrconv_ref) and is summarised in `results/compare_ref.txt`.
+* WebAssembly: the same sources build with Emscripten (`src/wasm.cpp`, `wasm/README.md`). simdjson and libdeflate
+  are built from source via FetchContent, and C++ exceptions are enabled (request errors use them). The output is
+  byte-identical to the native build (bench corpus and golden set in Node).
 
 ## Provenance
 The dogma algorithms (modifier graph semantics, stacking, capsim, RAH, stats formulas) were ported from
