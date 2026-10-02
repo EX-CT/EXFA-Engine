@@ -100,7 +100,7 @@ fn main() {
                 let t2 = Instant::now();
                 let v = fit.compute_stats(&req);
                 let t3 = Instant::now();
-                std::hint::black_box(serde_json::to_string(&v).unwrap());
+                std::hint::black_box(v.to_json_string());
                 tj += t3.elapsed().as_secs_f64();
                 ts += (t3 - t2).as_secs_f64();
                 tb += (t2 - t).as_secs_f64();

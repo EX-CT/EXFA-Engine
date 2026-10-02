@@ -28,8 +28,10 @@ name = "eve-dogma-f"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "itoa",
  "serde",
  "serde_json",
+ "zmij",
 ]
 
 [[package]]

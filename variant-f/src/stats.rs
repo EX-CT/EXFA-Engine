@@ -5,7 +5,8 @@ use crate::capsim::{self, Drain};
 use crate::data::{self as d, a, e};
 use crate::engine::{Fit, Kind};
 use crate::request::{FitRequest, Resists, Slot, Spool, SpoolType, State};
-use serde_json::{json, Map, Value};
+use crate::j::{Key, PushKv, J};
+use crate::jv;
 
 pub fn range_factor(optimal: f64, falloff: f64, distance: Option<f64>, restricted: bool) -> f64 {
     let Some(dist) = distance else { return 1.0 };
@@ -70,32 +71,13 @@ impl Dmg {
     fn vs(&self, r: &Resists) -> f64 {
         self.em * (1.0 - r.em) + self.th * (1.0 - r.thermal) + self.ki * (1.0 - r.kinetic) + self.ex * (1.0 - r.explosive)
     }
-    fn json(&self) -> Value {
-        json!({"em": self.em, "thermal": self.th, "kinetic": self.ki, "explosive": self.ex, "total": self.total()})
+    fn json(&self) -> J {
+        jv!({"em": self.em, "thermal": self.th, "kinetic": self.ki, "explosive": self.ex, "total": self.total()})
     }
 }
 
 const DMG: [u16; 4] = [a::emDamage, a::thermalDamage, a::kineticDamage, a::explosiveDamage];
 
-fn round6(v: f64) -> f64 {
-    if v.is_finite() { (v * 1e6).round() / 1e6 } else { v }
-}
-
-/// Recursively round floats for stable, readable output.
-fn tidy(v: &mut Value) {
-    match v {
-        Value::Number(n) => {
-            if n.is_f64() {
-                if let Some(f) = n.as_f64() {
-                    *v = json!(round6(f));
-                }
-            }
-        }
-        Value::Array(x) => x.iter_mut().for_each(tidy),
-        Value::Object(o) => o.values_mut().for_each(tidy),
-        _ => {}
-    }
-}
 
 fn sig_radius_now(f: &Fit) -> f64 {
     f.get(f.ship, a::signatureRadius)
@@ -241,7 +223,7 @@ impl Fit {
         (dm, kind)
     }
 
-    pub fn compute_stats(&self, req: &FitRequest) -> Value {
+    pub fn compute_stats(&self, req: &FitRequest) -> J {
         let ship = self.ship;
         let ch = self.char;
         let g = |i: usize, x: u16| self.get(i, x);
@@ -264,7 +246,7 @@ impl Fit {
         let count_slot = |s: Slot| modules.iter().filter(|&&i| self.items[i].slot == Some(s)).count();
         let turrets_used = modules.iter().filter(|&&i| self.has_eff(i, &[e::turretFitted])).count();
         let launchers_used = modules.iter().filter(|&&i| self.has_eff(i, &[e::launcherFitted])).count();
-        let usage = |u: f64, t: f64| json!({"used": u, "total": t});
+        let usage = |u: f64, t: f64| jv!({"used": u, "total": t});
         let fighter_class = |i: usize| -> &'static str {
             if g(i, a::fighterSquadronIsHeavy) > 0.0 {
                 "heavy"
@@ -276,7 +258,7 @@ impl Fit {
         };
         let tubes_used = fighters.iter().filter(|&&i| self.items[i].active_count > 0).count();
         let class_used = |c: &str| fighters.iter().filter(|&&i| self.items[i].active_count > 0 && fighter_class(i) == c).count() as f64;
-        let resources = json!({
+        let resources = jv!({
             "cpu": usage(cpu_used, g(ship, a::cpuOutput)),
             "power": usage(pg_used, g(ship, a::powerOutput)),
             "calibration": usage(calib_used, g(ship, a::upgradeCapacity)),
@@ -327,27 +309,27 @@ impl Fit {
             let dps = if cyc > 0.0 { vol_spooled.scale(1000.0 / cyc) } else { Dmg::default() };
             w_vol.add(&vol_spooled);
             w_dps.add(&dps);
-            let mut w = json!({
+            let mut w = jv!({
                 "module_index": self.items[i].req_index, "type_id": self.items[i].type_id,
                 "name": d::type_name(self.items[i].ty), "kind": kind,
                 "charge_type_id": self.items[i].charge.map(|c| self.items[c].type_id),
                 "volley": vol_spooled.json(), "dps": dps.json(), "cycle_time_ms": cyc,
             });
             if kind == "turret" {
-                w["optimal_m"] = json!(g(i, a::maxRange));
-                w["falloff_m"] = json!(g(i, a::falloff));
-                w["tracking"] = json!(g(i, a::trackingSpeed));
+                w["optimal_m"] = jv!(g(i, a::maxRange));
+                w["falloff_m"] = jv!(g(i, a::falloff));
+                w["tracking"] = jv!(g(i, a::trackingSpeed));
             } else if kind == "missile" {
                 if let Some(c) = self.items[i].charge {
-                    w["range_m"] = json!(self.missile_range(c));
-                    w["explosion_radius"] = json!(g(c, a::aoeCloudSize));
-                    w["explosion_velocity"] = json!(g(c, a::aoeVelocity));
+                    w["range_m"] = jv!(self.missile_range(c));
+                    w["explosion_radius"] = jv!(g(c, a::aoeCloudSize));
+                    w["explosion_velocity"] = jv!(g(c, a::aoeVelocity));
                 }
             } else if kind == "smartbomb" {
-                w["range_m"] = json!(g(i, a::empFieldRange));
+                w["range_m"] = jv!(g(i, a::empFieldRange));
             }
             if sp > 0.0 {
-                w["spool_multiplier"] = json!(1.0 + sp);
+                w["spool_multiplier"] = jv!(1.0 + sp);
                 w["volley_unspooled"] = base.json();
             }
             weapons.push(w);
@@ -369,7 +351,7 @@ impl Fit {
             let dps = v.scale(1000.0 / cyc);
             d_vol.add(&v);
             d_dps.add(&dps);
-            drone_out.push(json!({"drone_index": self.items[i].req_index, "type_id": self.items[i].type_id, "name": d::type_name(self.items[i].ty), "count": n, "volley": v.json(), "dps": dps.json()}));
+            drone_out.push(jv!({"drone_index": self.items[i].req_index, "type_id": self.items[i].type_id, "name": d::type_name(self.items[i].ty), "count": n, "volley": v.json(), "dps": dps.json()}));
         }
         let mut f_vol = Dmg::default();
         let mut f_dps = Dmg::default();
@@ -421,7 +403,7 @@ impl Fit {
             if fv.total() > 0.0 {
                 f_vol.add(&fv);
                 f_dps.add(&fd);
-                fighter_out.push(json!({"fighter_index": self.items[i].req_index, "type_id": self.items[i].type_id, "name": d::type_name(self.items[i].ty), "squadron_size": n, "volley": fv.json(), "dps": fd.json()}));
+                fighter_out.push(jv!({"fighter_index": self.items[i].req_index, "type_id": self.items[i].type_id, "name": d::type_name(self.items[i].ty), "squadron_size": n, "volley": fv.json(), "dps": fd.json()}));
             }
         }
         let mut t_vol = w_vol;
@@ -430,7 +412,7 @@ impl Fit {
         let mut t_dps = w_dps;
         t_dps.add(&d_dps);
         t_dps.add(&f_dps);
-        let offense = json!({
+        let offense = jv!({
             "weapons": weapons, "drones": drone_out, "fighters": fighter_out,
             "total": {"weapon_dps": w_dps.total(), "weapon_volley": w_vol.total(), "drone_dps": d_dps.total(), "drone_volley": d_vol.total(),
                       "fighter_dps": f_dps.total(), "fighter_volley": f_vol.total(), "dps": t_dps.json(), "volley": t_vol.json()},
@@ -452,7 +434,7 @@ impl Fit {
         let hp_a = g(ship, a::armorHP);
         let hp_h = g(ship, a::hp);
         let (e_s, e_a, e_h) = (effectivify(hp_s, rs), effectivify(hp_a, ra), effectivify(hp_h, rh));
-        let res_json = |r: [f64; 4]| json!({"em": r[0], "thermal": r[1], "kinetic": r[2], "explosive": r[3]});
+        let res_json = |r: [f64; 4]| jv!({"em": r[0], "thermal": r[1], "kinetic": r[2], "explosive": r[3]});
         let mut shield_rep = 0.0;
         let mut armor_rep = 0.0;
         let mut hull_rep = 0.0;
@@ -486,7 +468,7 @@ impl Fit {
         }
         let shield_rr_s = g(ship, a::shieldRechargeRate) / 1000.0;
         let passive = if shield_rr_s > 0.0 { 10.0 / shield_rr_s * 0.5 * 0.5 * hp_s } else { 0.0 };
-        let defense = json!({
+        let defense = jv!({
             "hp": {"shield": hp_s, "armor": hp_a, "hull": hp_h, "total": hp_s + hp_a + hp_h},
             "resonance": {"shield": res_json(rs), "armor": res_json(ra), "hull": res_json(rh)},
             "ehp": {"shield": e_s, "armor": e_a, "hull": e_h, "total": e_s + e_a + e_h},
@@ -517,17 +499,17 @@ impl Fit {
             }
             let cyc_raw = self.raw_cycle_ms(i);
             let full = cyc_raw + g(i, a::moduleReactivationDelay);
-            let mut row = json!({"module_index": self.items[i].req_index, "type_id": self.items[i].type_id,
+            let mut row = jv!({"module_index": self.items[i].req_index, "type_id": self.items[i].type_id,
                 "name": d::type_name(self.items[i].ty), "slot": self.items[i].slot, "state": self.items[i].state,
                 "cpu": g(i, a::cpu), "power": g(i, a::power)});
             if cyc_raw > 0.0 {
-                row["cycle_time_ms"] = json!(cyc_raw);
+                row["cycle_time_ms"] = jv!(cyc_raw);
             }
             if active(i) && cap_need != 0.0 && full > 0.0 {
                 let avg = self.avg_cycle_ms(i, factor_reload);
                 let use_ = if avg > 0.0 { cap_need / (avg / 1000.0) } else { 0.0 };
                 if use_ > 0.0 { cap_used += use_ } else { cap_added -= use_ }
-                row["cap_use_gj_s"] = json!(use_);
+                row["cap_use_gj_s"] = jv!(use_);
                 drains.push(Drain {
                     duration: full.trunc(),
                     cap_need,
@@ -556,23 +538,23 @@ impl Fit {
             if per_s > 0.0 { cap_used += per_s } else { cap_added -= per_s }
             drains.push(Drain { duration: x.cycle_ms.trunc(), cap_need: need, clip_size: 0, reload_ms: 0.0, is_injector: false, disable_stagger: false });
         }
-        let mut capj = json!({"capacity": cap, "recharge_time_s": rr / 1000.0, "peak_recharge_gj_s": peak,
+        let mut capj = jv!({"capacity": cap, "recharge_time_s": rr / 1000.0, "peak_recharge_gj_s": peak,
             "use_gj_s": cap_used, "injected_gj_s": cap_added, "delta_gj_s": peak + cap_added - cap_used});
         if drains.is_empty() {
-            capj["stable"] = json!(true);
-            capj["stable_percent"] = json!(100.0);
+            capj["stable"] = jv!(true);
+            capj["stable_percent"] = jv!(100.0);
         } else {
             let o = &req.options.cap_sim;
             let r = capsim::simulate(cap, rr, &drains, 1.0, o.reload || factor_reload, true, o.max_time_s.unwrap_or(6.0 * 3600.0) * 1000.0);
             let st = (r.stable_low + r.stable_high) / 2.0;
-            capj["stable"] = json!(r.stable && st > 0.0);
+            capj["stable"] = jv!(r.stable && st > 0.0);
             if r.stable && st > 0.0 {
-                capj["stable_percent"] = json!((st * 100.0).min(100.0));
+                capj["stable_percent"] = jv!((st * 100.0).min(100.0));
             } else {
-                capj["depletes_in_s"] = json!(r.t_s);
+                capj["depletes_in_s"] = jv!(r.t_s);
             }
-            capj["eve_stable_percent"] = json!(r.eve_stable * 100.0);
-            capj["sim_iterations"] = json!(r.iterations);
+            capj["eve_stable_percent"] = jv!(r.eve_stable * 100.0);
+            capj["sim_iterations"] = jv!(r.iterations);
         }
 
         // ---------------- navigation
@@ -591,7 +573,7 @@ impl Fit {
         };
         let warp_need = g(ship, a::warpCapacitorNeed);
         let sig = g(ship, a::signatureRadius);
-        let navigation = json!({
+        let navigation = jv!({
             "max_velocity": max_speed, "align_time_s": -(0.25f64.ln()) * agility * mass / 1e6, "mass": mass, "agility": agility,
             "signature_radius": sig, "warp_speed_au_s": base_warp * warp_mult,
             "max_warp_distance_au": if warp_need > 0.0 && mass > 0.0 { cap / (mass * warp_need) } else { 0.0 },
@@ -616,7 +598,7 @@ impl Fit {
         let lt = |s: f64| lock_time(scan_res, s);
         let ship_targets = g(ship, a::maxLockedTargets);
         let char_targets = g(ch, a::maxLockedTargets);
-        let targeting = json!({
+        let targeting = jv!({
             "max_targets": ship_targets.min(char_targets.max(0.0)),
             "max_range_m": g(ship, a::maxTargetRange), "scan_resolution": scan_res,
             "sensor_strength": best.1, "sensor_type": best.0,
@@ -624,76 +606,77 @@ impl Fit {
             "lock_time_s": {"sig_25m": lt(25.0), "sig_40m": lt(40.0), "sig_125m": lt(125.0), "sig_400m": lt(400.0), "sig_target_profile": tp.signature_radius.and_then(lt)},
         });
 
-        let drones_j = json!({
+        let drones_j = jv!({
             "active": drones.iter().map(|&i| self.items[i].active_count).sum::<u32>(),
             "max_active": g(ch, a::maxActiveDrones),
             "control_range_m": g(ch, a::droneControlDistance),
         });
 
-        let mut out = Map::new();
-        out.insert(
+        let mut out = Vec::<(Key, J)>::new();
+        out.push_kv(
             "meta".into(),
-            json!({"schema_version": 1, "engine": concat!("eve-dogma-f ", env!("CARGO_PKG_VERSION")),
+            jv!({"schema_version": 1, "engine": concat!("eve-dogma-f ", env!("CARGO_PKG_VERSION")),
             "sde_build": d::SDE_BUILD, "dataset_sha256": d::DATASET_SHA256}),
         );
         let st = &self.items[ship];
-        out.insert("ship".into(), json!({"type_id": st.type_id, "name": d::type_name(st.ty), "group": d::group_name(st.group)}));
-        out.insert("resources".into(), resources);
-        out.insert("offense".into(), offense);
-        out.insert("defense".into(), defense);
-        out.insert("capacitor".into(), capj);
-        out.insert("navigation".into(), navigation);
-        out.insert("targeting".into(), targeting);
-        out.insert("drones".into(), drones_j);
-        out.insert("modules".into(), Value::Array(module_rows));
+        out.push_kv("ship".into(), jv!({"type_id": st.type_id, "name": d::type_name(st.ty), "group": d::group_name(st.group)}));
+        out.push_kv("resources".into(), resources);
+        out.push_kv("offense".into(), offense);
+        out.push_kv("defense".into(), defense);
+        out.push_kv("capacitor".into(), capj);
+        out.push_kv("navigation".into(), navigation);
+        out.push_kv("targeting".into(), targeting);
+        out.push_kv("drones".into(), drones_j);
+        out.push_kv("modules".into(), J::A(module_rows));
         if req.options.validate {
-            out.insert("violations".into(), Value::Array(self.validate(cpu_used, pg_used, calib_used, bw_used)));
+            out.push_kv("violations".into(), J::A(self.validate(cpu_used, pg_used, calib_used, bw_used)));
         }
         if !self.warnings.is_empty() {
-            out.insert("warnings".into(), json!(self.warnings));
+            out.push_kv("warnings".into(), jv!(self.warnings.clone()));
         }
         match req.options.include_attributes.as_deref() {
             Some("ship") => {
-                out.insert("attributes".into(), json!({"ship": self.dump_attrs(ship)}));
+                out.push_kv("attributes".into(), jv!({"ship": self.dump_attrs(ship)}));
             }
             Some("all") => {
-                let mut m = Map::new();
-                m.insert("ship".into(), self.dump_attrs(ship));
-                m.insert("character".into(), self.dump_attrs(ch));
-                let mods: Vec<Value> = modules
+                let mut m = Vec::<(Key, J)>::new();
+                m.push_kv("ship".into(), self.dump_attrs(ship));
+                m.push_kv("character".into(), self.dump_attrs(ch));
+                let mods: Vec<J> = modules
                     .iter()
                     .map(|&i| {
-                        json!({"module_index": self.items[i].req_index, "type_id": self.items[i].type_id, "attributes": self.dump_attrs(i),
+                        jv!({"module_index": self.items[i].req_index, "type_id": self.items[i].type_id, "attributes": self.dump_attrs(i),
                            "charge": self.items[i].charge.map(|c| self.dump_attrs(c))})
                     })
                     .collect();
-                m.insert("modules".into(), Value::Array(mods));
-                let dr: Vec<Value> =
-                    drones.iter().map(|&i| json!({"drone_index": self.items[i].req_index, "attributes": self.dump_attrs(i)})).collect();
-                m.insert("drones".into(), Value::Array(dr));
-                out.insert("attributes".into(), Value::Object(m));
+                m.push_kv("modules".into(), J::A(mods));
+                let dr: Vec<J> =
+                    drones.iter().map(|&i| jv!({"drone_index": self.items[i].req_index, "attributes": self.dump_attrs(i)})).collect();
+                m.push_kv("drones".into(), J::A(dr));
+                out.push_kv("attributes".into(), J::O(m));
             }
             _ => {}
         }
-        let mut out = Value::Object(out);
-        tidy(&mut out);
-        out
+        J::O(out)
     }
 
-    pub fn dump_attrs(&self, i: usize) -> Value {
-        let mut m = Map::new();
+    pub fn dump_attrs(&self, i: usize) -> J {
+        let mut m = Vec::<(Key, J)>::new();
         for k in self.attr_ids(i) {
-            let name = d::attr_name(k).map(|s| s.to_string()).unwrap_or_else(|| k.to_string());
-            m.insert(name, json!(self.get(i, k)));
+            let name: Key = match d::attr_name(k) {
+                Some(s) => Key::Borrowed(s),
+                None => Key::Owned(k.to_string()),
+            };
+            m.push_kv(name, jv!(self.get(i, k)));
         }
-        Value::Object(m)
+        J::O(m)
     }
 
-    fn validate(&self, cpu: f64, pg: f64, calib: f64, bw: f64) -> Vec<Value> {
+    fn validate(&self, cpu: f64, pg: f64, calib: f64, bw: f64) -> Vec<J> {
         let ship = self.ship;
         let g = |i: usize, x: u16| self.get(i, x);
         let mut v = Vec::new();
-        let mut push = |code: &str, msg: String, idx: Option<usize>| v.push(json!({"code": code, "message": msg, "module_index": idx}));
+        let mut push = |code: &'static str, msg: String, idx: Option<usize>| v.push(jv!({"code": code, "message": msg, "module_index": idx}));
         if cpu > g(ship, a::cpuOutput) + 1e-9 {
             push("CPU_OVERLOAD", format!("CPU used {cpu:.2} > output {:.2}", g(ship, a::cpuOutput)), None);
         }

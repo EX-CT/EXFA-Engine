@@ -5,6 +5,7 @@
 pub mod capsim;
 pub mod data;
 pub mod engine;
+pub mod j;
 pub mod request;
 pub mod stats;
 #[cfg(target_arch = "wasm32")]
@@ -15,23 +16,27 @@ use serde_json::{json, Value};
 pub use request::FitRequest;
 
 /// Compute full fit statistics for one request.
-pub fn calc(req: &FitRequest) -> Value {
+pub fn calc(req: &FitRequest) -> j::J {
     match engine::Fit::build(req) {
         Ok(fit) => fit.compute_stats(req),
-        Err(e) => json!({"error": {"code": e.code, "message": e.message, "path": e.path}}),
+        Err(e) => jv!({"error": {"code": e.code, "message": e.message, "path": e.path}}),
     }
 }
 
 /// JSON string in, JSON string out (the contract's single-request form).
 pub fn calc_json(request_json: &str) -> String {
-    let v = match serde_json::from_str::<Value>(request_json) {
-        Err(e) => json!({"error": {"code": "BAD_JSON", "message": e.to_string(), "path": ""}}),
-        Ok(raw) => match serde_json::from_value::<FitRequest>(raw) {
-            Ok(req) => calc(&req),
-            Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string(), "path": ""}}),
-        },
+    // direct typed parse; syntax/EOF errors are BAD_JSON, shape errors BAD_REQUEST
+    let v = match serde_json::from_str::<FitRequest>(request_json) {
+        Ok(req) => calc(&req),
+        Err(e) => {
+            let code = match e.classify() {
+                serde_json::error::Category::Data => "BAD_REQUEST",
+                _ => "BAD_JSON",
+            };
+            jv!({"error": {"code": code, "message": e.to_string(), "path": ""}})
+        }
     };
-    serde_json::to_string(&v).unwrap()
+    v.to_json_string()
 }
 
 /// Dataset / engine info.
@@ -95,7 +100,7 @@ pub fn rpc(line: &str) -> Value {
     let p = v.get("params").cloned().unwrap_or(Value::Null);
     let result = match v.get("method").and_then(|m| m.as_str()).unwrap_or("calc") {
         "calc" => match serde_json::from_value::<FitRequest>(p) {
-            Ok(r) => calc(&r),
+            Ok(r) => serde_json::to_value(calc(&r)).unwrap_or(Value::Null),
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },
         "search" => search(p.get("query").and_then(|q| q.as_str()).unwrap_or(""), p.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize),
