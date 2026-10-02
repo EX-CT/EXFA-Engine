@@ -14,7 +14,8 @@ The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.md).
 export EVE_DOGMA_DATASET=/workspace/exct-eve/data/dataset-3569502.json.gz
 cargo build --release
 ./target/release/eve-dogma-f calc < request.json > response.json
-./target/release/eve-dogma-f batch < requests.jsonl > responses.jsonl     # one FitRequest per line
+./target/release/eve-dogma-f batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
+# EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)
 ./target/release/eve-dogma-f serve-stdio                                   # JSONL RPC: calc | search | type | meta
 ./target/release/eve-dogma-f meta | search QUERY | type ID|NAME | bench FILE -n N
 ```
@@ -31,7 +32,7 @@ node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogm
 
 ### Bench
 
-`bench.yaml` is the eve-dogma-bench manifest. The bench gives **249/249 cases, 13 812/13 812 values** (see RESULTS.md, `bench/`).
+`bench.yaml` is the eve-dogma-bench manifest. Bench 1.4.0: **289/289 cases, 18 591/18 591 values** (see RESULTS.md, `bench/`).
 
 Branch note: `variant-f` is an orphan branch (the lab branches share no history) and holds only `variant-f/`.
 

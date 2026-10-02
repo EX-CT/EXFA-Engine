@@ -37,7 +37,18 @@ pub fn apply_local(f: &mut Fit, ei: u16, i: usize, p: bool) {
   These are modifiers carrying range factor and resistance, remote reps (incl. AAR paste ×3 and mutadaptive spool),
   cap drains (neut/nos, signature-scaled), and cap transfer. They are applied to the target fit.
 * Fleet boosts: explicit buffs, local bursts, and `booster_fits`. The strongest value per buff id wins.
-* Stats/capsim/RAH follow the reference engine (eve-dogma-rs). Missile range follows Pyfa's `missileMaxRangeData`.
+* Stats/capsim/RAH follow the reference engine (eve-dogma-rs), incl. sustainable tank and ECM jam chance. Missile
+  range follows Pyfa's `missileMaxRangeData`. Fighter self abilities (MWD/AB/evasive) and fighter projected abilities
+  (web/point/neut/ECM) have no SDE modifier data; they are hand-compiled match arms with constant attribute ids.
+* Output: a small JSON tree (`src/j.rs`, objects = vectors with static keys) written directly to a string with sorted
+  keys and 6-decimal rounding — byte-identical to the earlier serde_json `Value` output, ≈ 35 % fewer instructions.
+* Modifiers live in one arena per fit (singly linked chains per attribute slot) — no per-attribute `Vec`.
+* Capacitor simulator: index min-heap (16-byte entries, full lexicographic tie-break only on equal times) and an
+  `exp()` memo; results bit-identical to the reference simulator.
+* `batch` runs worker threads (requests are independent, the engine is pure) and writes results in input order,
+  flushing whenever output has caught up with input. The WASI build stays single-threaded.
+* The bench build (`bench.yaml`) links glibc statically (`+crt-static`, ≈ 0.4 ms faster process start), falling back
+  to the default build if that fails.
 
 ## Trade-offs
 * **Rebuild per dataset.** A new SDE needs a recompile (native release ≈ 35 s, wasm32-wasip1 ≈ 24 s, wasm32-unknown-unknown
