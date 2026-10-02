@@ -138,6 +138,54 @@ uint32_t parse_key(std::string_view k) {
 }
 }  // namespace
 
+// Skill-pruning relevance table (see Fit::build): per ds.skills index, a skill is relevant if a condition holds:
+// always (flags; structure-only conditions in the _st flags), group `key` among the fit's item groups (by_group),
+// or skill `key` required by a fit item (by_need). Lists hold key << 32 | skill index << 1 | structure-only.
+static void compute_skill_rel(const Dataset& ds, std::vector<uint8_t>& always_ns, std::vector<uint8_t>& always_st,
+                              std::vector<uint64_t>& by_group, std::vector<uint64_t>& by_need) {
+  const size_t n = ds.skills.size();
+  always_ns.assign(n, 0);
+  always_st.assign(n, 0);
+  for (size_t si = 0; si < n; si++) {
+    const uint32_t sk = ds.skills[si];
+    const TypeRec* t = ds.type(sk);
+    if (!t) continue;
+    auto add = [&](int kind, uint8_t st, uint32_t key) {
+      if (kind == 0) {
+        always_st[si] = 1;
+        if (!st) always_ns[si] = 1;
+      } else {
+        (kind == 1 ? by_group : by_need).push_back((uint64_t)key << 32 | (uint64_t)si << 1 | st);
+      }
+    };
+    for (const TEff& te : ds.type_effects(*t)) {
+      if (te.id == 132) continue;  // skillEffect
+      const EffRec* e = ds.effect(te.id);
+      if (!e) continue;
+      if (e->mod_cnt == 0) {  // hand-written / special effect
+        add(0, 0, 0);
+        continue;
+      }
+      for (const ModRec& m : ds.effect_mods(*e)) {
+        if (m.func < 0 || m.func > 4 || m.op == 9) continue;
+        if (m.domain == 0 || m.domain == 3 || m.domain >= 5) continue;
+        uint8_t st = m.domain == 4;
+        if (m.func == 2) {
+          const GroupRec* g = ds.group(m.extra);
+          if (!g || (m.domain == 2 && g->category == 16)) add(0, st, 0);
+          else add(1, st, m.extra);
+        } else if (m.func == 3 || m.func == 4) {
+          add(2, st, m.extra == 0 ? sk : m.extra);
+        } else {
+          add(0, st, 0);
+        }
+      }
+    }
+  }
+  std::sort(by_group.begin(), by_group.end());
+  std::sort(by_need.begin(), by_need.end());
+}
+
 bool Dataset::build_image(const std::vector<uint8_t>& src, std::vector<uint8_t>& out, std::string& err) {
   std::vector<uint8_t> json;
   if (src.size() > 18 && src[0] == 0x1f && src[1] == 0x8b) {
@@ -507,6 +555,22 @@ bool Dataset::build_image(const std::vector<uint8_t>& src, std::vector<uint8_t>&
   b.put(S_ZH, zh);
   b.hdr.total_bytes = b.buf.size();
   memcpy(b.buf.data(), &b.hdr, sizeof(Header));
+  {
+    // derived tables, computed from the image itself
+    std::vector<uint8_t> ans, ast;
+    std::vector<uint64_t> bg, bn;
+    {
+      Dataset tmp;
+      if (!tmp.attach(b.buf.data(), b.buf.size(), err)) return false;
+      compute_skill_rel(tmp, ans, ast, bg, bn);
+    }
+    b.put(S_SKREL_NS, ans);
+    b.put(S_SKREL_ST, ast);
+    b.put(S_SKREL_G, bg);
+    b.put(S_SKREL_N, bn);
+    b.hdr.total_bytes = b.buf.size();
+    memcpy(b.buf.data(), &b.hdr, sizeof(Header));
+  }
   out = std::move(b.buf);
   return true;
 }
@@ -553,6 +617,10 @@ bool Dataset::attach(const uint8_t* base, size_t size, std::string& err) {
   skills = sec<uint32_t>(base, h, S_SKILLS);
   modes = sec<uint32_t>(base, h, S_MODES);
   zh_ = sec<NameIdx>(base, h, S_ZH);
+  skrel_always_ns = sec<uint8_t>(base, h, S_SKREL_NS);
+  skrel_always_st = sec<uint8_t>(base, h, S_SKREL_ST);
+  skrel_by_group = sec<uint64_t>(base, h, S_SKREL_G);
+  skrel_by_need = sec<uint64_t>(base, h, S_SKREL_N);
   return true;
 }
 

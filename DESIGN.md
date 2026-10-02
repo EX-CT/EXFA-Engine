@@ -18,12 +18,13 @@ FitRequest JSON --simdjson ondemand/DOM--> FitRequest --build--> Fit (items + at
 * Built once per dataset: gunzip (libdeflate), parse (simdjson), then write a single relocatable blob. The blob
   holds fixed-size records for types, attributes, effects and modifiers, plus flat index arrays (type → attrs
   sorted by id, type → effects, effect → modifiers, group/skill membership), a string pool, and sorted name
-  indexes for `search`/name lookup.
-* The cache file is keyed by the dataset name and validated by source size plus a fast hash. The full SHA-256
+  indexes for `search`/name lookup. Derived tables are computed at build time and stored too: the skill-pruning
+  relevance index (always / by group / by required skill), so a cold process does no per-process precompute.
+* The cache file is keyed by the dataset name and the image format version (`-v6.bin`), and validated by source size plus a fast hash. The full SHA-256
   of the JSON is stored in the image and reported in `meta`. The file is written to a temp file and atomically
   renamed, so concurrent first runs are safe.
 * At start-up the image is `mmap`ped read-only. No parsing or allocation happens, and pages are shared between
-  processes and threads. This is why cold start is about 4 ms, against about 150–200 ms for engines that parse
+  processes and threads. This is why cold start is about 1–2 ms, against about 150–200 ms for engines that parse
   the JSON at start.
 * Attribute lookups use binary search over a type's sorted (attr id, value) slice. These slices are short and
   cache-resident.

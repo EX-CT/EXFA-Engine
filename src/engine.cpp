@@ -645,75 +645,6 @@ static bool parse_u32_rust(std::string_view s, uint32_t& out) {
   return true;
 }
 
-// Per-skill relevance conditions for skill pruning (built once per process; the dataset is immutable).
-// A skill is relevant if any condition holds: kind 0 always, 1 group `key` present among the fit's item groups,
-// 2 skill `key` required by a fit item. `st` marks conditions that only apply to structures (domain Structure).
-namespace {
-struct RelCond {
-  uint8_t kind, st;
-  uint32_t key;
-};
-struct SkillRelTable {
-  std::vector<uint32_t> off;  // per ds.skills index: [off[i], off[i+1]) into conds
-  std::vector<RelCond> conds;
-  // inverted form: unconditional flags (non-structure / structure) and (key << 32 | si << 1 | st) lists
-  std::vector<uint8_t> always_ns, always_st;
-  std::vector<uint64_t> by_group, by_need;
-};
-const SkillRelTable& skill_rel_table(const Dataset& ds) {
-  static SkillRelTable tab;
-  static std::once_flag once;
-  std::call_once(once, [&] {
-    tab.off.reserve(ds.skills.size() + 1);
-    for (uint32_t sk : ds.skills) {
-      tab.off.push_back((uint32_t)tab.conds.size());
-      const TypeRec* t = ds.type(sk);
-      if (!t) continue;
-      for (const TEff& te : ds.type_effects(*t)) {
-        if (te.id == 132) continue;  // skillEffect
-        const EffRec* e = ds.effect(te.id);
-        if (!e) continue;
-        if (e->mod_cnt == 0) {
-          tab.conds.push_back({0, 0, 0});
-          continue;
-        }
-        for (const ModRec& m : ds.effect_mods(*e)) {
-          if (m.func < 0 || m.func > 4 || m.op == 9) continue;
-          if (m.domain == 0 || m.domain == 3 || m.domain >= 5) continue;
-          uint8_t st = m.domain == 4;
-          if (m.func == 2) {
-            const GroupRec* g = ds.group(m.extra);
-            if (!g || (m.domain == 2 && g->category == 16)) tab.conds.push_back({0, st, 0});
-            else tab.conds.push_back({1, st, m.extra});
-          } else if (m.func == 3 || m.func == 4) {
-            tab.conds.push_back({2, st, m.extra == 0 ? sk : m.extra});
-          } else {
-            tab.conds.push_back({0, st, 0});
-          }
-        }
-      }
-    }
-    tab.off.push_back((uint32_t)tab.conds.size());
-    const size_t n = ds.skills.size();
-    tab.always_ns.assign(n, 0);
-    tab.always_st.assign(n, 0);
-    for (size_t si = 0; si < n; si++)
-      for (uint32_t c = tab.off[si]; c < tab.off[si + 1]; c++) {
-        const RelCond& rc = tab.conds[c];
-        if (rc.kind == 0) {
-          tab.always_st[si] = 1;
-          if (!rc.st) tab.always_ns[si] = 1;
-        } else {
-          (rc.kind == 1 ? tab.by_group : tab.by_need).push_back((uint64_t)rc.key << 32 | (uint64_t)si << 1 | rc.st);
-        }
-      }
-    std::sort(tab.by_group.begin(), tab.by_group.end());
-    std::sort(tab.by_need.begin(), tab.by_need.end());
-  });
-  return tab;
-}
-}  // namespace
-
 bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool no_boosters) {
   items.reserve(640);
   la_.reserve(4096);
@@ -803,12 +734,14 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
       }
       return false;
     };
-    const SkillRelTable& rel = skill_rel_table(ds);
     // relevance flag per ds.skills index, from the inverted table (same predicate as `relevant`)
     std::vector<uint8_t>& flag = prune_flag_;
     if (!no_prune) {
-      flag = is_structure ? rel.always_st : rel.always_ns;
-      auto mark = [&](const std::vector<uint64_t>& lst, const std::vector<uint32_t>& keys) {
+      {
+        auto al = is_structure ? ds.skrel_always_st : ds.skrel_always_ns;
+        flag.assign(al.begin(), al.end());
+      }
+      auto mark = [&](std::span<const uint64_t> lst, const std::vector<uint32_t>& keys) {
         uint32_t prev = 0;
         bool first = true;
         for (uint32_t k : keys) {
@@ -819,8 +752,8 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
             if (!(*it & 1) || is_structure) flag[(uint32_t)*it >> 1] = 1;
         }
       };
-      mark(rel.by_group, groups);
-      mark(rel.by_need, need);
+      mark(ds.skrel_by_group, groups);
+      mark(ds.skrel_by_need, need);
       for (uint32_t k : need) {
         auto it = std::lower_bound(ds.skills.begin(), ds.skills.end(), k);
         if (it != ds.skills.end() && *it == k) flag[(size_t)(it - ds.skills.begin())] = 1;

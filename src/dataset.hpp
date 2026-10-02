@@ -68,7 +68,7 @@ struct NameIdx {
 enum Section : uint32_t {
   S_STR, S_ATTRS, S_ATTR_IDX, S_TYPES, S_TYPE_IDX, S_TATTRS, S_TEFFS, S_EFFECTS, S_EFF_IDX, S_MODS, S_GROUPS,
   S_GROUP_IDX, S_DBUFFS, S_U32POOL, S_MUTAS, S_MUTA_ATTRS, S_ATTR_NAMES, S_EFF_NAMES, S_TYPE_NAMES, S_SKILLS,
-  S_MODES, S_ZH, S_CATS, S_COUNT
+  S_MODES, S_ZH, S_CATS, S_SKREL_NS, S_SKREL_ST, S_SKREL_G, S_SKREL_N, S_COUNT
 };
 
 struct SecEnt {
@@ -87,7 +87,7 @@ struct Header {
   SecEnt sec[S_COUNT];
 };
 
-constexpr uint32_t CACHE_VERSION = 5;
+constexpr uint32_t CACHE_VERSION = 6;
 
 class Dataset {
  public:
@@ -107,6 +107,9 @@ class Dataset {
   std::span<const DbuffRec> dbuffs;
   std::span<const MutaRec> mutas;
   std::span<const uint32_t> skills;  // published skill ids, sorted
+  // skill-pruning relevance table (built into the image; see compute_skill_rel in dataset.cpp)
+  std::span<const uint8_t> skrel_always_ns, skrel_always_st;
+  std::span<const uint64_t> skrel_by_group, skrel_by_need;
   std::span<const uint32_t> modes;   // tactical destroyer mode type ids (group 1306), sorted
 
   const TypeRec* type(uint32_t id) const {

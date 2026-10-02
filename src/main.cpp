@@ -59,7 +59,7 @@ static std::string default_cache(const std::string& ds_path) {
   std::string name = sl == std::string::npos ? abs : abs.substr(sl + 1);
   char hx[24];
   snprintf(hx, sizeof hx, "%016llx", (unsigned long long)h);
-  return base + "/" + name + "-" + hx + ".bin";
+  return base + "/" + name + "-" + hx + "-v" + std::to_string(CACHE_VERSION) + ".bin";
 }
 
 static bool read_all(FILE* f, std::string& out) {
