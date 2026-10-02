@@ -1,4 +1,5 @@
 #pragma once
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -17,6 +18,7 @@ struct Worker {
   const Ids& ids;
   simdjson::dom::parser* parser;
   JW out;
+  std::unique_ptr<Fit> fit;  // reused across requests (capacity kept)
   // FitRequest JSON text -> FitStats JSON (in out.s). Returns false if the response is an error object.
   bool calc_json(std::string_view request);
   bool calc_element(const simdjson::dom::element& e, JW& w);

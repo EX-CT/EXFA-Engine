@@ -22,13 +22,14 @@ bool Worker::calc_element(const simdjson::dom::element& root, JW& w) {
     write_error(w, "BAD_REQUEST", err, "");
     return false;
   }
-  Fit fit(ds, ids);
+  if (!fit) fit = std::make_unique<Fit>(ds, ids);
+  else fit->reset();
   EngineError ee{};
-  if (!fit.build(req, ee)) {
+  if (!fit->build(req, ee)) {
     write_error(w, ee.code, ee.message, ee.path);
     return false;
   }
-  compute_stats(fit, req, w);
+  compute_stats(*fit, req, w);
   return true;
 }
 

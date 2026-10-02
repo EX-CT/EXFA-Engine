@@ -140,13 +140,16 @@ class Dataset {
   std::span<const MutaAttr> muta_attrs(const MutaRec& m) const { return {muta_attrs_.data() + m.off, m.cnt}; }
   // raw attribute value from the type's attribute list (sorted by id)
   static const TAttr* find_tattr(std::span<const TAttr> a, uint32_t id) {
-    size_t lo = 0, hi = a.size();
-    while (lo < hi) {
-      size_t m = (lo + hi) >> 1;
-      if (a[m].id < id) lo = m + 1;
-      else hi = m;
+    // branchless lower_bound
+    const TAttr* base = a.data();
+    size_t n = a.size();
+    if (n == 0) return nullptr;
+    while (n > 1) {
+      size_t half = n >> 1;
+      base = (base[half].id <= id) ? base + half : base;
+      n -= half;
     }
-    return lo < a.size() && a[lo].id == id ? &a[lo] : nullptr;
+    return base->id == id ? base : nullptr;
   }
   bool type_attr(const TypeRec& t, uint32_t id, double& out) const {
     const TAttr* p = find_tattr(type_attrs(t), id);

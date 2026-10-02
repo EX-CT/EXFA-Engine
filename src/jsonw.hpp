@@ -22,10 +22,18 @@ class JW {
   JW& end_obj() { s.push_back('}'); first_ = false; return *this; }
   JW& arr() { sep(); s.push_back('['); first_ = true; return *this; }
   JW& end_arr() { s.push_back(']'); first_ = false; return *this; }
+  // keys are compile-time identifiers (no escaping needed)
   JW& key(std::string_view k) {
-    sep();
-    str_raw(k);
-    s.push_back(':');
+    size_t n = s.size();
+    s.resize(n + k.size() + 4);
+    char* p = s.data() + n;
+    if (!first_) *p++ = ',';
+    *p++ = '"';
+    memcpy(p, k.data(), k.size());
+    p += k.size();
+    *p++ = '"';
+    *p++ = ':';
+    s.resize((size_t)(p - s.data()));
     first_ = true;  // value follows without comma
     return *this;
   }
@@ -39,7 +47,45 @@ class JW {
     return *this;
   }
   // f64 value (rounded to 6 decimals like eve-dogma-rs's tidy())
-  JW& num(double v) { sep(); f64_raw(round6(v)); return *this; }
+  JW& num(double v) {
+    sep();
+    double r = round6(v);
+    if (!fast6(r)) f64_raw(r);
+    return *this;
+  }
+  // Fast path for 6-decimal values: for 1e-5 <= |r| < 1e9 the shortest round-trip form of round(x*1e6)/1e6 is
+  // the 6-decimal expansion with trailing zeros removed (the double spacing is far below 1e-6 there).
+  bool fast6(double r) {
+    double a = std::fabs(r);
+    if (!(a >= 1e-5 && a < 1e9)) return false;
+    int64_t n = std::llround(a * 1e6);
+    if ((double)n / 1e6 != a) return false;
+    char buf[32];
+    char* e = buf + 32;
+    char* p = e;
+    int64_t ip = n / 1000000, fp = n % 1000000;
+    int fd = 6;
+    while (fd > 0 && fp % 10 == 0) {
+      fp /= 10;
+      fd--;
+    }
+    if (fd == 0) {
+      *--p = '0';
+    } else {
+      for (int i = 0; i < fd; i++) {
+        *--p = (char)('0' + fp % 10);
+        fp /= 10;
+      }
+    }
+    *--p = '.';
+    do {
+      *--p = (char)('0' + ip % 10);
+      ip /= 10;
+    } while (ip);
+    if (r < 0) *--p = '-';
+    s.append(p, (size_t)(e - p));
+    return true;
+  }
   JW& num_raw(double v) { sep(); f64_raw(v); return *this; }
   JW& str(std::string_view v) { sep(); str_raw(v); return *this; }
   // pre-serialised JSON value
@@ -115,6 +161,21 @@ class JW {
     first_ = false;
   }
   void str_raw(std::string_view v) {
+    bool plain = true;
+    for (unsigned char c : v)
+      if (c < 0x20 || c == '"' || c == '\\') {
+        plain = false;
+        break;
+      }
+    if (plain) {
+      size_t n = s.size();
+      s.resize(n + v.size() + 2);
+      char* p = s.data() + n;
+      *p++ = '"';
+      memcpy(p, v.data(), v.size());
+      p[v.size()] = '"';
+      return;
+    }
     s.push_back('"');
     for (unsigned char c : v) {
       switch (c) {

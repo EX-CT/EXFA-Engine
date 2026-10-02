@@ -231,6 +231,31 @@ int32_t Fit::find(uint32_t item, uint32_t attr) const {
   }
 }
 
+void Fit::reset() {
+  items.clear();
+  ship = chr = 0;
+  is_structure = false;
+  warnings.clear();
+  skill_levels.clear();
+  proj_special.clear();
+  if (hcount_) std::fill(hkeys_.begin(), hkeys_.end(), EMPTY);
+  hcount_ = 0;
+  la_.clear();
+  mods_.clear();
+  eff_store_.clear();
+  list_store_.clear();
+  spool_store_.clear();
+  ship_loc_.clear();
+  char_loc_.clear();
+  owned_.clear();
+  char_skill_tgt_.clear();
+  ix_ship_grp_.clear();
+  ix_char_grp_.clear();
+  ix_ship_skill_.clear();
+  ix_owned_skill_.clear();
+  ix_char_skill_.clear();
+}
+
 void Fit::grow() {
   size_t n = hkeys_.empty() ? 4096 : hkeys_.size() * 2;
   std::vector<uint64_t> ok = std::move(hkeys_);

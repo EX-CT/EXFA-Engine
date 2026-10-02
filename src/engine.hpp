@@ -118,6 +118,8 @@ struct EngineError {
 class Fit {
  public:
   Fit(const Dataset& ds, const Ids& ids) : ds(ds), K(ids) {}
+  // Clear all per-fit state but keep allocated capacity (per-worker reuse across requests).
+  void reset();
   // Build the graph and register all modifiers. Returns false on error (err filled).
   bool build(const FitRequest& req, EngineError& err, bool no_projected = false, bool no_boosters = false);
 
