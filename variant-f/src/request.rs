@@ -207,7 +207,7 @@ pub struct CapSimOpts {
     pub max_time_s: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Options {
     /// Treat local nosferatu as cap income (default) - set true to ignore it (target without cap).
     #[serde(default)]
@@ -226,6 +226,22 @@ pub struct Options {
     pub validate: bool,
     #[serde(default)]
     pub cap_sim: CapSimOpts,
+}
+
+impl Default for Options {
+    /// `options` missing entirely: same as `{}` (contract 1.4.1: validate defaults to true).
+    fn default() -> Self {
+        Options {
+            nos_no_target_cap: false,
+            factor_reload: false,
+            default_spool: None,
+            rah: None,
+            include_attributes: None,
+            sources: false,
+            validate: true,
+            cap_sim: CapSimOpts::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
