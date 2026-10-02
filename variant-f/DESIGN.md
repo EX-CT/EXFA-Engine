@@ -74,7 +74,7 @@ modifier data, the generator and engine reproduce Pyfa's behaviour:
 ## Trade-offs
 * **Rebuild per dataset.** A new SDE needs a recompile (native release ≈ 35 s, wasm32-wasip1 ≈ 24 s, wasm32-unknown-unknown
   release-small ≈ 12 s). `--dataset` is accepted and ignored. `meta` reports the sha256 of the compiled-in dataset.
-* **Binary size vs. startup.** The binary is 4.75 MB native (4.2 MB wasip1, 3.65 MB unknown-unknown size-opt), but there
+* **Binary size vs. startup.** The binary is 4.99 MB native (4.45 MB wasip1, 3.76 MB unknown-unknown size-opt; the import/export formats added ≈ 0.1–0.2 MB), but there
   is no JSON load at all. Cold start + one calc is about 2–3 ms native. The reference engine needs hundreds of ms to
   load its dataset.
 * The generated source is large (5.4 MB). Fat LTO + codegen-units=1 keep the output compact but make builds slower.

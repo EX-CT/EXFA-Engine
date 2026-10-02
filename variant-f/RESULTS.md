@@ -57,9 +57,9 @@ JSON writer) → 0.95 M (attribute fast paths). The capsim heap/compare rewrite 
 ## Sizes and builds
 | artefact | size | gzip -9 |
 |---|---|---|
-| native release (x86_64, dynamic) | 4.75 MB | – |
-| wasm32-wasip1 CLI | 4.22 MB | 0.99 MB |
-| wasm32-unknown-unknown, release-small, C-ABI (`calc`/`rpc`) | 3.65 MB | 0.82 MB |
+| native release (x86_64, dynamic) | 4.99 MB | – |
+| wasm32-wasip1 CLI | 4.45 MB | 1.06 MB |
+| wasm32-unknown-unknown, release-small, C-ABI (`calc`/`rpc`) | 3.76 MB | 0.86 MB |
 | wasmtime precompiled `.cwasm` | 6.1 MB | – |
 
 About 2.9 MB of the wasm module is the data section: type/attribute tables (≈ 1 MB), names (en+zh ≈ 0.5 MB), effect

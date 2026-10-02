@@ -26,7 +26,7 @@ cargo build --release
 rustup target add wasm32-wasip1 wasm32-unknown-unknown
 cargo build --release --target wasm32-wasip1                 # CLI as WASI module
 wasmtime run target/wasm32-wasip1/release/eve-dogma-f.wasm calc < request.json
-cargo build --lib --profile release-small --target wasm32-unknown-unknown   # 3.65 MB (0.82 MB gzip), C-ABI exports
+cargo build --lib --profile release-small --target wasm32-unknown-unknown   # 3.76 MB (0.86 MB gzip), C-ABI exports
 node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogma_f.wasm < request.json
 ```
 
