@@ -1017,7 +1017,9 @@ impl Fit {
         }
         let explicit: Vec<u32> = req.fleet.buffs.iter().map(|b| b.buff_id).collect();
         if req.fleet.booster_fits.is_empty() {
-            // local command bursts: value read (lazily) from the module
+            // local command bursts: per buff id only the strongest burst (by |value|) applies (Pyfa); its value
+            // is read (lazily) from the module
+            let mut best: Vec<(u32, usize, u16, f64)> = Vec::new();
             for i in 0..self.items.len() {
                 if self.items[i].kind != Kind::Module || self.items[i].state < State::Active {
                     continue;
@@ -1027,8 +1029,20 @@ impl Fit {
                     if id == 0 || explicit.contains(&id) {
                         continue;
                     }
-                    d::apply_dbuff(self, id, Src::Attr { item: i as u32, attr: vala }, i);
+                    let v = self.get(i, vala).abs();
+                    match best.iter_mut().find(|x| x.0 == id) {
+                        Some(x) => {
+                            if x.3 < v {
+                                *x = (id, i, vala, v);
+                            }
+                        }
+                        None => best.push((id, i, vala, v)),
+                    }
                 }
+            }
+            self.clear_cache();
+            for (id, i, vala, _) in best {
+                d::apply_dbuff(self, id, Src::Attr { item: i as u32, attr: vala }, i);
             }
             self.clear_cache();
             return;
