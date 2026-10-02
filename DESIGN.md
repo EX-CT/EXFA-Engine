@@ -54,21 +54,45 @@ rules, plus the same stagger and clip semantics.
   requests, so a warmed-up calc does almost no allocation besides the Fit itself.
 
 ## Batch / threading
-* `batch` reads all currently available stdin (blocking for the first chunk, then non-blocking while data is
-  ready, up to 64 MiB). It splits the chunk into lines, then N worker threads pull line indices from an atomic
-  counter. Results go into per-line slots and are written in input order, so the output is deterministic and
-  identical to `--threads 1`.
-* stdout is flushed whenever stdin has no more data waiting. Interactive or pipelined use (one request,
-  wait for the answer) therefore works with no deadlock, and the full-throughput path only flushes per chunk.
-* Default threads = `hardware_concurrency()`; `--threads N` overrides.
-* The dataset is read-only and shared, and all mutable state is per Worker or per Fit. No locks are taken
-  on the hot path.
+* With `--threads N` (N > 1, default `hardware_concurrency()`), `batch` runs as a streaming pipeline:
+  * The main thread reads stdin and splits it into lines.
+  * N workers, each with its own simdjson parser, reused `Fit` arena and output buffer, pull jobs from a queue.
+  * A writer thread emits results strictly in input order.
+  * There are no per-chunk barriers, so computing overlaps with reading and writing.
+* When a single request arrives with nothing in flight (interactive request/response use), the reader computes it
+  inline and answers right away. This avoids two thread hand-offs, which cost milliseconds on a loaded box.
+* stdout is flushed whenever the writer has caught up with the finished results, so pipelined clients never stall.
+* Output is byte-identical to `--threads 1`, which uses a simple serial loop.
+* The dataset is read-only and shared. All mutable state is per worker or per fit, so the hot path takes no
+  locks; only the job queue and result slots take a mutex, once per line.
+
+## Start-up path
+* The executable is linked statically by default (`EVEJ_STATIC`). This saves about 0.6 ms of dynamic loading per
+  process.
+* Cache freshness is checked by source size + mtime (stored in the image header). Only on a mismatch is the source
+  read and its content hash compared, so a warm start does not read the 0.7 MB gzip.
+* Resolved attribute and effect ids (`Ids`, about 400 name lookups) are cached in `<cache>.ids`. The file is keyed
+  by the dataset sha256 and by the executable's size and mtime, so a rebuilt engine never reuses stale ids.
+* Typical warm-start phases: open 0.03 ms, ids 0.02 ms, first calc 0.4–0.8 ms (cold CPU caches and page faults
+  on the image), then about 0.05 ms per calc.
+
+## Hot-path notes (measured with callgrind, instructions per rifter calc ≈ 1.2 M)
+* Modifier targets filtered by location group or required skill come from per-fit sorted `(key, item)` indexes,
+  instead of scanning all skills for every modifier.
+* Attribute entries are created without a base value. The type's base or default is filled lazily on first read,
+  and one probe both finds and inserts.
+* Six-decimal numbers (almost all output) use a fast fixed-point formatter, which is proven equal to the shortest
+  round-trip path for 1e-5 ≤ |v| < 1e9 and checked against it in `test/fmt_test.cpp` over 5 M random values.
+  Everything else goes through `std::to_chars`.
+* Capsim: an index heap with `t` inline, in-place event slots (no 64-byte event copies) and a memo of
+  `exp(dt/tau)` for recurring time steps. The heap layout matches the reference's `BinaryHeap`, so the final
+  avg-drain summation order is identical.
 
 ## Trade-offs
 * Byte-for-byte reference fidelity was chosen over independent re-derivation from Pyfa. Every value matches
   Pyfa wherever the reference does (all 13 812 bench values today). The cost is that J inherits any
   divergence the reference has, and that new reference features must be ported (done up to eve-dogma-rs
-  0e5a1ce).
+  ae4bfb0).
 * The binary cache costs about 110 ms once per dataset and ~20 MB of disk. It can be disabled.
 * The lazy evaluator only computes what the stats need. A full attribute dump (`type`) goes through the same
   path.

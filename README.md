@@ -39,16 +39,20 @@ Exit code: 0 on success, 2 if the response is an error object (`calc`), 1 on usa
 
 `bench.yaml` is the eve-dogma-bench manifest. Results are in `results/`:
 
-* `results/bench-full/`: `run.py` with the default repetitions
-* `results/bench-quick/`: `bench.py --only J --quick`
+* `results/bench/`: `bench.py --only J` scorecard (bench version and machine load are in `RUN.txt`)
 * `results/compare_ref.txt`: byte/tolerance comparison against the eve-dogma-rs binary (`tools/compare_ref.py`)
+
+Bench 1.4.0 (289 cases), shared 8-core box at load ≈ 8–9:
 
 | | J (this) | A (eve-dogma-rs) |
 |---|---|---|
-| cases / values vs Pyfa | 249/249, 13 812/13 812 | 249/249, 13 812/13 812 |
-| latency one fit | ~0.06 ms | ~1.1–1.4 ms |
-| batch fits/s (8 threads) | ~12 000 | ~460–770 |
-| cold start (process per case) | ~4 ms | ~150–216 ms |
+| cases / values vs Pyfa | 289/289, 18 591/18 591 | 289/289, 18 591/18 591 |
+| latency, one fit (bench ms/calc) | 0.046 ms | 1.79 ms |
+| batch throughput | 14 376 fits/s | 615 fits/s |
+| cold start (one process per case, median) | 2.5 ms | 158 ms |
+| byte-identical output to A | 289/289 cases | – |
+
+`EVEJ_TIMING=1` prints a phase breakdown (dataset open, ids, read, calc, write) to stderr.
 
 ## License
 
