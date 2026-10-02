@@ -35,6 +35,36 @@ fn lit(v: f64) -> String {
 /// Effects whose penalised PostMul modifiers Pyfa (GPL-3.0, eos/effects.py, behaviour only) applies via
 /// multiplyItemAttr(..., stackingPenalties=True) in the "default" penalty group, i.e. stacked together with
 /// PostPercent boosts (e.g. remote sensor dampeners vs a Warp Core Stabilizer's scanResolutionMultiplier).
+/// SDE effects with modifierInfo for which Pyfa (eos/effects.py) has no handler class: Pyfa applies nothing for them
+/// (fitting-relevant module/charge/implant/ship effects only; skill effects are handled by the skill folding;
+/// security-status ship bonuses are applied by Pyfa's fit code and stay).
+const PYFA_NO_HANDLER: [&str; 14] = [
+    "shadowBarrageDmgMultiplierWithDamageMultiplierPostPercentBarrageDmgMutator",
+    "shadowBarrageFalloffWithFalloffPostPercentBarrageFalloffMutator",
+    "ammoInfluenceEntityFlyRange",
+    "scriptWarpDisruptionFieldGeneratorSetScriptCapacitorNeedHidden",
+    "maxRangeHiddenPreAssignmentWarpScrambleRange",
+    "shipModuleFocusedWarpDisruptionScript",
+    "shipModuleFocusedWarpScramblingScript",
+    "leadershipCpuBonus",
+    "shipBonusEwWeaponDisruptionStrengthRookie",
+    "smugglingModifier",
+    "setBonusSerpentis2",
+    "moduleBonusIndustrialInvulnerability",
+    "cloneRespawnBay",
+    "online",
+];
+/// effect category as Pyfa sees it (handler `type`), where it differs from the SDE category
+fn pyfa_cat(name: &str, cat: u32) -> u32 {
+    match name {
+        "entosisLink" | "superWeaponAmarr" | "superWeaponCaldari" | "superWeaponGallente" | "superWeaponMinmatar" => 1,
+        // 'offline' handlers apply in every module state
+        "cloakingScanResolutionMultiplier" | "modifyMaxVelocityOfShipPassive" | "disruptionLanceDisallowCloaking" => 7,
+        // no handler class: never makes a module activatable
+        "online" | "barrage" | "moduleBonusIndustrialInvulnerability" | "cloneRespawnBay" => 0,
+        _ => cat,
+    }
+}
 const PYFA_DEFAULT_GROUP_MUL: [&str; 8] = [
     "fighterAbilityEvasiveManeuvers",
     "industrialCoreEffect2",
@@ -288,8 +318,7 @@ fn main() {
         };
         metas.push(format!(
             "EffMeta{{cat:{},flags:{flags},range:{},falloff:{},resist:{},proj:{proj}}}",
-            // Pyfa's entosisLink handler is type 'active' (a target effect in the SDE)
-            if e.name == "entosisLink" { 1 } else { e.cat },
+            pyfa_cat(&e.name, e.cat as u32),
             e.range,
             e.falloff,
             e.resist
@@ -306,6 +335,18 @@ fn main() {
         (eid("hardPointModifierEffect"), "f.sp_hardpoint(i, p);"),
         // Pyfa hand-written handlers (eos/effects.py, GPL-3): no modifierInfo in the SDE
         (eid("doomsdayBeamDOT"), "f.sp_lance(i, p);"),
+        (eid("doomsdaySlash"), "f.sp_lance(i, p);"),
+        (eid("doomsdayConeDOT"), "f.sp_lance(i, p);"),
+        (eid("doomsdayHOG"), "f.sp_lance(i, p);"),
+        (eid("superWeaponAmarr"), "f.sp_lance(i, p);"),
+        (eid("superWeaponCaldari"), "f.sp_lance(i, p);"),
+        (eid("superWeaponGallente"), "f.sp_lance(i, p);"),
+        (eid("superWeaponMinmatar"), "f.sp_lance(i, p);"),
+        (eid("jumpPortalGeneration"), "f.sp_lance(i, p);"),
+        (eid("jumpPortalGenerationBO"), "f.sp_lance(i, p);"),
+        (eid("cloneJumpAccepting"), "f.sp_lance(i, p);"),
+        (eid("cynosuralGeneration"), "f.sp_cyno(i);"),
+        (eid("microJumpPortalDriveCapital"), "f.sp_mjfg(i, p);"),
         (eid("debuffLance"), "f.sp_lance(i, p);"),
         (eid("warpDisruptSphere"), "f.sp_wdfg(i);"),
         (eid("entosisLink"), "f.sp_entosis(i, p);"),
@@ -326,11 +367,16 @@ fn main() {
             writeln!(out, "        {ix} => {{ {code} }} // {}", e.name).unwrap();
             continue;
         }
+        if PYFA_NO_HANDLER.contains(&e.name.as_str()) {
+            continue;
+        }
+        // Pyfa's sensor array handlers do not touch warpScrambleStatus
+        let skip_attr = if e.name == "moduleBonusNetworkedSensorArray" || e.name == "moduleBonusIntegratedSensorArray" { 104 } else { u32::MAX };
         let mut body = String::new();
         let mut need_self_skill = false;
         for m in &e.mods {
             let (func, dom, modified, modifying, op, extra) = (m[0], m[1], m[2] as u32, m[3] as u32, m[4], m[5] as u32);
-            if func >= 5 || op == 9 || dom == 5 || dom == 6 {
+            if func >= 5 || op == 9 || dom == 5 || dom == 6 || modified == skip_attr {
                 continue;
             }
             let pen = if stackable(modified) || (e.id == bastion && HULL_RESONANCES.contains(&modified)) { "false" } else { "p" };

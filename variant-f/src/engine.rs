@@ -554,6 +554,11 @@ impl Fit {
             self.push(ship, t, 6, p && !d::attr_stackable(t), Src::Attr { item: i as u32, attr: s });
         }
     }
+    /// cyno: unpenalised speed boost only (Pyfa cynosuralGeneration)
+    pub fn sp_cyno(&mut self, i: usize) {
+        let ship = self.ship;
+        self.push(ship, a::maxVelocity, 6, false, Src::Attr { item: i as u32, attr: a::speedFactor });
+    }
     pub fn sp_mjfg(&mut self, i: usize, p: bool) {
         let ship = self.ship;
         self.push(ship, a::signatureRadius, 6, p && !d::attr_stackable(a::signatureRadius), Src::Attr { item: i as u32, attr: a::signatureRadiusBonusPercent });
