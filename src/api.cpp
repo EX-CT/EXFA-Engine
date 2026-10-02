@@ -60,12 +60,6 @@ static const char* slot_str(int32_t s) {
   return s >= 0 && s < 6 ? n[s] : nullptr;
 }
 
-static std::string lower(std::string_view s) {
-  std::string o(s);
-  for (auto& c : o)
-    if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
-  return o;
-}
 
 void type_json(const Dataset& ds, std::string_view key, JW& w) {
   uint32_t id = 0;

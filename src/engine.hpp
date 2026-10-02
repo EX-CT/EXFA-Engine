@@ -181,8 +181,12 @@ class Fit {
   double caps(uint32_t item, const AttrRec* info, double v);
   void grow();
 
-  std::vector<uint64_t> hkeys_;
-  std::vector<uint32_t> hvals_;
+  struct HSlot {
+    uint64_t k;
+    uint32_t v, g;  // g: generation; a slot is empty unless g == hgen_ (reset() just bumps the generation)
+  };
+  std::vector<HSlot> ht_;
+  uint32_t hgen_ = 1;
   uint64_t hmask_ = 0;
   uint32_t hcount_ = 0;
   std::vector<LAttr> la_;

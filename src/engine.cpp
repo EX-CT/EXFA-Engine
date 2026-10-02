@@ -13,7 +13,6 @@ static constexpr uint32_t EXEMPT_CATEGORIES[6] = {6, 8, 16, 20, 32, 65};
 static constexpr uint32_t ATTR_SKILL_LEVEL = 280;
 static constexpr uint32_t EFFECT_SKILL_EFFECT = 132;
 static constexpr uint32_t HULL_RESONANCES[4] = {113, 111, 109, 110};
-static constexpr uint64_t EMPTY = ~0ull;
 
 // --------------------------------------------------------------------------- ids
 Ids::Ids(const Dataset& ds) {
@@ -221,13 +220,14 @@ static inline uint64_t hmix(uint64_t k) {
 }
 
 int32_t Fit::find(uint32_t item, uint32_t attr) const {
-  if (hkeys_.empty()) return -1;
-  uint64_t k = hkey(item, attr);
+  if (ht_.empty()) return -1;
+  const uint64_t k = hkey(item, attr);
+  const uint32_t g = hgen_;
   uint64_t p = hmix(k) & hmask_;
   while (true) {
-    uint64_t c = hkeys_[p];
-    if (c == k) return (int32_t)hvals_[p];
-    if (c == EMPTY) return -1;
+    const HSlot& sl = ht_[p];
+    if (sl.g != g) return -1;
+    if (sl.k == k) return (int32_t)sl.v;
     p = (p + 1) & hmask_;
   }
 }
@@ -239,7 +239,12 @@ void Fit::reset() {
   warnings.clear();
   skill_levels.clear();
   proj_special.clear();
-  if (hcount_) std::fill(hkeys_.begin(), hkeys_.end(), EMPTY);
+  if (hcount_) {
+    if (++hgen_ == 0) {  // generation wrap: really clear
+      for (auto& sl : ht_) sl.g = 0;
+      hgen_ = 1;
+    }
+  }
   hcount_ = 0;
   la_.clear();
   mods_.clear();
@@ -258,18 +263,17 @@ void Fit::reset() {
 }
 
 void Fit::grow() {
-  size_t n = hkeys_.empty() ? 4096 : hkeys_.size() * 2;
-  std::vector<uint64_t> ok = std::move(hkeys_);
-  std::vector<uint32_t> ov = std::move(hvals_);
-  hkeys_.assign(n, EMPTY);
-  hvals_.assign(n, 0);
+  size_t n = ht_.empty() ? 4096 : ht_.size() * 2;
+  std::vector<HSlot> old = std::move(ht_);
+  const uint32_t g = hgen_;
+  ht_.assign(n, HSlot{0, 0, 0});
+  if (g == 0) hgen_ = 1;
   hmask_ = n - 1;
-  for (size_t i = 0; i < ok.size(); i++) {
-    if (ok[i] == EMPTY) continue;
-    uint64_t p = hmix(ok[i]) & hmask_;
-    while (hkeys_[p] != EMPTY) p = (p + 1) & hmask_;
-    hkeys_[p] = ok[i];
-    hvals_[p] = ov[i];
+  for (const HSlot& sl : old) {
+    if (sl.g != g) continue;
+    uint64_t p = hmix(sl.k) & hmask_;
+    while (ht_[p].g == hgen_) p = (p + 1) & hmask_;
+    ht_[p] = HSlot{sl.k, sl.v, hgen_};
   }
 }
 
@@ -292,14 +296,14 @@ bool Fit::type_base(uint32_t item, uint32_t attr, double& v) const {
 }
 
 uint32_t Fit::ensure(uint32_t item, uint32_t attr) {
-  if ((hcount_ + 1) * 2 > hkeys_.size()) grow();
-  uint64_t k = hkey(item, attr);
+  if ((hcount_ + 1) * 2 > ht_.size()) grow();
+  const uint64_t k = hkey(item, attr);
+  const uint32_t g = hgen_;
   uint64_t p = hmix(k) & hmask_;
-  for (uint64_t c; (c = hkeys_[p]) != EMPTY; p = (p + 1) & hmask_)
-    if (c == k) return hvals_[p];
-  hkeys_[p] = k;
+  for (; ht_[p].g == g; p = (p + 1) & hmask_)
+    if (ht_[p].k == k) return ht_[p].v;
   uint32_t idx = (uint32_t)la_.size();
-  hvals_[p] = idx;
+  ht_[p] = HSlot{k, idx, g};
   hcount_++;
   la_.push_back(LAttr{0.0, 0.0, UINT32_MAX, UINT32_MAX, item, attr, 0, 0});
   return idx;
