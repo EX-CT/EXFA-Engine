@@ -1,0 +1,80 @@
+{
+ "edge": {
+  "pass": 16,
+  "total": 16
+ },
+ "export:dna": {
+  "pass": 326,
+  "total": 326
+ },
+ "export:dna_formatted": {
+  "pass": 326,
+  "total": 326
+ },
+ "export:eft": {
+  "known_divergence_subsystem_slot": 21,
+  "pass": 326,
+  "total": 326
+ },
+ "export:eft_min": {
+  "known_divergence_subsystem_slot": 21,
+  "pass": 326,
+  "total": 326
+ },
+ "export:esi": {
+  "pass": 326,
+  "total": 326
+ },
+ "export:esi_min": {
+  "pass": 326,
+  "total": 326
+ },
+ "export:multibuy": {
+  "pass": 326,
+  "total": 326
+ },
+ "export:multibuy_min": {
+  "pass": 326,
+  "total": 326
+ },
+ "export:shipstats": {
+  "pass": 324,
+  "total": 326
+ },
+ "export:xml": {
+  "pass": 326,
+  "total": 326
+ },
+ "import:dna": {
+  "pass": 326,
+  "pass_legal": 194,
+  "pass_overfit": 132,
+  "total": 326,
+  "total_legal": 194,
+  "total_overfit": 132
+ },
+ "import:eft": {
+  "pass": 326,
+  "pass_legal": 194,
+  "pass_overfit": 132,
+  "total": 326,
+  "total_legal": 194,
+  "total_overfit": 132
+ },
+ "import:esi": {
+  "pass": 326,
+  "pass_legal": 194,
+  "pass_overfit": 132,
+  "total": 326,
+  "total_legal": 194,
+  "total_overfit": 132
+ },
+ "import:xml": {
+  "pass": 326,
+  "pass_legal": 194,
+  "pass_overfit": 132,
+  "total": 326,
+  "total_legal": 194,
+  "total_overfit": 132
+ }
+}

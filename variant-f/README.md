@@ -16,7 +16,7 @@ cargo build --release
 ./target/release/eve-dogma-f calc < request.json > response.json
 ./target/release/eve-dogma-f batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
 # EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)
-./target/release/eve-dogma-f serve-stdio                                   # JSONL RPC: calc | search | type | meta | eft_parse | eft_export
+./target/release/eve-dogma-f serve-stdio                                   # JSONL RPC: calc | search | type | meta | eft_parse | eft_export | format_export | format_import
 ./target/release/eve-dogma-f meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
 ```
 
@@ -34,6 +34,15 @@ node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogm
 
 `bench.yaml` is the eve-dogma-bench manifest. Bench 1.8.0: **326/326 cases, 21 051/21 051 values, EFT export 326/326**,
 0.064 ms/fit, 10 500 fits/s batch, 4 ms cold (see RESULTS.md, `bench/`).
+
+### Import / export formats (Pyfa parity)
+
+RPC `format_export {fit, name, format, options}` with `format` = `eft` | `dna` | `esi` | `xml` | `multibuy` |
+`shipstats`, and `format_import {text, format, path?}` with `format` = `auto` | `eft` | `eftcfg` | `dna` |
+`dna_alt` | `dna_link` | `esi` | `xml` (`auto` follows Pyfa's detection order and also recognises additions lists
+and single mutated items). Against the eve-dogma-bench `formats-suite` (Pyfa-generated round trips): all export
+variants 326/326 except shipstats 324/326, all four round-trip imports 326/326, edge files 16/16
+(`bench/formats/scorecard.md`).
 
 Branch note: `variant-f` is an orphan branch (the lab branches share no history) and holds only `variant-f/`.
 

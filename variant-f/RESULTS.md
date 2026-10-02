@@ -16,6 +16,19 @@ measured 0.043–0.081 ms/fit and 9 900–19 000 fits/s.
 
 Bench progression (all 100 %): 1.2: 226 → 1.3: 249 → 1.4: 289 → 1.5: 295 → 1.6: 297 → 1.7: 306 → 1.8: 326 cases.
 
+## Import / export formats (eve-dogma-bench `formats-suite`, Pyfa-generated)
+
+`bench/formats/scorecard.md` (run of `tools/check_formats.py` on the formats-suite branch):
+
+| check | pass |
+|---|---|
+| export eft / eft_min / dna / dna_formatted / esi / esi_min / xml / multibuy / multibuy_min | 326/326 each |
+| export shipstats (Pyfa "copy stats" text) | 324/326 (esf_structure_bonus_1: known structure-bonus exclusion; esf_items_7: odd item, capacitor not scored by the main bench either) |
+| import round trip eft / dna / esi / xml | 326/326 each (194/194 legal fits) |
+| edge files (multi-fit EFT, `.cfg`, CRLF, chat link, DNA alt, mutants, additions lists, XML multi) | 16/16 |
+
+EFT export has 21 accepted subsystem-slot divergences (Pyfa prints `[Empty Subsystem slot]`), as in the main bench.
+
 ## Beyond the corpus: Pyfa robustness checks (test tools outside the repo)
 * **Fuzzer.** Perturbs corpus cases (skills, states, reload, distances, damage patterns, security, dropped or
   duplicated modules, projected amounts, drone counts, random projected effects) and compares against the Pyfa

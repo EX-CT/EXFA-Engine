@@ -1,0 +1,14 @@
+[
+ {
+  "kind": "export:shipstats",
+  "case": "esf_items_7.json",
+  "expected": "esf_items_7 (Rifter)\n\nEHP: 2.26k (Em: 2.62k, Th: 2.22k, Kin: 2.34k, Exp: 2.4k)\nShield: 776 (Em: 0%, Th: 20%, Kin: 40%, Exp: 50%)\nArmor: 833 (Em: 60%, Th: 35%, Kin: 25%, Exp: 10%)\nHull: 653 (Em: 33%, Th: 33%, Kin: 33%, Exp: 33%)\n\nSpeed: 456 m/s\nSignature: 35 m\nCapacitor: 62.8k GJ (Stable at 100%)\nTargeting range: 28.1 km\nScan resolution: 825 mm\nSensor strength: 9.6\n",
+  "got": "esf_items_7 (Rifter)\n\nEHP: 2.26k (Em: 2.62k, Th: 2.22k, Kin: 2.34k, Exp: 2.4k)\nShield: 776 (Em: 0%, Th: 20%, Kin: 40%, Exp: 50%)\nArmor: 833 (Em: 60%, Th: 35%, Kin: 25%, Exp: 10%)\nHull: 653 (Em: 33%, Th: 33%, Kin: 33%, Exp: 33%)\n\nSpeed: 456 m/s\nSignature: 35 m\nCapacitor: 312 GJ (Stable at 100%)\nTargeting range: 28.1 km\nScan resolution: 825 mm\nSensor strength: 9.6\n"
+ },
+ {
+  "kind": "export:shipstats",
+  "case": "esf_structure_bonus_1.json",
+  "expected": "esf_structure_bonus_1 (Astrahus)\n\nEHP: 9.22M (Em: 9.22M, Th: 9.22M, Kin: 9.22M, Exp: 9.22M)\nShield: 4.5M (Em: 20%, Th: 20%, Kin: 20%, Exp: 20%)\nArmor: 2.48M (Em: 20%, Th: 20%, Kin: 20%, Exp: 20%)\nHull: 2.25M (Em: 20%, Th: 20%, Kin: 20%, Exp: 20%)\n\nSpeed: 0 m/s\nSignature: 50k m\nCapacitor: 250k GJ (Stable at 100%)\nTargeting range: 350 km\nScan resolution: 40 mm\nSensor strength: 500\n",
+  "got": "esf_structure_bonus_1 (Astrahus)\n\nEHP: 9M (Em: 9M, Th: 9M, Kin: 9M, Exp: 9M)\nShield: 4.5M (Em: 20%, Th: 20%, Kin: 20%, Exp: 20%)\nArmor: 2.25M (Em: 20%, Th: 20%, Kin: 20%, Exp: 20%)\nHull: 2.25M (Em: 20%, Th: 20%, Kin: 20%, Exp: 20%)\n\nSpeed: 0 m/s\nSignature: 50k m\nCapacitor: 250k GJ (Stable at 100%)\nTargeting range: 350 km\nScan resolution: 40 mm\nSensor strength: 500\n"
+ }
+]
