@@ -104,9 +104,9 @@ rules, plus the same stagger and clip semantics.
 
 ## Trade-offs
 * Byte-for-byte reference fidelity was chosen over independent re-derivation from Pyfa. Every value matches
-  Pyfa wherever the reference does (all 19 103 bench 1.6.0 values today). The cost is that J inherits any
+  Pyfa wherever the reference does (all 19 621 bench 1.7.0 values today). The cost is that J inherits any
   divergence the reference has, and that new reference features must be ported (done up to eve-dogma-rs
-  0f589b5, contract revision 1.4.2).
+  aa46025, contract revision 1.4.2).
 * The binary cache costs about 110 ms once per dataset and ~20 MB of disk. It can be disabled.
 * The lazy evaluator only computes what the stats need. A full attribute dump (`type`) goes through the same
   path.
