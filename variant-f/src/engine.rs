@@ -1549,6 +1549,13 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                     one.push(ProjAction::Mod { attr: a::warpScrambleStatus, op: 2, v: g(a::fighterAbilityWarpDisruptionPointStrength), factor: qty, resist, pen: false, off: true });
                 }
             }
+            e::npcEntityWeaponDisruptor => {
+                if !cutoff(a::maxRange) {
+                    for (src, tgt) in [(a::trackingSpeedBonus, a::trackingSpeed), (a::maxRangeBonus, a::maxRange), (a::falloffBonus, a::falloff)] {
+                        one.push(ProjAction::ModItems { skill: SKILL_GUNNERY, charge: false, attr: tgt, v: g(src), factor: 1.0, resist, assist: false });
+                    }
+                }
+            }
             e::shipModuleRemoteTrackingComputer => {
                 let f = rf(a::maxRange, a::falloffEffectiveness);
                 for (src, tgt) in [(a::trackingSpeedBonus, a::trackingSpeed), (a::maxRangeBonus, a::maxRange), (a::falloffBonus, a::falloff)] {
