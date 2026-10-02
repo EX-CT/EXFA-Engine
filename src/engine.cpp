@@ -656,6 +656,9 @@ struct RelCond {
 struct SkillRelTable {
   std::vector<uint32_t> off;  // per ds.skills index: [off[i], off[i+1]) into conds
   std::vector<RelCond> conds;
+  // inverted form: unconditional flags (non-structure / structure) and (key << 32 | si << 1 | st) lists
+  std::vector<uint8_t> always_ns, always_st;
+  std::vector<uint64_t> by_group, by_need;
 };
 const SkillRelTable& skill_rel_table(const Dataset& ds) {
   static SkillRelTable tab;
@@ -691,6 +694,21 @@ const SkillRelTable& skill_rel_table(const Dataset& ds) {
       }
     }
     tab.off.push_back((uint32_t)tab.conds.size());
+    const size_t n = ds.skills.size();
+    tab.always_ns.assign(n, 0);
+    tab.always_st.assign(n, 0);
+    for (size_t si = 0; si < n; si++)
+      for (uint32_t c = tab.off[si]; c < tab.off[si + 1]; c++) {
+        const RelCond& rc = tab.conds[c];
+        if (rc.kind == 0) {
+          tab.always_st[si] = 1;
+          if (!rc.st) tab.always_ns[si] = 1;
+        } else {
+          (rc.kind == 1 ? tab.by_group : tab.by_need).push_back((uint64_t)rc.key << 32 | (uint64_t)si << 1 | rc.st);
+        }
+      }
+    std::sort(tab.by_group.begin(), tab.by_group.end());
+    std::sort(tab.by_need.begin(), tab.by_need.end());
   });
   return tab;
 }
@@ -786,22 +804,36 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
       return false;
     };
     const SkillRelTable& rel = skill_rel_table(ds);
-    auto fast_relevant = [&](size_t si, uint32_t sk) {
-      if (in(need, sk)) return true;
-      for (uint32_t c = rel.off[si]; c < rel.off[si + 1]; c++) {
-        const RelCond& rc = rel.conds[c];
-        if (rc.st && !is_structure) continue;
-        if (rc.kind == 0 || (rc.kind == 1 ? in(groups, rc.key) : in(need, rc.key))) return true;
+    // relevance flag per ds.skills index, from the inverted table (same predicate as `relevant`)
+    std::vector<uint8_t>& flag = prune_flag_;
+    if (!no_prune) {
+      flag = is_structure ? rel.always_st : rel.always_ns;
+      auto mark = [&](const std::vector<uint64_t>& lst, const std::vector<uint32_t>& keys) {
+        uint32_t prev = 0;
+        bool first = true;
+        for (uint32_t k : keys) {
+          if (!first && k == prev) continue;
+          first = false;
+          prev = k;
+          for (auto it = std::lower_bound(lst.begin(), lst.end(), (uint64_t)k << 32); it != lst.end() && (uint32_t)(*it >> 32) == k; ++it)
+            if (!(*it & 1) || is_structure) flag[(uint32_t)*it >> 1] = 1;
+        }
+      };
+      mark(rel.by_group, groups);
+      mark(rel.by_need, need);
+      for (uint32_t k : need) {
+        auto it = std::lower_bound(ds.skills.begin(), ds.skills.end(), k);
+        if (it != ds.skills.end() && *it == k) flag[(size_t)(it - ds.skills.begin())] = 1;
       }
-      return false;
-    };
+    }
+    size_t sp = 0;  // cursor into ds.skills (lv is sorted by id)
+    const size_t nsk = ds.skills.size();
     for (auto& [sk, l] : lv) {
       const TypeRec* st = ds.type(sk);
       if (!st) continue;
       if (!no_prune) {
-        // ds.skills is sorted: locate the precomputed conditions, else (unpublished skill) evaluate directly
-        auto it = std::lower_bound(ds.skills.begin(), ds.skills.end(), sk);
-        bool r = (it != ds.skills.end() && *it == sk) ? fast_relevant((size_t)(it - ds.skills.begin()), sk) : relevant(sk, *st);
+        while (sp < nsk && ds.skills[sp] < sk) sp++;
+        bool r = (sp < nsk && ds.skills[sp] == sk) ? flag[sp] != 0 : relevant(sk, *st);
         if (!r) continue;
       }
       int32_t idx = new_item(sk, Kind::Skill, Loc::Char, "/character/skills", -1, err);

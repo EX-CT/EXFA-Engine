@@ -141,6 +141,7 @@ class Fit {
   std::vector<std::string> warnings;
   std::vector<std::pair<uint32_t, uint8_t>> skill_levels;  // (skill id, level) of skill items
   std::vector<uint32_t> prune_need_, prune_groups_;
+  std::vector<uint8_t> prune_flag_;
   std::vector<ProjSpecial> proj_special;
 
  private:

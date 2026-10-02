@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Mutation fuzzer: random edits of the bench corpus (/tmp/all.jsonl) fed to J and the reference batch;
+# Mutation fuzzer: random edits of the bench corpus (/tmp/jv/all.jsonl) fed to J and the reference batch;
 # reports crashes and outcome mismatches (success vs error, error codes). Usage: fuzz_ref.py SEED
 import json,random,subprocess,sys
 random.seed(int(sys.argv[1]) if len(sys.argv)>1 else 1)
-reqs=[json.loads(l) for l in open('/tmp/all.jsonl')]
+reqs=[json.loads(l) for l in open('/tmp/jv/all.jsonl')]
 vals=[None,True,False,0,-1,1,2.5,1e308,-1e308,"x","",[],{},[1,2],{"a":1},4294967296,587,2048,-0.0,1e-300]
 def mutate(o,depth=0):
     if isinstance(o,dict):
