@@ -28,8 +28,18 @@ pub struct Graph {
     pub params: Map<String, Value>,
     pub defs: HashMap<String, Expr>,
 }
+pub struct Source {
+    pub from: String,
+    pub effects: Vec<String>,
+    pub strength: Expr,
+    pub when: Option<Expr>,
+    pub range: String,
+    pub lock: bool,
+    pub dcr: bool,
+}
 pub struct Spec {
     pub graphs: HashMap<String, Graph>,
+    pub tables: HashMap<String, Vec<Source>>,
     pub constants: HashMap<String, f64>,
 }
 
@@ -59,8 +69,29 @@ fn load() -> Result<Spec, String> {
         let params = g.get("params").and_then(|p| p.as_object()).cloned().unwrap_or_default();
         graphs.insert(name.clone(), Graph { axes, series, params, defs });
     }
+    let mut tables = HashMap::new();
+    if let Some(o) = v.get("source_tables").and_then(|t| t.as_object()) {
+        for (k, list) in o {
+            let mut out = Vec::new();
+            for e in list.as_array().cloned().unwrap_or_default() {
+                let strs = |key: &str| -> Vec<String> { e.get(key).and_then(|x| x.as_array()).map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default() };
+                let mut effects = strs("effects");
+                effects.extend(strs("abilities"));
+                out.push(Source {
+                    from: e["from"].as_str().unwrap_or("module").to_string(),
+                    effects,
+                    strength: pe(&e["strength"])?,
+                    when: e.get("when").map(pe).transpose()?,
+                    range: e["range"].as_str().unwrap_or("module").to_string(),
+                    lock: e.get("lock").and_then(|x| x.as_f64()).unwrap_or(0.0) != 0.0,
+                    dcr: e.get("dcr").and_then(|x| x.as_f64()).unwrap_or(0.0) != 0.0,
+                });
+            }
+            tables.insert(k.clone(), out);
+        }
+    }
     let constants = v["constants"].as_object().map(|o| o.iter().map(|(k, v)| (k.clone(), v.as_f64().unwrap_or(0.0))).collect()).unwrap_or_default();
-    Ok(Spec { graphs, constants })
+    Ok(Spec { graphs, tables, constants })
 }
 
 pub fn spec() -> &'static Spec {

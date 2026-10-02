@@ -186,6 +186,339 @@
      }
     }
    }
+  },
+  "ewar": {
+   "title": "Electronic Warfare",
+   "pyfa": "fitEwarStats",
+   "axes": {
+    "distance_m": {
+     "unit": "m",
+     "valid": "x >= 0"
+    }
+   },
+   "params": {
+    "resist": 0
+   },
+   "series": {
+    "neut_gj_s": {
+     "unit": "GJ/s",
+     "by_axis": {
+      "distance_m": "sum_sources_neut()"
+     }
+    },
+    "web_pct": {
+     "unit": "%",
+     "by_axis": {
+      "distance_m": "(1 - stack_sources_web()) * 100"
+     }
+    },
+    "ecm_strength": {
+     "unit": "points",
+     "by_axis": {
+      "distance_m": "sum_sources_ecm()"
+     }
+    },
+    "damp_lock_range_pct": {
+     "unit": "%",
+     "by_axis": {
+      "distance_m": "(1 - stack_sources_damp()) * 100"
+     }
+    },
+    "td_optimal_pct": {
+     "unit": "%",
+     "by_axis": {
+      "distance_m": "(1 - stack_sources_td()) * 100"
+     }
+    },
+    "gd_range_pct": {
+     "unit": "%",
+     "by_axis": {
+      "distance_m": "(1 - stack_sources_gd_velocity() * stack_sources_gd_time()) * 100"
+     }
+    },
+    "tp_sig_pct": {
+     "unit": "%",
+     "by_axis": {
+      "distance_m": "(stack_sources_tp() - 1) * 100"
+     }
+    }
+   }
   }
- }
+ },
+ "source_tables": {
+  "neut": [
+   {
+    "from": "module",
+    "effects": [
+     "energyNeutralizerFalloff"
+    ],
+    "strength": "a.energyNeutralizerAmount / cycle_s",
+    "range": "module",
+    "lock": 1
+   },
+   {
+    "from": "module",
+    "effects": [
+     "structureEnergyNeutralizerFalloff"
+    ],
+    "strength": "a.energyNeutralizerAmount / cycle_s",
+    "range": "module",
+    "lock": 1
+   },
+   {
+    "from": "module",
+    "effects": [
+     "energyNosferatuFalloff"
+    ],
+    "strength": "a.powerTransferAmount / cycle_s",
+    "range": "module",
+    "lock": 1,
+    "when": "a.nosOverride"
+   },
+   {
+    "from": "module",
+    "effects": [
+     "doomsdayAOENeut"
+    ],
+    "strength": "a.energyNeutralizerAmount / cycle_s",
+    "range": "doomsday",
+    "lock": 0
+   },
+   {
+    "from": "drone",
+    "effects": [
+     "entityEnergyNeutralizerFalloff"
+    ],
+    "strength": "a.energyNeutralizerAmount / (a.energyNeutralizerDuration / 1000)",
+    "range": "inf",
+    "lock": 1,
+    "dcr": 1
+   },
+   {
+    "from": "fighter",
+    "abilities": [
+     "fighterAbilityEnergyNeutralizer"
+    ],
+    "strength": "a.fighterAbilityEnergyNeutralizerAmount / cycle_s * squadron",
+    "range": "inf",
+    "lock": 1
+   }
+  ],
+  "web": [
+   {
+    "from": "module",
+    "effects": [
+     "remoteWebifierFalloff",
+     "structureModuleEffectStasisWebifier"
+    ],
+    "strength": "a.speedFactor",
+    "range": "module",
+    "lock": 1
+   },
+   {
+    "from": "module",
+    "effects": [
+     "doomsdayAOEWeb"
+    ],
+    "strength": "a.speedFactor",
+    "range": "doomsday",
+    "lock": 0
+   },
+   {
+    "from": "drone",
+    "effects": [
+     "remoteWebifierEntity"
+    ],
+    "strength": "a.speedFactor",
+    "range": "inf",
+    "lock": 1,
+    "dcr": 1
+   },
+   {
+    "from": "fighter",
+    "abilities": [
+     "fighterAbilityStasisWebifier"
+    ],
+    "strength": "a.fighterAbilityStasisWebifierSpeedPenalty * squadron",
+    "range": "inf",
+    "lock": 1
+   }
+  ],
+  "ecm": [
+   {
+    "from": "module",
+    "effects": [
+     "remoteECMFalloff",
+     "structureModuleEffectECM"
+    ],
+    "strength": "max(a.scanGravimetricStrengthBonus, a.scanLadarStrengthBonus, a.scanMagnetometricStrengthBonus, a.scanRadarStrengthBonus)",
+    "range": "module",
+    "lock": 1
+   },
+   {
+    "from": "module",
+    "effects": [
+     "doomsdayAOEECM"
+    ],
+    "strength": "max(a.scanGravimetricStrengthBonus, a.scanLadarStrengthBonus, a.scanMagnetometricStrengthBonus, a.scanRadarStrengthBonus)",
+    "range": "doomsday",
+    "lock": 0
+   },
+   {
+    "from": "drone",
+    "effects": [
+     "entityECMFalloff"
+    ],
+    "strength": "max(a.scanGravimetricStrengthBonus, a.scanLadarStrengthBonus, a.scanMagnetometricStrengthBonus, a.scanRadarStrengthBonus)",
+    "range": "inf",
+    "lock": 1,
+    "dcr": 1
+   },
+   {
+    "from": "fighter",
+    "abilities": [
+     "fighterAbilityECM"
+    ],
+    "strength": "max(a.fighterAbilityECMStrengthGravimetric, a.fighterAbilityECMStrengthLadar, a.fighterAbilityECMStrengthMagnetometric, a.fighterAbilityECMStrengthRadar) * squadron",
+    "range": "inf",
+    "lock": 1
+   }
+  ],
+  "damp": [
+   {
+    "from": "module",
+    "effects": [
+     "remoteSensorDampFalloff",
+     "structureModuleEffectRemoteSensorDampener"
+    ],
+    "strength": "a.maxTargetRangeBonus",
+    "range": "module",
+    "lock": 1
+   },
+   {
+    "from": "module",
+    "effects": [
+     "doomsdayAOEDamp"
+    ],
+    "strength": "a.maxTargetRangeBonus",
+    "range": "doomsday",
+    "lock": 0
+   },
+   {
+    "from": "drone",
+    "effects": [
+     "remoteSensorDampEntity"
+    ],
+    "strength": "a.maxTargetRangeBonus",
+    "range": "inf",
+    "lock": 1,
+    "dcr": 1
+   }
+  ],
+  "td": [
+   {
+    "from": "module",
+    "effects": [
+     "shipModuleTrackingDisruptor",
+     "structureModuleEffectWeaponDisruption"
+    ],
+    "strength": "a.maxRangeBonus",
+    "range": "module",
+    "lock": 1
+   },
+   {
+    "from": "module",
+    "effects": [
+     "doomsdayAOETrack"
+    ],
+    "strength": "a.maxRangeBonus",
+    "range": "doomsday",
+    "lock": 0
+   },
+   {
+    "from": "drone",
+    "effects": [
+     "npcEntityWeaponDisruptor"
+    ],
+    "strength": "a.maxRangeBonus",
+    "range": "inf",
+    "lock": 1,
+    "dcr": 1
+   }
+  ],
+  "gd_velocity": [
+   {
+    "from": "module",
+    "effects": [
+     "shipModuleGuidanceDisruptor",
+     "structureModuleEffectWeaponDisruption"
+    ],
+    "strength": "a.missileVelocityBonus",
+    "range": "module",
+    "lock": 1
+   },
+   {
+    "from": "module",
+    "effects": [
+     "doomsdayAOETrack"
+    ],
+    "strength": "a.missileVelocityBonus",
+    "range": "doomsday",
+    "lock": 0
+   }
+  ],
+  "gd_time": [
+   {
+    "from": "module",
+    "effects": [
+     "shipModuleGuidanceDisruptor",
+     "structureModuleEffectWeaponDisruption"
+    ],
+    "strength": "a.explosionDelayBonus",
+    "range": "module",
+    "lock": 1
+   },
+   {
+    "from": "module",
+    "effects": [
+     "doomsdayAOETrack"
+    ],
+    "strength": "a.explosionDelayBonus",
+    "range": "doomsday",
+    "lock": 0
+   }
+  ],
+  "tp": [
+   {
+    "from": "module",
+    "effects": [
+     "remoteTargetPaintFalloff",
+     "structureModuleEffectTargetPainter"
+    ],
+    "strength": "a.signatureRadiusBonus",
+    "range": "module",
+    "lock": 1
+   },
+   {
+    "from": "module",
+    "effects": [
+     "doomsdayAOEPaint"
+    ],
+    "strength": "a.signatureRadiusBonus",
+    "range": "doomsday",
+    "lock": 0
+   },
+   {
+    "from": "drone",
+    "effects": [
+     "remoteTargetPaintEntity"
+    ],
+    "strength": "a.signatureRadiusBonus",
+    "range": "inf",
+    "lock": 1,
+    "dcr": 1
+   }
+  ]
+ },
+ "source_tables_notes": "Sources per EWAR kind: from module (active, any listed effect; Pyfa counts a module once per matching effect name), drone (per active drone) or fighter ability (active). strength is evaluated on the item (a.<attr> = modified attribute, cycle_s = average cycle s, squadron = fighters in squadron) and multiplied by (1 - p.resist). range: module = Pyfa maxRange/falloff attributes, doomsday = maxRange + doomsdayAOERange (no lock), inf. lock/dcr: needs lock range / drone control range unless the setting ignores it. sum_sources_<t>() = sum of strength x range factor; stack_sources_<t>() = stacking-penalised product of (1 + strength x rf / 100)."
 }
