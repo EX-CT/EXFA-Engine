@@ -2,145 +2,145 @@
  "variant": "variant-f-wasm",
  "cmd": "/home/box/.local/bin/wasmtime run --allow-precompiled /workspace/exct-eve/lab-f/variant-f/target/f.cwasm calc",
  "batch_cmd": "/home/box/.local/bin/wasmtime run --allow-precompiled /workspace/exct-eve/lab-f/variant-f/target/f.cwasm batch",
- "cases": 289,
- "cases_fully_correct": 289,
- "values_correct": 18591,
- "values_total": 18591,
+ "cases": 306,
+ "cases_fully_correct": 306,
+ "values_correct": 19621,
+ "values_total": 19621,
  "accuracy": 1.0,
  "groups": {
   "application": {
-   "ok": 3428,
-   "total": 3428
+   "ok": 3566,
+   "total": 3566
   },
   "capacitor": {
-   "ok": 1015,
-   "total": 1015
+   "ok": 1074,
+   "total": 1074
   },
   "defense": {
-   "ok": 5200,
-   "total": 5200
+   "ok": 5506,
+   "total": 5506
   },
   "fitting": {
-   "ok": 2601,
-   "total": 2601
+   "ok": 2754,
+   "total": 2754
   },
   "navigation": {
-   "ok": 1723,
-   "total": 1723
+   "ok": 1825,
+   "total": 1825
   },
   "offense": {
-   "ok": 1156,
-   "total": 1156
+   "ok": 1224,
+   "total": 1224
   },
   "tank": {
-   "ok": 2023,
-   "total": 2023
+   "ok": 2142,
+   "total": 2142
   },
   "targeting": {
-   "ok": 1445,
-   "total": 1445
+   "ok": 1530,
+   "total": 1530
   }
  },
  "metrics": {
   "align_time_s": {
-   "ok": 288,
-   "total": 288
+   "ok": 305,
+   "total": 305
   },
   "calibration_used": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "cap_capacity": {
-   "ok": 288,
-   "total": 288
+   "ok": 305,
+   "total": 305
   },
   "cap_recharge_s": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "cap_stable": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "cap_stable_percent": {
-   "ok": 149,
-   "total": 149
+   "ok": 157,
+   "total": 157
   },
   "cpu_total": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "cpu_used": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "d0.falloff_m": {
-   "ok": 97,
-   "total": 97
+   "ok": 104,
+   "total": 104
   },
   "d0.max_velocity": {
-   "ok": 97,
-   "total": 97
+   "ok": 104,
+   "total": 104
   },
   "d0.optimal_m": {
-   "ok": 97,
-   "total": 97
+   "ok": 104,
+   "total": 104
   },
   "d0.signature_radius": {
-   "ok": 97,
-   "total": 97
+   "ok": 104,
+   "total": 104
   },
   "d0.tracking": {
-   "ok": 97,
-   "total": 97
+   "ok": 104,
+   "total": 104
   },
   "d1.falloff_m": {
-   "ok": 32,
-   "total": 32
+   "ok": 33,
+   "total": 33
   },
   "d1.max_velocity": {
-   "ok": 32,
-   "total": 32
+   "ok": 33,
+   "total": 33
   },
   "d1.optimal_m": {
-   "ok": 32,
-   "total": 32
+   "ok": 33,
+   "total": 33
   },
   "d1.signature_radius": {
-   "ok": 32,
-   "total": 32
+   "ok": 33,
+   "total": 33
   },
   "d1.tracking": {
-   "ok": 32,
-   "total": 32
+   "ok": 33,
+   "total": 33
   },
   "drone_bandwidth_used": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "drone_control_range": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "drone_dps": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "drone_volley": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "ehp.armor": {
-   "ok": 288,
-   "total": 288
+   "ok": 305,
+   "total": 305
   },
   "ehp.hull": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "ehp.shield": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "f0.max_velocity": {
    "ok": 13,
@@ -183,144 +183,144 @@
    "total": 4
   },
   "hi_slots": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "hp.armor": {
-   "ok": 288,
-   "total": 288
+   "ok": 305,
+   "total": 305
   },
   "hp.hull": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "hp.shield": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "jam_chance": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "low_slots": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "mass": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "max_target_range": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "max_targets": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "max_velocity": {
-   "ok": 288,
-   "total": 288
+   "ok": 305,
+   "total": 305
   },
   "med_slots": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "power_total": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "power_used": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.armor.em": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.armor.explosive": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.armor.kinetic": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.armor.thermal": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.hull.em": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.hull.explosive": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.hull.kinetic": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.hull.thermal": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.shield.em": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.shield.explosive": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.shield.kinetic": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "res.shield.thermal": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "scan_resolution": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "scan_strength": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "signature_radius": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "stank.armor": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "stank.hull": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "stank.shield": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "tank.armor": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "tank.hull": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "tank.passive": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "tank.shield": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "w0.explosion_radius": {
    "ok": 3,
@@ -371,12 +371,12 @@
    "total": 2
   },
   "w10.explosion_radius": {
-   "ok": 35,
-   "total": 35
+   "ok": 36,
+   "total": 36
   },
   "w10.explosion_velocity": {
-   "ok": 35,
-   "total": 35
+   "ok": 36,
+   "total": 36
   },
   "w10.falloff_m": {
    "ok": 56,
@@ -387,20 +387,20 @@
    "total": 56
   },
   "w10.range_m": {
-   "ok": 35,
-   "total": 35
+   "ok": 36,
+   "total": 36
   },
   "w10.tracking": {
    "ok": 56,
    "total": 56
   },
   "w11.explosion_radius": {
-   "ok": 38,
-   "total": 38
+   "ok": 39,
+   "total": 39
   },
   "w11.explosion_velocity": {
-   "ok": 38,
-   "total": 38
+   "ok": 39,
+   "total": 39
   },
   "w11.falloff_m": {
    "ok": 82,
@@ -411,20 +411,20 @@
    "total": 82
   },
   "w11.range_m": {
-   "ok": 38,
-   "total": 38
+   "ok": 39,
+   "total": 39
   },
   "w11.tracking": {
    "ok": 82,
    "total": 82
   },
   "w12.explosion_radius": {
-   "ok": 37,
-   "total": 37
+   "ok": 38,
+   "total": 38
   },
   "w12.explosion_velocity": {
-   "ok": 37,
-   "total": 37
+   "ok": 38,
+   "total": 38
   },
   "w12.falloff_m": {
    "ok": 80,
@@ -435,20 +435,20 @@
    "total": 80
   },
   "w12.range_m": {
-   "ok": 37,
-   "total": 37
+   "ok": 38,
+   "total": 38
   },
   "w12.tracking": {
    "ok": 80,
    "total": 80
   },
   "w13.explosion_radius": {
-   "ok": 37,
-   "total": 37
+   "ok": 38,
+   "total": 38
   },
   "w13.explosion_velocity": {
-   "ok": 37,
-   "total": 37
+   "ok": 38,
+   "total": 38
   },
   "w13.falloff_m": {
    "ok": 64,
@@ -459,8 +459,8 @@
    "total": 64
   },
   "w13.range_m": {
-   "ok": 37,
-   "total": 37
+   "ok": 38,
+   "total": 38
   },
   "w13.tracking": {
    "ok": 64,
@@ -598,6 +598,18 @@
    "ok": 1,
    "total": 1
   },
+  "w3.falloff_m": {
+   "ok": 1,
+   "total": 1
+  },
+  "w3.optimal_m": {
+   "ok": 1,
+   "total": 1
+  },
+  "w3.tracking": {
+   "ok": 1,
+   "total": 1
+  },
   "w4.falloff_m": {
    "ok": 1,
    "total": 1
@@ -623,16 +635,16 @@
    "total": 1
   },
   "w6.falloff_m": {
-   "ok": 13,
-   "total": 13
+   "ok": 18,
+   "total": 18
   },
   "w6.optimal_m": {
-   "ok": 13,
-   "total": 13
+   "ok": 18,
+   "total": 18
   },
   "w6.tracking": {
-   "ok": 13,
-   "total": 13
+   "ok": 18,
+   "total": 18
   },
   "w7.explosion_radius": {
    "ok": 1,
@@ -643,20 +655,20 @@
    "total": 1
   },
   "w7.falloff_m": {
-   "ok": 21,
-   "total": 21
+   "ok": 27,
+   "total": 27
   },
   "w7.optimal_m": {
-   "ok": 21,
-   "total": 21
+   "ok": 27,
+   "total": 27
   },
   "w7.range_m": {
    "ok": 1,
    "total": 1
   },
   "w7.tracking": {
-   "ok": 21,
-   "total": 21
+   "ok": 27,
+   "total": 27
   },
   "w8.explosion_radius": {
    "ok": 4,
@@ -667,28 +679,28 @@
    "total": 4
   },
   "w8.falloff_m": {
-   "ok": 18,
-   "total": 18
+   "ok": 23,
+   "total": 23
   },
   "w8.optimal_m": {
-   "ok": 18,
-   "total": 18
+   "ok": 23,
+   "total": 23
   },
   "w8.range_m": {
    "ok": 4,
    "total": 4
   },
   "w8.tracking": {
-   "ok": 18,
-   "total": 18
+   "ok": 23,
+   "total": 23
   },
   "w9.explosion_radius": {
-   "ok": 37,
-   "total": 37
+   "ok": 43,
+   "total": 43
   },
   "w9.explosion_velocity": {
-   "ok": 37,
-   "total": 37
+   "ok": 43,
+   "total": 43
   },
   "w9.falloff_m": {
    "ok": 39,
@@ -699,53 +711,53 @@
    "total": 39
   },
   "w9.range_m": {
-   "ok": 37,
-   "total": 37
+   "ok": 43,
+   "total": 43
   },
   "w9.tracking": {
    "ok": 39,
    "total": 39
   },
   "warp_scramble_status": {
-   "ok": 280,
-   "total": 280
+   "ok": 297,
+   "total": 297
   },
   "warp_speed": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "weapon_dps": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   },
   "weapon_volley": {
-   "ok": 289,
-   "total": 289
+   "ok": 306,
+   "total": 306
   }
  },
  "errors": 0,
  "perf": {
   "single_process_per_case_ms": {
-   "median": 10.23867600451922,
-   "min": 5.065286000899505,
-   "max": 68.53460999991512
+   "median": 7.619121501193149,
+   "min": 5.6723970046732575,
+   "max": 41.736063998541795
   },
   "batch_corpus": {
-   "requests": 1445,
-   "total_s": 0.7387381059961626,
-   "fits_per_s": 1956.0382607466388,
-   "avg_ms_incl_startup": 0.5112374435959604,
-   "responses": 1445,
+   "requests": 1530,
+   "total_s": 0.4221964649987058,
+   "fits_per_s": 3623.90528306458,
+   "avg_ms_incl_startup": 0.27594540195993844,
+   "responses": 1530,
    "exit": 0
   },
   "latency_one_fit": {
    "case": "exct_rifter",
    "n": 500,
-   "startup_plus_one_ms": 25.386531997355632,
-   "per_calc_ms": 0.3639958597199883
+   "startup_plus_one_ms": 10.536850997596048,
+   "per_calc_ms": 0.2209953206415402
   },
   "deterministic": true
  },
  "host": "x86_64",
- "time": "2026-10-03T04:57:04+0800"
+ "time": "2026-10-03T06:06:15+0800"
 }
