@@ -1,3 +1,4 @@
+#include <type_traits>
 // eve-dogma-j CLI: stateless FitRequest JSON in -> FitStats JSON out (contract v1).
 #include <poll.h>
 #include <sys/stat.h>
@@ -60,6 +61,60 @@ static bool read_all(FILE* f, std::string& out) {
   size_t n;
   while ((n = fread(buf, 1, sizeof buf, f)) > 0) out.append(buf, n);
   return true;
+}
+
+// Resolved attribute/effect ids are cached next to the dataset image (<cache>.ids), keyed by the dataset sha256.
+static_assert(std::is_trivially_copyable_v<Ids>);
+// Also keyed by the executable's size+mtime, so a rebuilt engine never reuses ids resolved by another build.
+struct IdsFile {
+  char magic[8];
+  uint32_t size, version;
+  char sha[64];
+  int64_t exe_size, exe_mtime_ns;
+  Ids ids;
+};
+static void exe_id(int64_t& size, int64_t& mt) {
+  struct stat st {};
+  size = mt = -1;
+  if (stat("/proc/self/exe", &st) == 0) {
+    size = (int64_t)st.st_size;
+    mt = (int64_t)st.st_mtim.tv_sec * 1000000000ll + st.st_mtim.tv_nsec;
+  }
+}
+static Ids load_ids(const Dataset& ds, const std::string& cache) {
+  int64_t es, em;
+  exe_id(es, em);
+  if (!cache.empty() && es >= 0) {
+    std::string p = cache + ".ids";
+    if (FILE* f = fopen(p.c_str(), "rb")) {
+      IdsFile x;
+      bool ok = fread(&x, 1, sizeof x, f) == sizeof x;
+      fclose(f);
+      if (ok && memcmp(x.magic, "EVEJIDS1", 8) == 0 && x.size == sizeof(Ids) && x.version == CACHE_VERSION &&
+          ds.sha256.size() == 64 && memcmp(x.sha, ds.sha256.data(), 64) == 0 && x.exe_size == es &&
+          x.exe_mtime_ns == em)
+        return x.ids;
+    }
+  }
+  Ids ids(ds);
+  if (!cache.empty() && ds.sha256.size() == 64 && es >= 0) {
+    IdsFile x{};
+    x.exe_size = es;
+    x.exe_mtime_ns = em;
+    memcpy(x.magic, "EVEJIDS1", 8);
+    x.size = sizeof(Ids);
+    x.version = CACHE_VERSION;
+    memcpy(x.sha, ds.sha256.data(), 64);
+    x.ids = ids;
+    std::string p = cache + ".ids", tmp = p + ".tmp." + std::to_string(getpid());
+    if (FILE* f = fopen(tmp.c_str(), "wb")) {
+      bool ok = fwrite(&x, 1, sizeof x, f) == sizeof x;
+      ok = fclose(f) == 0 && ok;
+      if (ok) rename(tmp.c_str(), p.c_str());
+      else unlink(tmp.c_str());
+    }
+  }
+  return ids;
 }
 
 static void write_out(const std::string& s) { fwrite(s.data(), 1, s.size(), stdout); }
@@ -237,7 +292,10 @@ int main(int argc, char** argv) {
     return 2;
   }
   if (use_cache && cache.empty()) cache = default_cache(dataset);
-  if (cmd == "build-cache") unlink(cache.c_str());
+  if (cmd == "build-cache") {
+    unlink(cache.c_str());
+    unlink((cache + ".ids").c_str());
+  }
   double t0 = now_ms();
   std::string err;
   std::unique_ptr<Dataset> ds(Dataset::open(dataset, cache, use_cache, err));
@@ -245,8 +303,10 @@ int main(int argc, char** argv) {
     fprintf(stderr, "error: %s\n", err.c_str());
     return 3;
   }
-  Ids ids(*ds);
+  double t1 = now_ms();
+  const Ids ids = load_ids(*ds, use_cache ? cache : std::string());
   double load_ms = now_ms() - t0;
+  if (getenv("EVEJ_TIMING")) fprintf(stderr, "open %.3f ms, ids %.3f ms\n", t1 - t0, now_ms() - t1);
   static char obuf[1 << 16];
   setvbuf(stdout, obuf, _IOFBF, sizeof obuf);
 
@@ -267,12 +327,18 @@ int main(int argc, char** argv) {
     } else {
       read_all(stdin, in);
     }
+    double tw = now_ms();
     Worker wk(*ds, ids);
     if (cmd == "calc") {
+      double tc = now_ms();
       bool ok = wk.calc_json(in);
+      double te = now_ms();
       wk.out.s.push_back('\n');
       write_out(wk.out.s);
       fflush(stdout);
+      if (getenv("EVEJ_TIMING"))
+        fprintf(stderr, "read %.3f ms, worker %.3f ms, calc %.3f ms, write %.3f ms\n", tw - load_ms - t0, tc - tw, te - tc,
+                now_ms() - te);
       return ok ? 0 : 2;
     }
     wk.calc_json(in);

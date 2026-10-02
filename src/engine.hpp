@@ -17,6 +17,7 @@ enum class Loc : uint8_t { Ship, Char, Space, Nowhere };
 
 // Attribute / effect ids resolved once per dataset.
 struct Ids {
+  Ids() = default;
   explicit Ids(const Dataset& ds);
   // engine
   uint32_t pilotSecurityStatus, fighterSquadronMaxSize, hiSecModifier, lowSecModifier, nullSecModifier, securityModifier;

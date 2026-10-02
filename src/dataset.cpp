@@ -572,6 +572,7 @@ Dataset* Dataset::open(const std::string& path, const std::string& cache_path, b
           if (fresh && ds->attach((const uint8_t*)m, (size_t)cs.st_size, e2)) {
             ds->map_ = m;
             ds->map_size_ = (size_t)cs.st_size;
+
             ::close(fd);
             return ds;
           }
