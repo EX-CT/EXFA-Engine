@@ -20,6 +20,8 @@ Ids::Ids(const Dataset& ds) {
   auto a = [&](const char* n) { return ds.attr_id(n); };
   auto e = [&](const char* n) { return ds.effect_id(n); };
   pilotSecurityStatus = a("pilotSecurityStatus");
+  for (const AttrRec& r : ds.attrs)
+    if (ds.attr_name(r).substr(0, 8) == "overload" && n_overload < 32) overload_ids[n_overload++] = r.id;
   fighterSquadronMaxSize = a("fighterSquadronMaxSize");
   hiSecModifier = a("hiSecModifier");
   lowSecModifier = a("lowSecModifier");
@@ -415,7 +417,9 @@ void Fit::clear_cache() {
 
 double Fit::src_value(const Src& s) {
   switch (s.k) {
-    case Src::Attr: return get(s.a, s.b);
+    case Src::Attr:
+      if (items[s.a].kind == Kind::Module && K.is_overload(s.b)) return eval_before(s.a, s.b);
+      return get(s.a, s.b);
     case Src::Const: return s.f;
     case Src::Prop: {
       double m = get(s.b, s.e);
@@ -477,6 +481,42 @@ double Fit::eval(uint32_t idx) {
     if (a.st == 1) return lbase(idx);
     a.st = 1;
   }
+  const double val = combine(idx, -1);
+  LAttr& a = la_[idx];
+  a.st = 2;
+  a.val = val;
+  return val;
+}
+
+// Pyfa runs effects item by item in fit order: an overheat effect reads its module's overload* attribute before
+// modules listed later in the fit have applied their modifiers (eve-dogma-rs eval_before; not cached)
+double Fit::eval_before(uint32_t item, uint32_t attr) {
+  const int32_t f = find(item, attr);
+  const int32_t lim = items[item].req_index;
+  if (f < 0 || lim < 0) return get(item, attr);
+  auto later = [&](const AMod& m) {
+    if (m.src_item == UINT32_MAX) return false;
+    const Item& s = items[m.src_item];
+    return s.kind == Kind::Module && s.loc == Loc::Ship && s.req_index >= 0 && s.req_index > lim;
+  };
+  bool any = false;
+  for (uint32_t m = la_[f].head; m != UINT32_MAX; m = mods_[m].next)
+    if (later(mods_[m])) {
+      any = true;
+      break;
+    }
+  if (!any) return get(item, attr);
+  if (la_[f].st == 1) return lbase((uint32_t)f);
+  const uint8_t st = la_[f].st;
+  la_[f].st = 1;
+  const double v = combine((uint32_t)f, lim);
+  la_[f].st = st;
+  return v;
+}
+
+// value of la_[idx] from its base and modifiers; before >= 0: skip modifiers registered by modules of the fit
+// listed after request index `before`
+double Fit::combine(uint32_t idx, int32_t before) {
   const uint32_t item = la_[idx].item, attr = la_[idx].attr;
   const AttrRec* info = ds.attr(attr);
   double val = lbase(idx);
@@ -488,6 +528,10 @@ double Fit::eval(uint32_t idx) {
     int n = 0, cap = 48;
     uint16_t opmask = 0;  // bit (op+1)
     for (uint32_t m = head; m != UINT32_MAX; m = mods_[m].next) {
+      if (before >= 0 && mods_[m].src_item != UINT32_MAX) {
+        const Item& si = items[mods_[m].src_item];
+        if (si.kind == Kind::Module && si.loc == Loc::Ship && si.req_index >= 0 && si.req_index > before) continue;
+      }
       int8_t op = mods_[m].op;
       uint8_t pen = mods_[m].pen;
       Src s = mods_[m].src;
@@ -551,11 +595,7 @@ double Fit::eval(uint32_t idx) {
       if (nn) apply_pen(val, neg, nn);
     }
   }
-  val = caps(item, info, val);
-  LAttr& a = la_[idx];
-  a.st = 2;
-  a.val = val;
-  return val;
+  return caps(item, info, val);
 }
 
 // Rust f64::max/min semantics are fine with std::max/min here (no NaNs expected).
@@ -1076,7 +1116,7 @@ void Fit::push_mod(uint32_t target, uint32_t attr, int op, const Src& src, uint3
   bool pen = !stackable && !exempt;
   uint32_t ai = ensure(target, attr);
   uint32_t mi = (uint32_t)mods_.size();
-  mods_.push_back(AMod{UINT32_MAX, (int8_t)op, (uint8_t)pen, src});
+  mods_.push_back(AMod{UINT32_MAX, (int8_t)op, (uint8_t)pen, cur_src_, src});
   LAttr& a = la_[ai];
   if (a.tail == UINT32_MAX) a.head = mi;
   else mods_[a.tail].next = mi;
@@ -1217,6 +1257,7 @@ static inline Src const_src(double v) {
 void Fit::register_all(const FitRequest& req, bool no_boosters) {
   const uint32_t n = (uint32_t)items.size();
   for (uint32_t i = 0; i < n; i++) {
+    cur_src_ = i;
     const Kind kind = items[i].kind;
     if (kind == Kind::Projected) {
       register_projected(i);
@@ -1801,7 +1842,8 @@ void Fit::register_buffs(const FitRequest& req, bool no_boosters) {
   clear_cache();
 }
 
-void Fit::apply_buff(uint32_t id, const Src& src, uint32_t) {
+void Fit::apply_buff(uint32_t id, const Src& src, uint32_t source_item) {
+  cur_src_ = source_item;
   const DbuffRec* info = ds.dbuff(id);
   if (!info) return;
   const int op = info->op;
@@ -1933,6 +1975,7 @@ void Fit::apply_rah(const FitRequest& req) {
       }
     }
     const uint32_t cat = items[m].category;
+    cur_src_ = m;
     for (int k = 0; k < 4; k++) {
       if (!disable) push_mod(m, attrs[k], 7, const_src(res[k]), cat);
       push_mod(ship, attrs[k], 0, const_src(res[k]), cat);

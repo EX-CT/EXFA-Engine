@@ -48,6 +48,14 @@ struct Ids {
   uint32_t e_turret, e_launcher, e_empwave, e_chain, e_shieldBoosting, e_fueledShieldBoosting, e_armorRepair,
       e_fueledArmorRepair, e_structureRepair, e_nos, e_fam, e_fmi;
   uint32_t g_cap_booster_group_ok;  // unused placeholder
+  // overload* attributes (overheat effects read them in Pyfa's module order, see Fit::eval_before)
+  uint32_t overload_ids[32];
+  uint32_t n_overload = 0;
+  bool is_overload(uint32_t a) const {
+    for (uint32_t k = 0; k < n_overload; k++)
+      if (overload_ids[k] == a) return true;
+    return false;
+  }
   // projected specials / missile range
   uint32_t falloffEffectiveness, disallowAssistance, energyNeutralizerAmount, energyNeutralizerDuration,
       energyNeutralizerRangeOptimal, energyNeutralizerSignatureResolution, radius, mass, agilityA, maxFOFTargetRange,
@@ -67,6 +75,7 @@ struct AMod {
   uint32_t next;
   int8_t op;
   uint8_t pen;
+  uint32_t src_item;  // item whose effect registered the modifier (eve-dogma-rs AMod::source_item)
   Src src;
 };
 
@@ -176,6 +185,9 @@ class Fit {
   void set_base(uint32_t item, uint32_t attr, double v);   // replace (like HashMap::insert(Attr::new(v)))
   bool type_base(uint32_t item, uint32_t attr, double& v) const;
   double eval(uint32_t idx);
+  double combine(uint32_t idx, int32_t before);
+  double eval_before(uint32_t item, uint32_t attr);
+  uint32_t cur_src_ = UINT32_MAX;  // source item recorded by push_mod
   double lbase(uint32_t idx) const {
     LAttr& a = const_cast<LAttr&>(la_[idx]);
     if (!a.bl) {
