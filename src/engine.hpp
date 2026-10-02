@@ -70,6 +70,7 @@ struct LAttr {
   uint32_t head, tail;
   uint32_t item, attr;
   uint8_t st;  // 0 = not evaluated, 1 = busy, 2 = cached
+  uint8_t bl;  // base loaded (type base / default is filled lazily on first read)
 };
 
 struct Item {
@@ -164,6 +165,16 @@ class Fit {
   void set_base(uint32_t item, uint32_t attr, double v);   // replace (like HashMap::insert(Attr::new(v)))
   bool type_base(uint32_t item, uint32_t attr, double& v) const;
   double eval(uint32_t idx);
+  double lbase(uint32_t idx) const {
+    LAttr& a = const_cast<LAttr&>(la_[idx]);
+    if (!a.bl) {
+      double b;
+      if (!type_base(a.item, a.attr, b)) b = ds.attr_default(a.attr);
+      a.base = b;
+      a.bl = 1;
+    }
+    return a.base;
+  }
   double src_value(const Src& s);
   double caps(uint32_t item, const AttrRec* info, double v);
   void grow();

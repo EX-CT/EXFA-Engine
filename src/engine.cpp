@@ -291,19 +291,16 @@ bool Fit::type_base(uint32_t item, uint32_t attr, double& v) const {
 }
 
 uint32_t Fit::ensure(uint32_t item, uint32_t attr) {
-  int32_t f = find(item, attr);
-  if (f >= 0) return (uint32_t)f;
   if ((hcount_ + 1) * 2 > hkeys_.size()) grow();
-  double b;
-  if (!type_base(item, attr, b)) b = ds.attr_default(attr);
   uint64_t k = hkey(item, attr);
   uint64_t p = hmix(k) & hmask_;
-  while (hkeys_[p] != EMPTY) p = (p + 1) & hmask_;
+  for (uint64_t c; (c = hkeys_[p]) != EMPTY; p = (p + 1) & hmask_)
+    if (c == k) return hvals_[p];
   hkeys_[p] = k;
   uint32_t idx = (uint32_t)la_.size();
   hvals_[p] = idx;
   hcount_++;
-  la_.push_back(LAttr{b, 0.0, UINT32_MAX, UINT32_MAX, item, attr, 0});
+  la_.push_back(LAttr{0.0, 0.0, UINT32_MAX, UINT32_MAX, item, attr, 0, 0});
   return idx;
 }
 
@@ -311,6 +308,7 @@ void Fit::set_base(uint32_t item, uint32_t attr, double v) {
   uint32_t i = ensure(item, attr);
   LAttr& a = la_[i];
   a.base = v;
+  a.bl = 1;
   a.head = a.tail = UINT32_MAX;  // HashMap::insert replaces the whole Attr (drops modifiers)
   a.st = 0;
 }
@@ -323,7 +321,7 @@ bool Fit::has(uint32_t item, uint32_t attr) const {
 
 double Fit::base(uint32_t item, uint32_t attr) const {
   int32_t f = find(item, attr);
-  if (f >= 0) return la_[f].base;
+  if (f >= 0) return lbase((uint32_t)f);
   double v;
   if (type_base(item, attr, v)) return v;
   return ds.attr_default(attr);
@@ -433,12 +431,12 @@ double Fit::eval(uint32_t idx) {
   {
     LAttr& a = la_[idx];
     if (a.st == 2) return a.val;
-    if (a.st == 1) return a.base;
+    if (a.st == 1) return lbase(idx);
     a.st = 1;
   }
   const uint32_t item = la_[idx].item, attr = la_[idx].attr;
   const AttrRec* info = ds.attr(attr);
-  double val = la_[idx].base;
+  double val = lbase(idx);
   uint32_t head = la_[idx].head;
   if (head != UINT32_MAX) {
     Val sbuf[48];
@@ -580,7 +578,7 @@ void Fit::apply_mutation(uint32_t idx, const Mutation& m) {
       items[idx].n_req = base_t->n_req;
       for (uint32_t i = 0; i < base_t->n_req; i++) items[idx].req_skills[i] = base_t->req_skills[i];
     }
-    if (la_[find(idx, 4)].base == 0.0 && base_t->mass != 0.0) set_base(idx, 4, base_t->mass);
+    if (lbase((uint32_t)find(idx, 4)) == 0.0 && base_t->mass != 0.0) set_base(idx, 4, base_t->mass);
   }
   const MutaRec* mu = m.mutaplasmid_type_id ? ds.muta(*m.mutaplasmid_type_id) : nullptr;
   for (auto& [aid, v0] : m.attributes) {
