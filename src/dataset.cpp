@@ -539,15 +539,22 @@ static bool read_file(const std::string& p, std::vector<uint8_t>& out) {
 }
 
 Dataset* Dataset::open(const std::string& path, const std::string& cache_path, bool use_cache, std::string& err) {
-  std::vector<uint8_t> src;
-  if (!read_file(path, src)) {
+  struct stat st {};
+  if (stat(path.c_str(), &st) != 0) {
     err = "read " + path + ": cannot open";
     return nullptr;
   }
-  struct stat st {};
-  stat(path.c_str(), &st);
-  uint64_t h = fast_hash(src.data(), src.size());
-  int64_t mt = (int64_t)st.st_mtim.tv_sec * 1000000000ll + st.st_mtim.tv_nsec;
+  const int64_t mt = (int64_t)st.st_mtim.tv_sec * 1000000000ll + st.st_mtim.tv_nsec;
+  std::vector<uint8_t> src;
+  bool have_src = false;
+  uint64_t h = 0;
+  auto load_src = [&]() {
+    if (have_src) return true;
+    if (!read_file(path, src)) return false;
+    h = fast_hash(src.data(), src.size());
+    have_src = true;
+    return true;
+  };
   auto* ds = new Dataset();
   if (use_cache && !cache_path.empty()) {
     int fd = ::open(cache_path.c_str(), O_RDONLY);
@@ -559,7 +566,10 @@ Dataset* Dataset::open(const std::string& path, const std::string& cache_path, b
           Header hh;
           memcpy(&hh, m, sizeof hh);
           std::string e2;
-          if (hh.src_size == src.size() && hh.src_hash == h && ds->attach((const uint8_t*)m, (size_t)cs.st_size, e2)) {
+          // fast path: same size + mtime as when the image was built; otherwise compare the content hash
+          bool fresh = hh.src_size == (uint64_t)st.st_size && hh.src_mtime_ns == mt;
+          if (!fresh && load_src()) fresh = hh.src_size == src.size() && hh.src_hash == h;
+          if (fresh && ds->attach((const uint8_t*)m, (size_t)cs.st_size, e2)) {
             ds->map_ = m;
             ds->map_size_ = (size_t)cs.st_size;
             ::close(fd);
@@ -570,6 +580,11 @@ Dataset* Dataset::open(const std::string& path, const std::string& cache_path, b
       }
       ::close(fd);
     }
+  }
+  if (!load_src()) {
+    delete ds;
+    err = "read " + path + ": cannot open";
+    return nullptr;
   }
   std::vector<uint8_t> img;
   if (!build_image(src, img, err)) {
