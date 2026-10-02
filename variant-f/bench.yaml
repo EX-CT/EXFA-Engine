@@ -3,3 +3,4 @@
 build: (EVE_DOGMA_DATASET={dataset} RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-gnu && cp target/x86_64-unknown-linux-gnu/release/eve-dogma-f target/eve-dogma-f-bench) || (EVE_DOGMA_DATASET={dataset} cargo build --release && cp target/release/eve-dogma-f target/eve-dogma-f-bench)
 cmd: ./target/eve-dogma-f-bench calc
 batch_cmd: ./target/eve-dogma-f-bench batch
+rpc_cmd: ./target/eve-dogma-f-bench serve-stdio

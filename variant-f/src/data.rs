@@ -170,3 +170,11 @@ pub fn type_meta_level(ix: usize) -> Option<i16> {
     let v = TYPE_META_LEVEL[ix];
     if v < 0 { None } else { Some(v) }
 }
+
+/// Pyfa EFT export drone sort rank (DRONE_ORDER index of the drone's market group; 99 = not listed).
+pub fn drone_eft_rank(type_id: u32) -> u8 {
+    DRONE_EFT_RANK.binary_search_by_key(&type_id, |x| x.0).map(|k| DRONE_EFT_RANK[k].1).unwrap_or(99)
+}
+pub fn category_name(id: u32) -> Option<&'static str> {
+    CAT_IDS.binary_search(&id).ok().map(|c| &CAT_NAMES[CAT_NAME_OFF[c] as usize..CAT_NAME_OFF[c + 1] as usize])
+}

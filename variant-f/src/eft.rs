@@ -167,82 +167,232 @@ pub fn parse(text: &str) -> Result<FitRequest, String> {
     Ok(req)
 }
 
+/// Python `repr(float)` (shortest round-trip, always with a fractional part or exponent).
+fn py_float(x: f64) -> String {
+    if x.is_infinite() {
+        return if x > 0.0 { "inf".into() } else { "-inf".into() };
+    }
+    if x.is_nan() {
+        return "nan".into();
+    }
+    let a = x.abs();
+    if a != 0.0 && !(1e-4..1e16).contains(&a) {
+        let s = format!("{x:e}");
+        let (m, e) = s.split_once('e').unwrap();
+        let e: i32 = e.parse().unwrap();
+        return format!("{m}e{}{:02}", if e < 0 { '-' } else { '+' }, e.abs());
+    }
+    let s = format!("{x}");
+    if s.contains('.') { s } else { s + ".0" }
+}
+
+/// Pyfa `floatUnerr` (7 significant digits kept).
+fn float_unerr(x: f64) -> f64 {
+    if x == 0.0 || x.is_infinite() {
+        return x;
+    }
+    let k = 7 - x.abs().log10().ceil() as i32;
+    if k >= 0 {
+        format!("{:.*}", k as usize, x).parse().unwrap_or(x)
+    } else {
+        let p = 10f64.powi(-k);
+        (x / p).round_ties_even() * p
+    }
+}
+
+/// Pyfa mutator values: every mutaplasmid attribute, request value (or base value) clamped to the roll range.
+fn mutator_lines(m: &Mutation) -> Vec<(String, f64)> {
+    let req_val = |aid: u16| m.attributes.iter().find(|(k, _)| k.parse::<u16>().ok() == Some(aid) || d::attr_by_name(k) == Some(aid)).map(|x| *x.1);
+    let base_ix = type_ix(m.base_type_id);
+    let mut out: Vec<(String, f64)> = Vec::new();
+    match m.mutaplasmid_type_id.and_then(d::muta_attrs) {
+        Some(attrs) => {
+            for &(aid, lo, hi) in attrs {
+                let base = base_ix.and_then(|ix| d::type_attr(ix, aid)).unwrap_or(0.0);
+                let val = req_val(aid).unwrap_or(base);
+                let v = if base == 0.0 {
+                    0.0
+                } else {
+                    let (lo, hi) = (round3(lo), round3(hi));
+                    let r = val / base;
+                    if lo <= r && r <= hi {
+                        val
+                    } else {
+                        let (a, b) = (lo * base, hi * base);
+                        val.max(a.min(b)).min(a.max(b))
+                    }
+                };
+                out.push((d::attr_name(aid).map(|s| s.to_string()).unwrap_or(aid.to_string()), v));
+            }
+        }
+        None => {
+            for (k, v) in &m.attributes {
+                let an = k.parse::<u16>().ok().and_then(d::attr_name).map(|x| x.to_string()).unwrap_or(k.clone());
+                out.push((an, *v));
+            }
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+fn round3(x: f64) -> f64 {
+    format!("{x:.3}").parse().unwrap_or(x)
+}
+
+/// EFT export, byte-compatible with Pyfa `exportEft` (all options on) after the GUI's `fill()`: empty slots are
+/// written as `[Empty X slot]` up to the ship's (modified) slot counts.
 pub fn export(req: &FitRequest, name: &str) -> String {
     let n = |id: u32| type_ix(id).map(|ix| d::type_name(ix).to_string()).unwrap_or_else(|| id.to_string());
-    let mut out = format!("[{}, {}]\n", n(req.ship.type_id), name);
+    let header = format!("[{}, {}]", n(req.ship.type_id), name);
+    let fit = crate::engine::Fit::build(req).ok();
+    let ship_attr = |attr: u16| fit.as_ref().map(|f| f.get(f.ship, attr)).unwrap_or(0.0);
     let mut muts: Vec<Mutation> = Vec::new();
-    let mut tag = |m: &Option<Mutation>| -> String {
-        match m {
-            Some(m) => {
-                muts.push(m.clone());
-                format!(" [{}]", muts.len())
-            }
-            None => String::new(),
-        }
-    };
-    for slot in [Slot::Low, Slot::Mid, Slot::High, Slot::Rig, Slot::Subsystem, Slot::Service] {
-        let mut any = false;
+    let mut sections: Vec<String> = Vec::new();
+    // modules
+    let mut racks: Vec<String> = Vec::new();
+    for (slot, attr, label) in [
+        (Slot::Low, d::a::lowSlots, "Low"),
+        (Slot::Mid, d::a::medSlots, "Med"),
+        (Slot::High, d::a::hiSlots, "High"),
+        (Slot::Rig, d::a::rigSlots, "Rig"),
+        (Slot::Subsystem, d::a::maxSubSystems, "Subsystem"),
+        (Slot::Service, d::a::serviceSlots, "Service"),
+    ] {
+        let mut lines: Vec<String> = Vec::new();
         for m in req.modules.iter().filter(|m| m.slot.or_else(|| type_ix(m.type_id).and_then(infer_slot)) == Some(slot)) {
-            any = true;
-            match &m.mutation {
-                Some(mu) => out += &n(mu.base_type_id),
-                None => out += &n(m.type_id),
-            }
+            let mut l = match &m.mutation {
+                Some(mu) => n(mu.base_type_id),
+                None => n(m.type_id),
+            };
+            let off = if m.state == Some(State::Offline) { " /offline" } else { "" };
             if let Some(c) = m.charge_type_id {
-                out += &format!(", {}", n(c));
+                l += &format!(", {}", n(c));
             }
-            if m.state == Some(State::Offline) {
-                out += " /OFFLINE";
+            l += off;
+            if let Some(mu) = &m.mutation {
+                muts.push(mu.clone());
+                l += &format!(" [{}]", muts.len());
             }
-            out += &tag(&m.mutation);
-            out += "\n";
+            lines.push(l);
         }
-        if any {
-            out += "\n";
+        let total = ship_attr(attr) as i64;
+        for _ in (lines.len() as i64)..total {
+            lines.push(format!("[Empty {label} slot]"));
         }
-    }
-    for dr in &req.drones {
-        let nm = dr.mutation.as_ref().map(|m| m.base_type_id).unwrap_or(dr.type_id);
-        out += &format!("{} x{}{}\n", n(nm), dr.quantity, tag(&dr.mutation));
-    }
-    for f in &req.fighters {
-        out += &format!("{} x{}\n", n(f.type_id), f.quantity.unwrap_or(1));
-    }
-    if !req.implants.is_empty() || !req.boosters.is_empty() {
-        out += "\n";
-        for i in &req.implants {
-            out += &format!("{}\n", n(*i));
-        }
-        for b in &req.boosters {
-            out += &format!("{}\n", n(b.type_id));
+        if !lines.is_empty() {
+            racks.push(lines.join("\n"));
         }
     }
-    if !req.cargo.is_empty() {
-        out += "\n";
-        for c in &req.cargo {
-            out += &format!("{} x{}\n", n(c.type_id), c.quantity);
-        }
+    if !racks.is_empty() {
+        sections.push(racks.join("\n\n"));
     }
-    drop(tag);
+    // drones, fighters
+    let mut minion: Vec<String> = Vec::new();
+    let mut drones: Vec<&DroneReq> = req.drones.iter().collect();
+    let dname = |dr: &DroneReq| match &dr.mutation {
+        Some(mu) => n(mu.base_type_id),
+        None => n(dr.type_id),
+    };
+    let dfull = |dr: &DroneReq| match &dr.mutation {
+        Some(mu) => {
+            let muta = mu.mutaplasmid_type_id.map(n).unwrap_or_default();
+            let short = muta.split(' ').next().unwrap_or("").to_string();
+            format!("{short} {}", n(mu.base_type_id))
+        }
+        None => n(dr.type_id),
+    };
+    drones.sort_by(|a, b| {
+        let ka = (d::drone_eft_rank(a.mutation.as_ref().map(|m| m.base_type_id).unwrap_or(a.type_id)), a.mutation.is_some(), dfull(a));
+        let kb = (d::drone_eft_rank(b.mutation.as_ref().map(|m| m.base_type_id).unwrap_or(b.type_id)), b.mutation.is_some(), dfull(b));
+        ka.cmp(&kb)
+    });
+    let mut dl: Vec<String> = Vec::new();
+    for dr in drones {
+        let mut l = format!("{} x{}", dname(dr), dr.quantity);
+        if let Some(mu) = &dr.mutation {
+            muts.push(mu.clone());
+            l += &format!(" [{}]", muts.len());
+        }
+        dl.push(l);
+    }
+    if !dl.is_empty() {
+        minion.push(dl.join("\n"));
+    }
+    const FIGHTER_ORDER: [&str; 6] =
+        ["Light Fighter", "Structure Light Fighter", "Heavy Fighter", "Structure Heavy Fighter", "Support Fighter", "Structure Support Fighter"];
+    let mod_sq = |i: usize| -> Option<f64> {
+        let f = fit.as_ref()?;
+        let k = (0..f.items.len()).find(|&k| f.items[k].kind == crate::engine::Kind::Fighter && f.items[k].req_index == Some(i))?;
+        Some(f.get(k, d::a::fighterSquadronMaxSize))
+    };
+    let mut fighters: Vec<(usize, String, String)> = req
+        .fighters
+        .iter()
+        .enumerate()
+        .map(|(fi, f)| {
+            let ix = type_ix(f.type_id);
+            let g = ix.and_then(|ix| d::group_name(d::TYPES[ix].group)).unwrap_or("");
+            let rank = FIGHTER_ORDER.iter().position(|x| *x == g).unwrap_or(99);
+            // Pyfa Fighter.amount: a quantity >= squadron max size (or none) means "full squadron"
+            let maxsq = mod_sq(fi).or_else(|| ix.and_then(|ix| d::type_attr(ix, d::a::fighterSquadronMaxSize))).unwrap_or(0.0);
+            let qty = match f.quantity {
+                Some(q) if q > 0 && (q as f64) < maxsq => q as i64,
+                _ => maxsq as i64,
+            };
+            (rank, n(f.type_id), format!("{} x{}", n(f.type_id), qty))
+        })
+        .collect();
+    fighters.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+    if !fighters.is_empty() {
+        minion.push(fighters.iter().map(|f| f.2.clone()).collect::<Vec<_>>().join("\n"));
+    }
+    if !minion.is_empty() {
+        sections.push(minion.join("\n\n"));
+    }
+    // implants, boosters (sorted by slot, stable)
+    let slot_of = |id: u32, attr: u16| type_ix(id).and_then(|ix| d::type_attr(ix, attr)).unwrap_or(0.0);
+    let mut chr: Vec<String> = Vec::new();
+    let mut imps: Vec<u32> = req.implants.clone();
+    imps.sort_by(|a, b| slot_of(*a, d::a::implantness).partial_cmp(&slot_of(*b, d::a::implantness)).unwrap());
+    if !imps.is_empty() {
+        chr.push(imps.iter().map(|&i| n(i)).collect::<Vec<_>>().join("\n"));
+    }
+    let mut boos: Vec<u32> = req.boosters.iter().map(|b| b.type_id).collect();
+    boos.sort_by(|a, b| slot_of(*a, ATTR_BOOSTERNESS).partial_cmp(&slot_of(*b, ATTR_BOOSTERNESS)).unwrap());
+    if !boos.is_empty() {
+        chr.push(boos.iter().map(|&i| n(i)).collect::<Vec<_>>().join("\n"));
+    }
+    if !chr.is_empty() {
+        sections.push(chr.join("\n\n"));
+    }
+    // cargo sorted by (category name, group name, type name)
+    let mut cargo: Vec<((String, String, String), String)> = req
+        .cargo
+        .iter()
+        .map(|c| {
+            let ix = type_ix(c.type_id);
+            let g = ix.map(|ix| d::TYPES[ix].group).unwrap_or(0);
+            let cat = ix.map(|ix| d::TYPES[ix].category).unwrap_or(0);
+            let key = (d::category_name(cat).unwrap_or("").to_string(), d::group_name(g).unwrap_or("").to_string(), n(c.type_id));
+            (key, format!("{} x{}", n(c.type_id), c.quantity))
+        })
+        .collect();
+    cargo.sort_by(|a, b| a.0.cmp(&b.0));
+    if !cargo.is_empty() {
+        sections.push(cargo.into_iter().map(|c| c.1).collect::<Vec<_>>().join("\n"));
+    }
+    // mutated items
     if !muts.is_empty() {
-        out += "\n";
+        let mut ml: Vec<String> = Vec::new();
         for (k, m) in muts.iter().enumerate() {
-            out += &format!("[{}] {}\n", k + 1, n(m.base_type_id));
-            if let Some(p) = m.mutaplasmid_type_id {
-                out += &format!("  {}\n", n(p));
-            }
-            let kv: Vec<String> = m
-                .attributes
-                .iter()
-                .map(|(a, v)| {
-                    let an = a.parse::<u16>().ok().and_then(d::attr_name).map(|x| x.to_string()).unwrap_or(a.clone());
-                    format!("{an} {v}")
-                })
-                .collect();
-            if !kv.is_empty() {
-                out += &format!("  {}\n", kv.join(", "));
-            }
+            let mut t = format!("[{}] {}", k + 1, n(m.base_type_id));
+            t += &format!("\n  {}", m.mutaplasmid_type_id.map(n).unwrap_or_default());
+            let kv: Vec<String> = mutator_lines(m).into_iter().map(|(a, v)| format!("{a} {}", py_float(float_unerr(v)))).collect();
+            t += &format!("\n  {}", kv.join(", "));
+            ml.push(t);
         }
+        sections.push(ml.join("\n"));
     }
-    out
+    format!("{header}\n\n{}", sections.join("\n\n\n"))
 }

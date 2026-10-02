@@ -459,6 +459,37 @@ fn main() {
     writeln!(out, "pub static TYPE_NAMES_ZH: &str = {zb:?};").unwrap();
     arr(&mut out, "TYPE_NAME_ZH_OFF", "u32", &zoff);
     arr(&mut out, "TYPE_META_LEVEL", "i16", &tl.iter().map(|(_, t)| t["meta_level"].as_i64().unwrap_or(-1)).collect::<Vec<_>>());
+    // EFT export (Pyfa exportDrones DRONE_ORDER): drone market group -> sort rank; a type without its own market
+    // group uses its variation parent's (Pyfa Market.getMarketGroupByItem parentcheck).
+    {
+        const MG_RANK: [(u32, u8); 22] = [
+            (837, 0), (1531, 0), (3881, 1), (838, 2), (1532, 2), (3882, 3), (359, 4), (839, 4), (3883, 5), (911, 6), (1533, 6),
+            (843, 7), (1586, 7), (841, 8), (1029, 8), (842, 9), (1030, 9), (158, 10), (358, 10), (1643, 11), (1646, 11),
+            (0, 99),
+        ];
+        let rank = |mg: Option<u32>| mg.and_then(|m| MG_RANK.iter().find(|x| x.0 == m).map(|x| x.1));
+        let mut dro: Vec<String> = Vec::new();
+        for (id, t) in &tl {
+            if u(&t["category"]) != Some(18) {
+                continue;
+            }
+            let mut r = rank(u(&t["market_group"]));
+            if r.is_none() && t["market_group"].is_null() {
+                if let Some(p) = u(&t["variation_parent"]) {
+                    r = rank(types.get(&p.to_string()).and_then(|pt| u(&pt["market_group"])));
+                }
+            }
+            dro.push(format!("({id}, {})", r.unwrap_or(99)));
+        }
+        arr(&mut out, "DRONE_EFT_RANK", "(u32, u8)", &dro);
+        let cats = d["categories"].as_object().unwrap();
+        let mut cl: Vec<(u32, String)> = cats.iter().map(|(k, c)| (k.parse().unwrap(), c["name"].as_str().unwrap_or("").to_string())).collect();
+        cl.sort();
+        arr(&mut out, "CAT_IDS", "u32", &cl.iter().map(|c| c.0).collect::<Vec<_>>());
+        let (cb, coff) = blob(&cl.iter().map(|c| c.1.clone()).collect::<Vec<_>>());
+        writeln!(out, "pub static CAT_NAMES: &str = {cb:?};").unwrap();
+        arr(&mut out, "CAT_NAME_OFF", "u32", &coff);
+    }
     skills.sort();
     arr(&mut out, "PUBLISHED_SKILLS", "u32", &skills);
 
