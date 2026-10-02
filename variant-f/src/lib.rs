@@ -5,6 +5,7 @@
 pub mod capsim;
 pub mod data;
 pub mod eft;
+pub mod formats;
 pub mod engine;
 pub mod j;
 pub mod request;
@@ -145,6 +146,42 @@ pub fn type_info(key: &str) -> Value {
            "capacity": data::type_capacity(ix), "slot": engine::infer_slot(ix), "attributes": attrs, "effects": effects})
 }
 
+fn opt(p: &Value, k: &str, default: bool) -> bool {
+    p.get("options").and_then(|o| o.get(k)).and_then(|v| v.as_bool()).unwrap_or(default)
+}
+
+/// `format_export {fit, name, format, options}` -> `{"text"}`; formats eft, dna, esi, xml, multibuy.
+fn format_export(p: &Value) -> Value {
+    let r = match serde_json::from_value::<FitRequest>(p.get("fit").cloned().unwrap_or(Value::Null)) {
+        Ok(r) => r,
+        Err(e) => return json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
+    };
+    let name = p.get("name").and_then(|n| n.as_str()).unwrap_or("EXCT fit");
+    let text = match p.get("format").and_then(|f| f.as_str()).unwrap_or("eft") {
+        "eft" => eft::export_opts(&r, name, &eft::EftOpts {
+            implants: opt(p, "implants", true),
+            mutations: opt(p, "mutations", true),
+            loaded_charges: opt(p, "loaded_charges", true),
+            boosters: opt(p, "boosters", true),
+            cargo: opt(p, "cargo", true),
+        }),
+        "dna" => formats::dna_export(&r, name, opt(p, "formatting", false)),
+        "esi" => match formats::esi_export(&r, name, opt(p, "charges", true), opt(p, "implants", true), opt(p, "boosters", true)) {
+            Ok(t) => t,
+            Err(e) => return json!({"error": {"code": "EXPORT", "message": e}}),
+        },
+        "xml" => formats::xml_export(&[(&r, name)]),
+        "multibuy" => formats::multibuy_export(&r, &formats::MultibuyOpts {
+            loaded_charges: opt(p, "loaded_charges", true),
+            cargo: opt(p, "cargo", true),
+            implants: opt(p, "implants", true),
+            boosters: opt(p, "boosters", true),
+        }),
+        f => return json!({"error": {"code": "UNSUPPORTED_FORMAT", "message": f}}),
+    };
+    json!({"text": text})
+}
+
 /// JSONL RPC line: {"id","method","params"} -> {"id","result"}
 pub fn rpc(line: &str) -> Value {
     let v: Value = match serde_json::from_str(line) {
@@ -166,6 +203,7 @@ pub fn rpc(line: &str) -> Value {
             Ok(r) => json!({"text": eft::export(&r, p.get("name").and_then(|n| n.as_str()).unwrap_or("EXCT fit"))}),
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },
+        "format_export" => format_export(&p),
         "search" => {
             let kinds: Option<Vec<String>> = match p.get("kinds") {
                 Some(Value::Array(a)) => Some(a.iter().filter_map(|k| k.as_str().map(|s| s.to_lowercase())).collect()),

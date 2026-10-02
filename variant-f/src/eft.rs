@@ -168,7 +168,7 @@ pub fn parse(text: &str) -> Result<FitRequest, String> {
 }
 
 /// Python `repr(float)` (shortest round-trip, always with a fractional part or exponent).
-fn py_float(x: f64) -> String {
+pub(crate) fn py_float(x: f64) -> String {
     if x.is_infinite() {
         return if x > 0.0 { "inf".into() } else { "-inf".into() };
     }
@@ -187,7 +187,7 @@ fn py_float(x: f64) -> String {
 }
 
 /// Pyfa `floatUnerr` (7 significant digits kept).
-fn float_unerr(x: f64) -> f64 {
+pub(crate) fn float_unerr(x: f64) -> f64 {
     if x == 0.0 || x.is_infinite() {
         return x;
     }
@@ -201,7 +201,7 @@ fn float_unerr(x: f64) -> f64 {
 }
 
 /// Pyfa mutator values: every mutaplasmid attribute, request value (or base value) clamped to the roll range.
-fn mutator_lines(m: &Mutation) -> Vec<(String, f64)> {
+pub(crate) fn mutator_lines(m: &Mutation) -> Vec<(String, f64)> {
     let req_val = |aid: u16| m.attributes.iter().find(|(k, _)| k.parse::<u16>().ok() == Some(aid) || d::attr_by_name(k) == Some(aid)).map(|x| *x.1);
     let base_ix = type_ix(m.base_type_id);
     let mut out: Vec<(String, f64)> = Vec::new();
@@ -243,6 +243,28 @@ fn round3(x: f64) -> f64 {
 /// EFT export, byte-compatible with Pyfa `exportEft` (all options on) after the GUI's `fill()`: empty slots are
 /// written as `[Empty X slot]` up to the ship's (modified) slot counts.
 pub fn export(req: &FitRequest, name: &str) -> String {
+    export_opts(req, name, &EftOpts::default())
+}
+
+/// Pyfa `PortEftOptions` switches (all on = `export`).
+#[derive(Debug, Clone, Copy)]
+pub struct EftOpts {
+    pub implants: bool,
+    pub mutations: bool,
+    pub loaded_charges: bool,
+    pub boosters: bool,
+    pub cargo: bool,
+}
+
+impl Default for EftOpts {
+    fn default() -> Self {
+        EftOpts { implants: true, mutations: true, loaded_charges: true, boosters: true, cargo: true }
+    }
+}
+
+/// EFT export with Pyfa's option switches: charges, implants, boosters, cargo sections and the mutation block
+/// (mutations off: mutated items are written under their base type name without a `[n]` reference).
+pub fn export_opts(req: &FitRequest, name: &str, o: &EftOpts) -> String {
     let n = |id: u32| type_ix(id).map(|ix| d::type_name(ix).to_string()).unwrap_or_else(|| id.to_string());
     let header = format!("[{}, {}]", n(req.ship.type_id), name);
     let fit = crate::engine::Fit::build(req).ok();
@@ -266,11 +288,11 @@ pub fn export(req: &FitRequest, name: &str) -> String {
                 None => n(m.type_id),
             };
             let off = if m.state == Some(State::Offline) { " /offline" } else { "" };
-            if let Some(c) = m.charge_type_id {
+            if let Some(c) = m.charge_type_id.filter(|_| o.loaded_charges) {
                 l += &format!(", {}", n(c));
             }
             l += off;
-            if let Some(mu) = &m.mutation {
+            if let Some(mu) = m.mutation.as_ref().filter(|_| o.mutations) {
                 muts.push(mu.clone());
                 l += &format!(" [{}]", muts.len());
             }
@@ -310,7 +332,7 @@ pub fn export(req: &FitRequest, name: &str) -> String {
     let mut dl: Vec<String> = Vec::new();
     for dr in drones {
         let mut l = format!("{} x{}", dname(dr), dr.quantity);
-        if let Some(mu) = &dr.mutation {
+        if let Some(mu) = dr.mutation.as_ref().filter(|_| o.mutations) {
             muts.push(mu.clone());
             l += &format!(" [{}]", muts.len());
         }
@@ -355,12 +377,12 @@ pub fn export(req: &FitRequest, name: &str) -> String {
     let mut chr: Vec<String> = Vec::new();
     let mut imps: Vec<u32> = req.implants.clone();
     imps.sort_by(|a, b| slot_of(*a, d::a::implantness).partial_cmp(&slot_of(*b, d::a::implantness)).unwrap());
-    if !imps.is_empty() {
+    if !imps.is_empty() && o.implants {
         chr.push(imps.iter().map(|&i| n(i)).collect::<Vec<_>>().join("\n"));
     }
     let mut boos: Vec<u32> = req.boosters.iter().map(|b| b.type_id).collect();
     boos.sort_by(|a, b| slot_of(*a, ATTR_BOOSTERNESS).partial_cmp(&slot_of(*b, ATTR_BOOSTERNESS)).unwrap());
-    if !boos.is_empty() {
+    if !boos.is_empty() && o.boosters {
         chr.push(boos.iter().map(|&i| n(i)).collect::<Vec<_>>().join("\n"));
     }
     if !chr.is_empty() {
@@ -379,7 +401,7 @@ pub fn export(req: &FitRequest, name: &str) -> String {
         })
         .collect();
     cargo.sort_by(|a, b| a.0.cmp(&b.0));
-    if !cargo.is_empty() {
+    if !cargo.is_empty() && o.cargo {
         sections.push(cargo.into_iter().map(|c| c.1).collect::<Vec<_>>().join("\n"));
     }
     // mutated items
