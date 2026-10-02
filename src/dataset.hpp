@@ -58,7 +58,7 @@ struct MutaAttr {
   double lo, hi;
 };
 struct MutaRec {
-  uint32_t id, off, cnt, pad;
+  uint32_t id, off, cnt, map_off, map_cnt, pad;  // map: pool u32s [output, n, inputs...]*
 };
 struct NameIdx {
   uint32_t off, len, id, pad;
@@ -86,7 +86,7 @@ struct Header {
   SecEnt sec[S_COUNT];
 };
 
-constexpr uint32_t CACHE_VERSION = 3;
+constexpr uint32_t CACHE_VERSION = 4;
 
 class Dataset {
  public:
@@ -129,6 +129,8 @@ class Dataset {
   }
   const DbuffRec* dbuff(uint32_t id) const;
   const MutaRec* muta(uint32_t id) const;
+  // mutated output type for base + mutaplasmid (0 if no mapping)
+  uint32_t muta_output(uint32_t muta_id, uint32_t base) const;
   double attr_default(uint32_t id) const {
     const AttrRec* a = attr(id);
     return a ? a->def : 0.0;

@@ -19,6 +19,8 @@
 #include <vector>
 
 #include "api.hpp"
+#include "eft.hpp"
+#include "request.hpp"
 
 using namespace evej;
 
@@ -27,7 +29,8 @@ static const char* USAGE =
     "Commands:\n"
     "  calc [FILE]            FitRequest JSON (file or stdin) -> FitStats JSON\n"
     "  batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout (same order, multi-threaded)\n"
-    "  serve-stdio            JSONL RPC: {\"id\",\"method\":\"calc|search|type|meta\",\"params\"}\n"
+    "  serve-stdio            JSONL RPC: {\"id\",\"method\":\"calc|eft_parse|eft_export|search|type|meta\",\"params\"}\n"
+    "  eft [FILE]             EFT text (file or stdin) -> FitRequest JSON (add --calc to compute, --skills N)\n"
     "  search QUERY | type ID|NAME | meta\n"
     "  bench [FILE] [-n N]    time N calculations of one request in-process\n"
     "  build-cache            (re)build the binary dataset cache and exit\n\n"
@@ -308,6 +311,25 @@ static void rpc_line(Worker& wk, std::string_view line, JW& w) {
   if (method == "calc") {
     if (!has_p) write_error(w, "BAD_REQUEST", "missing params", "");
     else wk.calc_element(params, w);
+  } else if (method == "eft_parse") {
+    FitRequest r;
+    std::string e = eft_parse(wk.ds, pstr("text"), r);
+    if (!e.empty()) w.obj().key("error").obj().ks("code", "EFT_PARSE").ks("message", e).end_obj().end_obj();
+    else fit_request_json(r, w);
+  } else if (method == "eft_export") {
+    simdjson::dom::element f;
+    FitRequest r;
+    std::string e;
+    if (!has_p || params["fit"].get(f) != simdjson::SUCCESS || f.is_null()) e = "invalid type: null, expected struct FitRequest";
+    else e = parse_request(f, r);
+    if (!e.empty()) {
+      w.obj().key("error").obj().ks("code", "BAD_REQUEST").ks("message", e).end_obj().end_obj();
+    } else {
+      std::string_view nm = "EXCT fit";
+      std::string_view x;
+      if (params["name"].get_string().get(x) == simdjson::SUCCESS) nm = x;
+      w.obj().ks("text", eft_export(wk.ds, r, nm)).end_obj();
+    }
   } else if (method == "meta") {
     meta_json(wk.ds, w);
   } else if (method == "search") {
@@ -352,6 +374,14 @@ int main(int argc, char** argv) {
   take("--cache", cache);
   if (take("--threads", tmp)) threads = std::max(1, atoi(tmp.c_str()));
   if (take("-n", tmp)) bench_n = std::max(1L, atol(tmp.c_str()));
+  std::string eft_skills;
+  bool eft_skills_set = take("--skills", eft_skills), eft_calc = false;
+  for (size_t i = 1; i < args.size(); i++)
+    if (args[i] == "--calc" && !args.empty() && args[0] == "eft") {
+      eft_calc = true;
+      args.erase(args.begin() + i);
+      break;
+    }
   for (size_t i = 0; i < args.size(); i++)
     if (args[i] == "--no-cache") {
       use_cache = false;
@@ -367,7 +397,7 @@ int main(int argc, char** argv) {
     const char* e = getenv("EVE_DOGMA_DATASET");
     dataset = e ? e : "dataset.json.gz";
   }
-  static const char* known[] = {"calc", "batch", "serve-stdio", "search", "type", "meta", "bench", "build-cache"};
+  static const char* known[] = {"calc", "batch", "serve-stdio", "eft", "search", "type", "meta", "bench", "build-cache"};
   bool ok_cmd = false;
   for (auto k : known)
     if (cmd == k) ok_cmd = true;
@@ -398,7 +428,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "cache: %s (%.1f ms)\n", cache.c_str(), load_ms);
     return 0;
   }
-  if (cmd == "calc" || cmd == "bench") {
+  if (cmd == "calc" || cmd == "bench" || cmd == "eft") {
     std::string in;
     if (args.size() > 1 && args[1] != "-") {
       FILE* f = fopen(args[1].c_str(), "rb");
@@ -413,6 +443,38 @@ int main(int argc, char** argv) {
     }
     double tw = now_ms();
     Worker wk(*ds, ids);
+    if (cmd == "eft") {
+      FitRequest r;
+      std::string e = eft_parse(*ds, in, r);
+      if (!e.empty()) {
+        fprintf(stderr, "error: %s\n", e.c_str());
+        return 2;
+      }
+      if (eft_skills_set) {
+        uint32_t lv = 0;
+        bool ok = !eft_skills.empty();
+        for (char c : eft_skills) {
+          if (c < '0' || c > '9') ok = false;
+          else lv = lv * 10 + (uint32_t)(c - '0');
+          if (lv > 255) ok = false;
+        }
+        if (ok) r.default_level = (uint8_t)lv;
+        else r.default_level.reset();
+      }
+      JW w;
+      fit_request_json(r, w);
+      std::string o;
+      if (eft_calc) {
+        wk.calc_json(w.s);
+        o = json_pretty(wk.out.s);
+      } else {
+        o = json_pretty(w.s);
+      }
+      o.push_back('\n');
+      write_out(o);
+      fflush(stdout);
+      return 0;
+    }
     if (cmd == "calc") {
       double tc = now_ms();
       bool ok = wk.calc_json(in);
@@ -470,7 +532,8 @@ int main(int argc, char** argv) {
   if (cmd == "meta") meta_json(*ds, w, load_ms);
   else if (cmd == "type") type_json(*ds, rest, w);
   else if (cmd == "search") search_json(*ds, rest, 25, w);
-  w.s.push_back('\n');
-  write_out(w.s);
+  std::string o = json_pretty(w.s);
+  o.push_back('\n');
+  write_out(o);
   return 0;
 }

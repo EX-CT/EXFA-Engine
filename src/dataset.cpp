@@ -426,6 +426,19 @@ bool Dataset::build_image(const std::vector<uint8_t>& src, std::vector<uint8_t>&
       }
     std::sort(muta_attrs.begin() + m.off, muta_attrs.end(), [](auto& x, auto& y) { return x.attr < y.attr; });
     m.cnt = (uint32_t)muta_attrs.size() - m.off;
+    m.map_off = (uint32_t)pool.size();
+    simdjson::dom::array ma;
+    if (!v["mapping"].get_array().get(ma))
+      for (auto x : ma) {
+        pool.push_back(opt_u32(x["output"]));
+        size_t at = pool.size();
+        pool.push_back(0);
+        simdjson::dom::array ins;
+        if (!x["inputs"].get_array().get(ins))
+          for (auto y : ins) pool.push_back(opt_u32(y));
+        pool[at] = (uint32_t)(pool.size() - at - 1);
+      }
+    m.map_cnt = (uint32_t)pool.size() - m.map_off;
     mutas.push_back(m);
   }
   std::sort(mutas.begin(), mutas.end(), [](auto& x, auto& y) { return x.id < y.id; });
@@ -649,4 +662,19 @@ std::string_view Dataset::zh_name(uint32_t id) const {
   return it != zh_.end() && it->id == id ? str(it->off, it->len) : std::string_view{};
 }
 
+}  // namespace evej
+
+namespace evej {
+uint32_t Dataset::muta_output(uint32_t muta_id, uint32_t base) const {
+  const MutaRec* m = muta(muta_id);
+  if (!m) return 0;
+  auto p = pool(m->map_off, m->map_cnt);
+  for (size_t i = 0; i + 1 < p.size();) {
+    uint32_t out = p[i], n = p[i + 1];
+    for (uint32_t k = 0; k < n; k++)
+      if (p[i + 2 + k] == base) return out;
+    i += 2 + n;
+  }
+  return 0;
+}
 }  // namespace evej

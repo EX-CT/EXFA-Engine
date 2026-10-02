@@ -85,8 +85,8 @@ void type_json(const Dataset& ds, std::string_view key, JW& w) {
   std::stable_sort(at.begin(), at.end(), [](auto& a, auto& b) { return a.first < b.first; });
   w.obj().key("attributes").obj();
   for (size_t i = 0; i < at.size(); i++)
-    if (i + 1 >= at.size() || at[i + 1].first != at[i].first) w.kn(at[i].first, at[i].second);
-  w.end_obj().kn("capacity", t->capacity).ki("category_id", t->category).key("effects").arr();
+    if (i + 1 >= at.size() || at[i + 1].first != at[i].first) w.key(at[i].first).num_raw(at[i].second);
+  w.end_obj().key("capacity").num_raw(t->capacity).ki("category_id", t->category).key("effects").arr();
   for (auto& e : ds.type_effects(*t)) {
     const EffRec* er = ds.effect(e.id);
     w.obj().kb("default", e.is_default != 0).ki("id", e.id).key("name");
@@ -98,14 +98,14 @@ void type_json(const Dataset& ds, std::string_view key, JW& w) {
   const GroupRec* g = ds.group(t->group);
   if (g) w.str(ds.group_name(*g));
   else w.null();
-  w.ki("group_id", t->group).kn("mass", t->mass).ks("name", ds.type_name(*t)).key("name_zh");
+  w.ki("group_id", t->group).key("mass").num_raw(t->mass).ks("name", ds.type_name(*t)).key("name_zh");
   auto zh = ds.zh_name(t->id);
   if (zh.empty()) w.null();
   else w.str(zh);
   w.kb("published", t->published != 0).key("slot");
   if (auto s = slot_str(t->slot)) w.str(s);
   else w.null();
-  w.ki("type_id", t->id).kn("volume", t->volume).end_obj();
+  w.ki("type_id", t->id).key("volume").num_raw(t->volume).end_obj();
 }
 
 void search_json(const Dataset& ds, std::string_view q, size_t limit, JW& w) {
