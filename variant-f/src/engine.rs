@@ -55,8 +55,9 @@ pub enum Src {
     Const(f64),
     /// AB/MWD: 1 + speedFactor/100 * speedBoostFactor / ship mass (PostMul)
     Prop { module: u32 },
-    /// projected: value scaled by range factor and target resistance attribute
-    Projected { item: u32, attr: u16, factor: f64, resist: u16, mul: bool },
+    /// projected: source value (evaluated on the projecting item) scaled by range factor and, lazily, by the
+    /// target ship's resistance attribute
+    Projected { v: f64, factor: f64, resist: u16, mul: bool },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -125,8 +126,34 @@ pub struct Fit {
     by_skill: Vec<(u32, u32)>,
     /// every skill level of the character (folded or instantiated), sorted by skill id
     pub skill_levels: Vec<(u32, u8)>,
+    /// while set, only Item/Other-domain modifiers are applied (charges of projected modules)
+    restrict: bool,
     /// published skills handled by compiled, level-folded code: (index into PUBLISHED_SKILLS, level)
     folded: Vec<(u16, u8)>,
+    /// projected fits: (fit, amount, distance)
+    ext: Vec<(Fit, u32, Option<f64>)>,
+    /// incoming remote repairs (Pyfa RR lists): kind 0 shield / 1 armor / 2 hull, amount per cycle, cycle s
+    pub rr: Vec<(u8, f64, f64)>,
+    /// incoming cap drains/fills (neuts, nos, transfers) for the cap simulation
+    pub ext_drains: Vec<ExtDrain>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ExtDrain {
+    pub cycle_ms: f64,
+    /// cap removed per cycle before resistance / signature scaling (negative = cap added)
+    pub amount: f64,
+    pub resist: u16,
+    pub sig_res: f64,
+    pub assistance: bool,
+}
+
+/// One effect projected onto this fit, fully evaluated on the projecting side.
+enum ProjAction {
+    Mod { attr: u16, op: i8, v: f64, factor: f64, resist: u16, pen: bool },
+    Rr { kind: u8, amount: f64, dur_s: f64 },
+    Drain(ExtDrain),
+    Warn(String),
 }
 
 #[derive(Debug)]
@@ -261,6 +288,9 @@ impl Fit {
     // ------------------------------------------------------------ target selectors used by generated code
     #[inline]
     pub fn m_item(&mut self, t: usize, modified: u16, op: i8, src: usize, sa: u16, pen: bool) {
+        if self.restrict && (t == self.ship || t == self.char) {
+            return;
+        }
         self.push(t, modified, op, pen, Src::Attr { item: src as u32, attr: sa });
     }
     pub fn m_other(&mut self, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
@@ -270,12 +300,18 @@ impl Fit {
         }
     }
     pub fn m_ship_loc(&mut self, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
+        if self.restrict {
+            return;
+        }
         for k in 0..self.ship_items.len() {
             let t = self.ship_items[k] as usize;
             self.m_item(t, modified, op, i, sa, pen);
         }
     }
     pub fn m_ship_group(&mut self, g: u32, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
+        if self.restrict {
+            return;
+        }
         for k in range_of(&self.by_group, g) {
             let t = self.by_group[k].1 as usize;
             if self.items[t].loc == Loc::Ship {
@@ -284,6 +320,9 @@ impl Fit {
         }
     }
     pub fn m_ship_skill(&mut self, s: u32, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
+        if self.restrict {
+            return;
+        }
         for k in range_of(&self.by_skill, s) {
             let t = self.by_skill[k].1 as usize;
             if self.items[t].loc == Loc::Ship {
@@ -292,6 +331,9 @@ impl Fit {
         }
     }
     pub fn m_owner_skill(&mut self, s: u32, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
+        if self.restrict {
+            return;
+        }
         for k in range_of(&self.by_skill, s) {
             let t = self.by_skill[k].1 as usize;
             if self.items[t].owned {
@@ -300,12 +342,18 @@ impl Fit {
         }
     }
     pub fn m_char_loc(&mut self, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
+        if self.restrict {
+            return;
+        }
         for k in 0..self.char_items.len() {
             let t = self.char_items[k] as usize;
             self.m_item(t, modified, op, i, sa, pen);
         }
     }
     pub fn m_char_group(&mut self, g: u32, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
+        if self.restrict {
+            return;
+        }
         for k in range_of(&self.by_group, g) {
             let t = self.by_group[k].1 as usize;
             if self.items[t].loc == Loc::Char {
@@ -314,6 +362,9 @@ impl Fit {
         }
     }
     pub fn m_char_skill(&mut self, s: u32, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
+        if self.restrict {
+            return;
+        }
         for k in range_of(&self.by_skill, s) {
             let t = self.by_skill[k].1 as usize;
             let it = &self.items[t];
@@ -513,7 +564,11 @@ impl Fit {
             by_group: Vec::new(),
             by_skill: Vec::new(),
             skill_levels: Vec::new(),
+            restrict: false,
             folded: Vec::with_capacity(d::PUBLISHED_SKILLS.len()),
+            ext: Vec::new(),
+            rr: Vec::new(),
+            ext_drains: Vec::new(),
         };
         let ship = fit.new_item(req.ship.type_id, Kind::Ship, Loc::Ship, "/ship/type_id")?;
         fit.ship = ship;
@@ -614,6 +669,12 @@ impl Fit {
                             it.state = m.state.unwrap_or(State::Active);
                             it.distance = p.distance_m;
                             it.req_index = Some(i);
+                            if let Some(c) = m.charge_type_id {
+                                let cidx = fit.new_item(c, Kind::Charge, Loc::Nowhere, &format!("/projected/{i}/module/charge_type_id"))?;
+                                fit.items[cidx].parent = Some(idx);
+                                fit.items[cidx].owned = false;
+                                fit.items[idx].charge = Some(cidx);
+                            }
                         }
                     }
                 }
@@ -625,6 +686,18 @@ impl Fit {
                             it.owned = false;
                             it.state = State::Active;
                             it.distance = p.distance_m;
+                        }
+                    }
+                }
+                "fit" => {
+                    if let Some(pf) = &p.fit {
+                        let mut sub = (**pf).clone();
+                        sub.projected.clear();
+                        match Fit::build(&sub) {
+                            Ok(sf) => fit.ext.push((sf, p.amount.max(1), p.distance_m)),
+                            Err(e) => {
+                                return Err(EngineError { code: e.code, message: e.message, path: format!("/projected/{i}/fit{}", e.path) });
+                            }
                         }
                     }
                 }
@@ -707,9 +780,10 @@ impl Fit {
             }
             let kind = self.items[i].kind;
             if kind == Kind::Projected {
-                self.register_projected(i);
                 continue;
             }
+            // charges of projected modules (scripts) only act on their module
+            let restricted = kind == Kind::Charge && self.items[i].loc == Loc::Nowhere;
             if is_structure && matches!(kind, Kind::Drone | Kind::Implant | Kind::Booster) {
                 continue;
             }
@@ -735,9 +809,16 @@ impl Fit {
                 if !state_ok(meta.cat, state) {
                     continue;
                 }
-                d::apply_local(self, ei as u16, i, p);
+                if restricted {
+                    self.restrict = true;
+                    d::apply_local(self, ei as u16, i, p);
+                    self.restrict = false;
+                } else {
+                    d::apply_local(self, ei as u16, i, p);
+                }
             }
         }
+        self.register_projectors(req);
         if n <= 2 {
             self.apply_folded_skills();
         }
@@ -752,44 +833,53 @@ impl Fit {
         self.folded = folded;
     }
 
-    fn register_projected(&mut self, i: usize) {
-        let ship = self.ship;
-        let state = self.items[i].state;
-        if state < State::Active {
-            return;
+    /// Resistance multiplier of this ship against a projected effect (Pyfa: missing or 0 -> 1).
+    pub fn resist(&self, attr: u16) -> f64 {
+        if attr == 0 {
+            return 1.0;
         }
-        let effs: Vec<usize> = self.items[i].effects().map(|x| x.0).collect();
-        for ei in effs {
-            let meta = d::EFF_META[ei];
-            if meta.cat != 2 && meta.cat != 3 {
-                continue;
+        let v = self.get(self.ship, attr);
+        if v == 0.0 { 1.0 } else { v }
+    }
+
+    fn register_projectors(&mut self, req: &FitRequest) {
+        let _ = req;
+        let mut acts: Vec<ProjAction> = Vec::new();
+        for i in 0..self.items.len() {
+            if self.items[i].kind == Kind::Projected && self.items[i].state >= State::Active {
+                let dist = self.items[i].distance;
+                collect_projection(self, i, dist, 1, &mut acts);
             }
-            let opt = if meta.range != 0 { self.base_opt(i, meta.range).unwrap_or(0.0) } else { 0.0 };
-            let fo = if meta.falloff != 0 { self.base_opt(i, meta.falloff).unwrap_or(0.0) } else { 0.0 };
-            let factor = crate::stats::range_factor(opt, fo, self.items[i].distance, true);
-            let resist = if meta.resist != 0 { meta.resist } else { self.base_opt(i, a::remoteResistanceID).map(|v| v as u16).unwrap_or(0) };
-            let mut list: Vec<(u16, u16, i8)> = Vec::new();
-            let has_mods = d::apply_projected(ei as u16, &mut |t, s, op| list.push((t, s, op)));
-            if !has_mods {
-                match meta.proj {
-                    1 => list.push((a::maxVelocity, a::speedFactor, 6)),
-                    2 => list.push((a::signatureRadius, a::signatureRadiusBonus, 6)),
-                    3 | 4 => {
-                        list.push((a::maxTargetRange, a::maxTargetRangeBonus, 6));
-                        list.push((a::scanResolution, a::scanResolutionBonus, 6));
-                    }
-                    _ => {
-                        self.warnings.push(format!("projected effect '{}' not modelled yet", d::eff_name(ei)));
+        }
+        for (sf, amount, dist) in &self.ext {
+            for i in 0..sf.items.len() {
+                let it = &sf.items[i];
+                match it.kind {
+                    Kind::Module if it.state >= State::Active => collect_projection(sf, i, *dist, *amount, &mut acts),
+                    // Pyfa projects a fit's drones at range 0
+                    Kind::Drone if it.active_count > 0 => collect_projection(sf, i, Some(0.0), *amount * it.active_count, &mut acts),
+                    Kind::Fighter if it.active_count > 0 => acts.push(ProjAction::Warn("projected fighters are not modelled yet".into())),
+                    _ => {}
+                }
+            }
+        }
+        let ship = self.ship;
+        for a in acts {
+            match a {
+                ProjAction::Mod { attr, op, v, factor, resist, pen } => {
+                    let mul = op == 4 || op == 0;
+                    self.push(ship, attr, op, pen, Src::Projected { v, factor, resist, mul });
+                }
+                ProjAction::Rr { kind, amount, dur_s } => self.rr.push((kind, amount, dur_s)),
+                ProjAction::Drain(dr) => self.ext_drains.push(dr),
+                ProjAction::Warn(w) => {
+                    if !self.warnings.contains(&w) {
+                        self.warnings.push(w)
                     }
                 }
             }
-            let pen_cat = !EXEMPT_CATEGORIES.contains(&self.items[i].category);
-            for (t, s, op) in list {
-                let mul = op == 4 || op == 0;
-                let pen = pen_cat && !d::attr_stackable(t);
-                self.push(ship, t, op, pen, Src::Projected { item: i as u32, attr: s, factor, resist, mul });
-            }
         }
+        self.clear_cache();
     }
 
     fn register_buffs(&mut self, req: &FitRequest) {
@@ -1015,12 +1105,8 @@ impl Fit {
                     1.0 + self.get(module as usize, a::speedFactor) / 100.0 * self.get(module as usize, a::speedBoostFactor) / m
                 }
             }
-            Src::Projected { item, attr, factor, resist, mul } => {
-                let mut f = factor;
-                if resist != 0 {
-                    f *= self.get(self.ship, resist);
-                }
-                let v = self.get(item as usize, attr);
+            Src::Projected { v, factor, resist, mul } => {
+                let f = factor * self.resist(resist);
                 if mul { (v - 1.0) * f + 1.0 } else { v * f }
             }
         }
@@ -1142,4 +1228,117 @@ pub fn infer_slot(ty: usize) -> Option<Slot> {
         }
     }
     None
+}
+
+/// Evaluate everything item `i` of fit `sf` projects (all values from the projecting side), `times` times.
+fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out: &mut Vec<ProjAction>) {
+    let g = |x: u16| sf.get(i, x);
+    let pen_cat = !EXEMPT_CATEGORIES.contains(&sf.items[i].category);
+    let effs: Vec<usize> = sf.items[i].effects().map(|x| x.0).collect();
+    let paste = sf.items[i].charge.map(|c| sf.items[c].type_id == d::T_NANITE_REPAIR_PASTE).unwrap_or(false);
+    for ei in effs {
+        let meta = d::EFF_META[ei];
+        if meta.cat != 2 && meta.cat != 3 {
+            continue;
+        }
+        let eid = d::EFF_IDS[ei];
+        let rf = |opt: u16, fo: u16| crate::stats::range_factor(g(opt), g(fo), distance, true);
+        let resist = if meta.resist != 0 { meta.resist } else { g(a::remoteResistanceID) as u16 };
+        let cutoff = |attr: u16| distance.map(|dd| g(attr) < dd).unwrap_or(false);
+        let mut one: Vec<ProjAction> = Vec::new();
+        match eid {
+            e::shipModuleRemoteArmorRepairer | e::shipModuleAncillaryRemoteArmorRepairer | e::ShipModuleRemoteArmorMutadaptiveRepairer => {
+                let mult = if eid == e::shipModuleAncillaryRemoteArmorRepairer && paste { 3.0 } else { 1.0 };
+                let mut amount = g(a::armorDamageAmount) * mult * rf(a::maxRange, a::falloffEffectiveness);
+                let dur_s = g(a::duration) / 1000.0;
+                if eid == e::ShipModuleRemoteArmorMutadaptiveRepairer {
+                    let spool = sf.items[i].spool.unwrap_or(crate::request::Spool { kind: crate::request::SpoolType::SpoolScale, amount: 1.0 });
+                    let (sp, _, _) = crate::stats::spoolup(g(a::repairMultiplierBonusMax), g(a::repairMultiplierBonusPerCycle), dur_s, spool);
+                    amount *= 1.0 + sp;
+                }
+                one.push(ProjAction::Rr { kind: 1, amount, dur_s });
+            }
+            e::shipModuleRemoteShieldBooster | e::shipModuleAncillaryRemoteShieldBooster => {
+                one.push(ProjAction::Rr { kind: 0, amount: g(a::shieldBonus) * rf(a::maxRange, a::falloffEffectiveness), dur_s: g(a::duration) / 1000.0 });
+            }
+            e::shipModuleRemoteHullRepairer => {
+                one.push(ProjAction::Rr { kind: 2, amount: g(a::structureDamageAmount) * rf(a::maxRange, a::falloffEffectiveness), dur_s: g(a::duration) / 1000.0 });
+            }
+            e::npcEntityRemoteArmorRepairer | e::npcEntityRemoteShieldBooster | e::npcEntityRemoteHullRepairer => {
+                if !cutoff(a::maxRange) {
+                    let (kind, amt) = match eid {
+                        e::npcEntityRemoteArmorRepairer => (1, g(a::armorDamageAmount)),
+                        e::npcEntityRemoteShieldBooster => (0, g(a::shieldBonus)),
+                        _ => (2, g(a::structureDamageAmount)),
+                    };
+                    one.push(ProjAction::Rr { kind, amount: amt, dur_s: g(a::duration) / 1000.0 });
+                }
+            }
+            e::energyNeutralizerFalloff | e::structureEnergyNeutralizerFalloff => {
+                let amount = g(a::energyNeutralizerAmount) * rf(a::maxRange, a::falloffEffectiveness);
+                one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: false }));
+            }
+            e::energyNosferatuFalloff => {
+                let amount = g(a::powerTransferAmount) * rf(a::maxRange, a::falloffEffectiveness);
+                one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: false }));
+            }
+            e::shipModuleRemoteCapacitorTransmitter => {
+                if !cutoff(a::maxRange) {
+                    let amount = -g(a::powerTransferAmount);
+                    one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: true }));
+                }
+            }
+            e::entityEnergyNeutralizerFalloff => {
+                if !cutoff(a::energyNeutralizerRangeOptimal) {
+                    let amount = g(a::energyNeutralizerAmount);
+                    one.push(ProjAction::Drain(ExtDrain {
+                        cycle_ms: g(a::energyNeutralizerDuration),
+                        amount,
+                        resist,
+                        sig_res: g(a::energyNeutralizerSignatureResolution),
+                        assistance: false,
+                    }));
+                }
+            }
+            _ => {
+                let opt = if meta.range != 0 { g(meta.range) } else { 0.0 };
+                let fo = if meta.falloff != 0 { g(meta.falloff) } else { 0.0 };
+                let factor = crate::stats::range_factor(opt, fo, distance, true);
+                let mut list: Vec<(u16, u16, i8)> = Vec::new();
+                let has_mods = d::apply_projected(ei as u16, &mut |t, s, op| list.push((t, s, op)));
+                if !has_mods {
+                    match meta.proj {
+                        1 => list.push((a::maxVelocity, a::speedFactor, 6)),
+                        2 => list.push((a::signatureRadius, a::signatureRadiusBonus, 6)),
+                        3 | 4 => {
+                            list.push((a::maxTargetRange, a::maxTargetRangeBonus, 6));
+                            list.push((a::scanResolution, a::scanResolutionBonus, 6));
+                            if meta.proj == 4 {
+                                list.push((a::scanGravimetricStrength, a::scanGravimetricStrengthPercent, 6));
+                                list.push((a::scanMagnetometricStrength, a::scanMagnetometricStrengthPercent, 6));
+                                list.push((a::scanRadarStrength, a::scanRadarStrengthPercent, 6));
+                                list.push((a::scanLadarStrength, a::scanLadarStrengthPercent, 6));
+                            }
+                        }
+                        _ => one.push(ProjAction::Warn(format!("projected effect '{}' not modelled yet", d::eff_name(ei)))),
+                    }
+                }
+                for (t, s, op) in list {
+                    one.push(ProjAction::Mod { attr: t, op, v: g(s), factor, resist, pen: pen_cat && !d::attr_stackable(t) });
+                }
+            }
+        }
+        for _ in 0..times {
+            for x in &one {
+                out.push(match x {
+                    ProjAction::Mod { attr, op, v, factor, resist, pen } => {
+                        ProjAction::Mod { attr: *attr, op: *op, v: *v, factor: *factor, resist: *resist, pen: *pen }
+                    }
+                    ProjAction::Rr { kind, amount, dur_s } => ProjAction::Rr { kind: *kind, amount: *amount, dur_s: *dur_s },
+                    ProjAction::Drain(dr) => ProjAction::Drain(*dr),
+                    ProjAction::Warn(w) => ProjAction::Warn(w.clone()),
+                });
+            }
+        }
+    }
 }

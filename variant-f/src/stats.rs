@@ -98,9 +98,63 @@ fn tidy(v: Value) -> Value {
     }
 }
 
+fn sig_radius_now(f: &Fit) -> f64 {
+    f.get(f.ship, a::signatureRadius)
+}
+
+/// Pyfa's remote-repair diminishing returns for one layer (cycle time truncated to whole seconds, as Pyfa does).
+fn applied_rr(rr: &[(u8, f64, f64)], kind: u8) -> f64 {
+    let list: Vec<(f64, f64)> = rr.iter().filter(|x| x.0 == kind).map(|x| (x.1, x.2)).collect();
+    if list.is_empty() {
+        return 0.0;
+    }
+    let total: f64 = list.iter().map(|(amt, c)| if c.trunc() > 0.0 { amt / c.trunc() } else { 0.0 }).sum();
+    let mut applied = 0.0;
+    for (amt, c) in list {
+        if c.trunc() <= 0.0 || c <= 0.0 {
+            continue;
+        }
+        let rrps = amt / c.trunc();
+        let modified = 7000.0 + rrps * 20.0;
+        let mult = 1.0 - (((rrps + modified) / (total + modified)) - 1.0).powi(2);
+        applied += mult * amt / c;
+    }
+    applied
+}
+
 impl Fit {
     fn has_eff(&self, i: usize, ids: &[u32]) -> bool {
         self.items[i].effects().any(|(ei, _)| ids.contains(&d::EFF_IDS[ei]))
+    }
+
+    /// Missile range like Pyfa: acceleration phase, flight-time bonus from ship radius, whole-second
+    /// interpolation, FoF limit, centre-to-surface correction.
+    fn missile_range(&self, c: usize) -> f64 {
+        let v = self.get(c, a::maxVelocity);
+        if v == 0.0 {
+            return 0.0;
+        }
+        let radius = self.get(self.ship, a::radius);
+        let flight = float_unerr(self.get(c, a::explosionDelay) / 1000.0 + radius / v);
+        let mass = self.get(c, a::mass);
+        let agility = self.get(c, a::agility);
+        let range = |t: f64| {
+            let accel = t.min(mass * agility / 1e6);
+            v / 2.0 * accel + v * (t - accel)
+        };
+        let (lt, ht) = (flight.floor(), flight.ceil());
+        let (mut lo, mut hi) = (range(lt), range(ht));
+        if self.items[c].has_effect(e::fofMissileLaunching) {
+            let lim = self.get(c, a::maxFOFTargetRange);
+            if lim != 0.0 {
+                lo = lo.min(lim);
+                hi = hi.min(lim);
+            }
+        }
+        lo = (lo - radius).max(0.0);
+        hi = (hi - radius).max(0.0);
+        let chance = flight - lt;
+        lo * (1.0 - chance) + hi * chance
     }
 
     fn raw_cycle_ms(&self, i: usize) -> f64 {
@@ -286,7 +340,7 @@ impl Fit {
                 w["tracking"] = json!(g(i, a::trackingSpeed));
             } else if kind == "missile" {
                 if let Some(c) = self.items[i].charge {
-                    w["range_m"] = json!(g(c, a::maxVelocity) * g(c, a::explosionDelay) / 1000.0);
+                    w["range_m"] = json!(self.missile_range(c));
                     w["explosion_radius"] = json!(g(c, a::aoeCloudSize));
                     w["explosion_velocity"] = json!(g(c, a::aoeVelocity));
                 }
@@ -425,6 +479,12 @@ impl Fit {
                 hull_rep += g(i, a::structureDamageAmount) / dur;
             }
         }
+        // incoming remote repairs (Pyfa: diminishing returns over all RR of one layer)
+        if g(ship, a::disallowAssistance) == 0.0 {
+            shield_rep += applied_rr(&self.rr, 0);
+            armor_rep += applied_rr(&self.rr, 1);
+            hull_rep += applied_rr(&self.rr, 2);
+        }
         let shield_rr_s = g(ship, a::shieldRechargeRate) / 1000.0;
         let passive = if shield_rr_s > 0.0 { 10.0 / shield_rr_s * 0.5 * 0.5 * hp_s } else { 0.0 };
         let defense = json!({
@@ -479,6 +539,23 @@ impl Fit {
                 });
             }
             module_rows.push(row);
+        }
+        // projected neutralisers / nosferatu / cap transfers
+        let no_assist = g(ship, a::disallowAssistance) != 0.0;
+        for x in &self.ext_drains {
+            if x.assistance && no_assist {
+                continue;
+            }
+            let mut need = x.amount * self.resist(x.resist);
+            if x.sig_res != 0.0 {
+                need *= (sig_radius_now(self) / x.sig_res).min(1.0);
+            }
+            if need == 0.0 || x.cycle_ms <= 0.0 {
+                continue;
+            }
+            let per_s = need / (x.cycle_ms / 1000.0);
+            if per_s > 0.0 { cap_used += per_s } else { cap_added -= per_s }
+            drains.push(Drain { duration: x.cycle_ms.trunc(), cap_need: need, clip_size: 0, reload_ms: 0.0, is_injector: false, disable_stagger: false });
         }
         let mut capj = json!({"capacity": cap, "recharge_time_s": rr / 1000.0, "peak_recharge_gj_s": peak,
             "use_gj_s": cap_used, "injected_gj_s": cap_added, "delta_gj_s": peak + cap_added - cap_used});
