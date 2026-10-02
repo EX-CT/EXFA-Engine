@@ -50,7 +50,8 @@ class JW {
   JW& num(double v) {
     sep();
     double r = round6(v);
-    if (!fast6(r)) f64_raw(r);
+    if (r == 0.0) s.append(std::signbit(r) ? "-0.0" : "0.0", std::signbit(r) ? 4 : 3);  // same as f64_raw
+    else if (!fast6(r)) f64_raw(r);
     return *this;
   }
   // Fast path for 6-decimal values: for 1e-5 <= |r| < 1e9 the shortest round-trip form of round(x*1e6)/1e6 is
