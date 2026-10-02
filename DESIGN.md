@@ -135,6 +135,8 @@ behind the bench's expected values.
   from the committed HEAD (`git archive`), not the live `target/release` binary.
 * Request typing follows serde: integer fields reject floats (`2.0`), explicit `null` is accepted only for
   `Option` fields, `schema_version` must be a u32 or null. Fuzzing (tools/fuzz_ref.py, 3 × 3000 mutated corpus
-  requests) gives identical outcomes to eve-dogma-rs (same output or same error code) except ~0.3 %: serde also
-  accepts a struct written as a JSON array (positional fields, e.g. `"environment": []`); J rejects that with
-  BAD_REQUEST. No crashes.
+  requests) gives identical outcomes to eve-dogma-rs (same output or same error code), including structs written
+  as JSON arrays (serde's positional form: fields in declaration order, missing trailing fields take their default,
+  a missing required field or extra elements is an error). J rewrites such requests to the object form only after
+  the normal parse failed, so the common path pays nothing (tools/arrconv_ref.py: 612 converted corpus requests
+  byte-identical). No crashes.

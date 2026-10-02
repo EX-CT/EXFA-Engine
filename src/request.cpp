@@ -1,6 +1,9 @@
 #include "request.hpp"
 
 #include <algorithm>
+#include <cstdio>
+#include <string>
+#include <vector>
 #include <simdjson.h>
 
 namespace evej {
@@ -184,11 +187,185 @@ FighterReq parse_fighter(const element& m) {
 }
 }  // namespace
 
+// serde also deserializes a struct from a JSON array (fields in declaration order; missing trailing fields take
+// their #[serde(default)], a required one is an error, extra elements are an error). Such requests are rewritten to
+// the object form and parsed again; this runs only after the normal parse failed, so it costs nothing otherwise.
+namespace {
+enum SId : uint8_t {
+  S_FIT, S_SHIP, S_CHAR, S_SKILLS, S_MOD, S_MUT, S_SPOOL, S_DRONE, S_FIGHTER, S_BOOSTER, S_CARGO, S_FLEET, S_BUFF,
+  S_PROJ, S_ENV, S_RES, S_TP, S_OVR, S_CAPSIM, S_OPT, S_NONE
+};
+enum FK : uint8_t { SCALAR, STRUCT, VEC, OPT };
+struct FieldDef {
+  const char* name;
+  FK kind;
+  SId sid;
+  bool def;  // has a serde default (may be omitted from the sequence)
+};
+struct StructDef {
+  const char* name;
+  std::vector<FieldDef> f;
+};
+const StructDef& sdef(SId id) {
+  static const StructDef T[] = {
+      {"FitRequest",
+       {{"schema_version", SCALAR, S_NONE, true}, {"ship", STRUCT, S_SHIP, false}, {"character", STRUCT, S_CHAR, true},
+        {"modules", VEC, S_MOD, true}, {"drones", VEC, S_DRONE, true}, {"fighters", VEC, S_FIGHTER, true},
+        {"implants", SCALAR, S_NONE, true}, {"boosters", VEC, S_BOOSTER, true}, {"cargo", VEC, S_CARGO, true},
+        {"fleet", STRUCT, S_FLEET, true}, {"projected", VEC, S_PROJ, true}, {"environment", STRUCT, S_ENV, true},
+        {"damage_pattern", OPT, S_RES, true}, {"target_profile", OPT, S_TP, true}, {"overrides", VEC, S_OVR, true},
+        {"options", STRUCT, S_OPT, true}}},
+      {"ShipReq", {{"type_id", SCALAR, S_NONE, false}, {"mode_type_id", SCALAR, S_NONE, true}}},
+      {"Character", {{"skills", STRUCT, S_SKILLS, true}, {"security_status", SCALAR, S_NONE, true}}},
+      {"Skills", {{"default_level", SCALAR, S_NONE, true}, {"levels", SCALAR, S_NONE, true}}},
+      {"ModuleReq",
+       {{"type_id", SCALAR, S_NONE, false}, {"slot", SCALAR, S_NONE, true}, {"state", SCALAR, S_NONE, true},
+        {"charge_type_id", SCALAR, S_NONE, true}, {"mutation", OPT, S_MUT, true}, {"spool", OPT, S_SPOOL, true}}},
+      {"Mutation",
+       {{"base_type_id", SCALAR, S_NONE, false}, {"mutaplasmid_type_id", SCALAR, S_NONE, true},
+        {"attributes", SCALAR, S_NONE, true}}},
+      {"Spool", {{"type", SCALAR, S_NONE, false}, {"amount", SCALAR, S_NONE, false}}},
+      {"DroneReq",
+       {{"type_id", SCALAR, S_NONE, false}, {"quantity", SCALAR, S_NONE, true}, {"active", SCALAR, S_NONE, true},
+        {"mutation", OPT, S_MUT, true}}},
+      {"FighterReq",
+       {{"type_id", SCALAR, S_NONE, false}, {"quantity", SCALAR, S_NONE, true}, {"active", SCALAR, S_NONE, true},
+        {"abilities", SCALAR, S_NONE, true}}},
+      {"BoosterReq", {{"type_id", SCALAR, S_NONE, false}, {"side_effects", SCALAR, S_NONE, true}}},
+      {"CargoReq", {{"type_id", SCALAR, S_NONE, false}, {"quantity", SCALAR, S_NONE, true}}},
+      {"Fleet", {{"buffs", VEC, S_BUFF, true}, {"booster_fits", VEC, S_FIT, true}}},
+      {"Buff", {{"buff_id", SCALAR, S_NONE, false}, {"value", SCALAR, S_NONE, false}}},
+      {"Projected",
+       {{"kind", SCALAR, S_NONE, false}, {"module", OPT, S_MOD, true}, {"drone", OPT, S_DRONE, true},
+        {"fit", OPT, S_FIT, true}, {"fighter", OPT, S_FIGHTER, true}, {"amount", SCALAR, S_NONE, true},
+        {"distance_m", SCALAR, S_NONE, true}}},
+      {"Environment", {{"effect_type_ids", SCALAR, S_NONE, true}, {"system_security", SCALAR, S_NONE, true}}},
+      {"Resists",
+       {{"em", SCALAR, S_NONE, true}, {"thermal", SCALAR, S_NONE, true}, {"kinetic", SCALAR, S_NONE, true},
+        {"explosive", SCALAR, S_NONE, true}}},
+      {"TargetProfile",
+       {{"em", SCALAR, S_NONE, true}, {"thermal", SCALAR, S_NONE, true}, {"kinetic", SCALAR, S_NONE, true},
+        {"explosive", SCALAR, S_NONE, true}, {"signature_radius", SCALAR, S_NONE, true},
+        {"max_velocity", SCALAR, S_NONE, true}, {"radius", SCALAR, S_NONE, true}}},
+      {"Override",
+       {{"type_id", SCALAR, S_NONE, false}, {"attribute_id", SCALAR, S_NONE, false}, {"value", SCALAR, S_NONE, false}}},
+      {"CapSimOpts", {{"reload", SCALAR, S_NONE, true}, {"stagger", SCALAR, S_NONE, true}, {"max_time_s", SCALAR, S_NONE, true}}},
+      {"Options",
+       {{"nos_no_target_cap", SCALAR, S_NONE, true}, {"factor_reload", SCALAR, S_NONE, true},
+        {"default_spool", OPT, S_SPOOL, true}, {"rah", SCALAR, S_NONE, true}, {"include_attributes", SCALAR, S_NONE, true},
+        {"sources", SCALAR, S_NONE, true}, {"validate", SCALAR, S_NONE, true}, {"cap_sim", STRUCT, S_CAPSIM, true}}},
+  };
+  return T[id];
+}
+void put_jstr(std::string& o, std::string_view s) {
+  o += '"';
+  for (unsigned char c : s) {
+    if (c == '"' || c == '\\') {
+      o += '\\';
+      o += (char)c;
+    } else if (c < 0x20) {
+      char b[8];
+      snprintf(b, sizeof b, "\\u%04x", c);
+      o += b;
+    } else {
+      o += (char)c;
+    }
+  }
+  o += '"';
+}
+void norm_struct(const element& e, SId id, std::string& o, bool& changed, int depth);
+void norm_field(const element& v, const FieldDef& fd, std::string& o, bool& changed, int depth) {
+  switch (fd.kind) {
+    case SCALAR: o += simdjson::minify(v); return;
+    case STRUCT: norm_struct(v, fd.sid, o, changed, depth + 1); return;
+    case OPT:
+      if (v.is_null()) o += "null";
+      else norm_struct(v, fd.sid, o, changed, depth + 1);
+      return;
+    case VEC: {
+      simdjson::dom::array a;
+      if (v.get_array().get(a) != simdjson::SUCCESS) {
+        o += simdjson::minify(v);
+        return;
+      }
+      o += '[';
+      bool first = true;
+      for (element x : a) {
+        if (!first) o += ',';
+        first = false;
+        norm_struct(x, fd.sid, o, changed, depth + 1);
+      }
+      o += ']';
+      return;
+    }
+  }
+}
+void norm_struct(const element& e, SId id, std::string& o, bool& changed, int depth) {
+  if (depth > 64) throw Err{"request nesting too deep"};
+  const StructDef& sd = sdef(id);
+  simdjson::dom::object ob;
+  simdjson::dom::array ar;
+  if (e.get_object().get(ob) == simdjson::SUCCESS) {
+    o += '{';
+    bool first = true;
+    for (auto [k, v] : ob) {
+      if (!first) o += ',';
+      first = false;
+      put_jstr(o, k);
+      o += ':';
+      const FieldDef* fd = nullptr;
+      for (auto& f : sd.f)
+        if (k == f.name) fd = &f;
+      if (fd) norm_field(v, *fd, o, changed, depth);
+      else o += simdjson::minify(v);
+    }
+    o += '}';
+  } else if (e.get_array().get(ar) == simdjson::SUCCESS) {
+    changed = true;
+    const size_t n = ar.size(), nf = sd.f.size();
+    if (n > nf) throw Err{"trailing characters (struct " + std::string(sd.name) + " has " + std::to_string(nf) + " fields)"};
+    for (size_t i = n; i < nf; i++)
+      if (!sd.f[i].def)
+        throw Err{"invalid length " + std::to_string(n) + ", expected struct " + sd.name + " with " + std::to_string(nf) +
+                  " elements"};
+    o += '{';
+    size_t i = 0;
+    for (element x : ar) {
+      if (i) o += ',';
+      put_jstr(o, sd.f[i].name);
+      o += ':';
+      norm_field(x, sd.f[i], o, changed, depth);
+      i++;
+    }
+    o += '}';
+  } else {
+    o += simdjson::minify(e);
+  }
+}
+}  // namespace
+
 std::string parse_request(const element& root, FitRequest& r) {
   try {
     parse_fit(root, r, 0);
   } catch (const Err& e) {
-    return e.msg;
+    // retry with structs given as arrays rewritten to objects
+    std::string text;
+    bool changed = false;
+    try {
+      norm_struct(root, S_FIT, text, changed, 0);
+    } catch (const Err& e2) {
+      return changed ? e2.msg : e.msg;
+    }
+    if (!changed) return e.msg;
+    simdjson::dom::parser p;
+    element root2;
+    if (p.parse(text).get(root2) != simdjson::SUCCESS) return e.msg;
+    r = FitRequest{};
+    try {
+      parse_fit(root2, r, 0);
+    } catch (const Err& e3) {
+      return e3.msg;
+    }
   }
   return {};
 }
