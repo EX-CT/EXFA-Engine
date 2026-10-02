@@ -9,7 +9,7 @@ Commands:
   batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout
   serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|eft_parse|eft_export|search|type|meta\",\"params\":..}
   eft [FILE]             EFT text (file or stdin) -> FitRequest JSON (add --calc to compute, --skills N)
-  search QUERY           search types by name
+  search QUERY [--limit N] [--kinds ship,module,..]  search types by name (exact > prefix > substring)
   type ID|NAME           show type with base attributes
   meta                   compiled dataset info
   bench [FILE] [-n N]    time N calculations of a request";
@@ -90,7 +90,17 @@ fn main() {
             }
         }
         "search" => {
-            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma_f::search(&args[1..].join(" "), 25)).unwrap()).unwrap();
+            let (mut q, mut limit, mut kinds): (Vec<String>, usize, Option<Vec<String>>) = (Vec::new(), 20, None);
+            let mut it = args[1..].iter();
+            while let Some(x) = it.next() {
+                match x.as_str() {
+                    "--limit" => limit = it.next().and_then(|v| v.parse().ok()).unwrap_or(20),
+                    "--kinds" => kinds = it.next().map(|v| v.split(',').map(|k| k.trim().to_lowercase()).collect()),
+                    _ => q.push(x.clone()),
+                }
+            }
+            let r = eve_dogma_f::search_kinds(&q.join(" "), limit, kinds.as_deref());
+            writeln!(out, "{}", serde_json::to_string_pretty(&r).unwrap()).unwrap();
         }
         "type" => {
             writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma_f::type_info(&args[1..].join(" "))).unwrap()).unwrap();

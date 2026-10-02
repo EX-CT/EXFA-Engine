@@ -48,25 +48,76 @@ pub fn meta() -> Value {
 }
 
 /// Search published types by English (case-insensitive) or Chinese name.
-pub fn search(q: &str, limit: usize) -> Value {
-    let ql = q.to_lowercase();
-    let mut hits: Vec<usize> =
-        (0..data::TYPE_COUNT).filter(|&ix| data::type_published(ix) && (data::type_name(ix).to_lowercase().contains(&ql) || data::type_name_zh(ix).map(|z| z.contains(q)).unwrap_or(false)))
-            .collect();
-    hits.sort_by_key(|&ix| {
-        let n = data::type_name(ix);
-        (!n.to_lowercase().starts_with(&ql), n.len(), n)
-    });
+/// Contract search kind of a type (None = not searchable).
+fn search_kind(ix: usize) -> Option<&'static str> {
+    let t = data::ty(ix);
+    Some(match t.category {
+        6 => "ship",
+        7 => "module",
+        8 => "charge",
+        18 => "drone",
+        87 => "fighter",
+        20 => {
+            if data::group_name(t.group).map(|g| g.contains("Booster")).unwrap_or(false) { "booster" } else { "implant" }
+        }
+        32 => "subsystem",
+        16 => "skill",
+        _ => return None,
+    })
+}
+
+/// Interim search (contract 1.4.1): published ship/module/charge/drone/fighter/implant/booster/subsystem/skill types,
+/// case-insensitive on the English or Chinese name; exact > prefix > substring, ties by typeID ascending.
+pub fn search_kinds(q: &str, limit: usize, kinds: Option<&[String]>) -> Value {
+    let ql = q.trim().to_lowercase();
+    if ql.is_empty() {
+        return Value::Array(vec![]);
+    }
+    let level = |n: &str| -> Option<u8> {
+        let n = n.to_lowercase();
+        if n == ql {
+            Some(0)
+        } else if n.starts_with(&ql) {
+            Some(1)
+        } else if n.contains(&ql) {
+            Some(2)
+        } else {
+            None
+        }
+    };
+    let mut hits: Vec<(u8, u32, usize, &'static str)> = Vec::new();
+    for ix in 0..data::TYPE_COUNT {
+        if !data::type_published(ix) {
+            continue;
+        }
+        let Some(kind) = search_kind(ix) else { continue };
+        if let Some(ks) = kinds {
+            if !ks.iter().any(|k| k == kind) {
+                continue;
+            }
+        }
+        let l = [level(data::type_name(ix)), data::type_name_zh(ix).and_then(level)].into_iter().flatten().min();
+        if let Some(l) = l {
+            hits.push((l, data::TYPE_IDS[ix], ix, kind));
+        }
+    }
+    hits.sort_unstable_by_key(|h| (h.0, h.1));
     Value::Array(
         hits.into_iter()
             .take(limit)
-            .map(|ix| {
+            .map(|(l, id, ix, kind)| {
                 let t = data::ty(ix);
-                json!({"type_id": data::TYPE_IDS[ix], "name": data::type_name(ix), "name_zh": data::type_name_zh(ix), "group": data::group_name(t.group),
-                       "category_id": t.category, "meta_level": data::type_meta_level(ix), "slot": engine::infer_slot(ix)})
+                let m = ["exact", "prefix", "substring"][l as usize];
+                json!({"type_id": id, "name": data::type_name(ix), "name_zh": data::type_name_zh(ix), "group": data::group_name(t.group),
+                       "category_id": t.category, "kind": kind, "meta_level": data::type_meta_level(ix), "slot": engine::infer_slot(ix),
+                       "match": m})
             })
             .collect(),
     )
+}
+
+pub fn search(q: &str, limit: usize) -> Value {
+    search_kinds(q, limit, None)
 }
 
 /// Type info with base attributes and effects.
@@ -115,7 +166,14 @@ pub fn rpc(line: &str) -> Value {
             Ok(r) => json!({"text": eft::export(&r, p.get("name").and_then(|n| n.as_str()).unwrap_or("EXCT fit"))}),
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },
-        "search" => search(p.get("query").and_then(|q| q.as_str()).unwrap_or(""), p.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize),
+        "search" => {
+            let kinds: Option<Vec<String>> = match p.get("kinds") {
+                Some(Value::Array(a)) => Some(a.iter().filter_map(|k| k.as_str().map(|s| s.to_lowercase())).collect()),
+                Some(Value::String(s)) => Some(s.split(',').map(|k| k.trim().to_lowercase()).filter(|k| !k.is_empty()).collect()),
+                _ => None,
+            };
+            search_kinds(p.get("query").and_then(|q| q.as_str()).unwrap_or(""), p.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize, kinds.as_deref())
+        }
         "type" => type_info(&p.get("id").map(|x| x.to_string().trim_matches('"').to_string()).unwrap_or_default()),
         "meta" => meta(),
         m => json!({"error": {"code": "UNKNOWN_METHOD", "message": m}}),
