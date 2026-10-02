@@ -4,7 +4,9 @@
 //! and *kernels* (hand-written: capacitor simulation history, subwarp speed, damage/EWAR/RR application, ...).
 //! Behaviour follows Pyfa's graph getters as described in CONTRACT-GRAPHS.md; no Pyfa code is used.
 pub mod expr;
+pub mod cycles;
 pub mod kernels;
+pub mod rr;
 
 use crate::data as d;
 use crate::engine::Fit;

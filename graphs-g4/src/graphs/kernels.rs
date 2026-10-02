@@ -30,6 +30,8 @@ pub fn call(ctx: &mut Ctx, name: &str, a: &[Option<f64>]) -> Result<Option<f64>,
             let ehp = ctx.stat("defense.ehp.shield").unwrap_or(0.0);
             Some(if hp > 0.0 { ehp / hp } else { 1.0 })
         }
+        "rr_rps" => super::rr::rr(ctx, 0, a.first().copied().flatten(), a.get(1).copied().flatten()),
+        "rr_total" => super::rr::rr(ctx, 1, a.first().copied().flatten(), a.get(1).copied().flatten()),
         n if n.starts_with("sum_sources_") => Some(sources(ctx, &n[12..], false)?),
         n if n.starts_with("stack_sources_") => Some(sources(ctx, &n[14..], true)?),
         _ => return Err(format!("unknown kernel '{name}'")),

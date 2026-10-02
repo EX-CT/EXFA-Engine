@@ -243,6 +243,42 @@
      }
     }
    }
+  },
+  "remote_reps": {
+   "title": "Remote Repairs",
+   "pyfa": "fitRemoteReps",
+   "axes": {
+    "distance_m": {
+     "unit": "m",
+     "valid": "x >= 0"
+    },
+    "time_s": {
+     "unit": "s",
+     "valid": "x >= 0 && x <= 2500"
+    }
+   },
+   "params": {
+    "distance_m": null,
+    "time_s": null,
+    "anc_reload": true
+   },
+   "defs": {},
+   "series": {
+    "rps": {
+     "unit": "HP/s",
+     "by_axis": {
+      "distance_m": "rr_rps(p.time_s, x)",
+      "time_s": "rr_rps(x, p.distance_m)"
+     }
+    },
+    "total": {
+     "unit": "HP",
+     "by_axis": {
+      "distance_m": "rr_total(p.time_s, x)",
+      "time_s": "rr_total(x, p.distance_m)"
+     }
+    }
+   }
   }
  },
  "source_tables": {
