@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "api.hpp"
+#include "serdenum.hpp"
 #include "eft.hpp"
 #include "request.hpp"
 
@@ -284,6 +285,8 @@ static int run_batch(const Dataset& ds, const Ids& ids, int threads) {
 static void rpc_line(Worker& wk, std::string_view line, JW& w) {
   w.clear();
   simdjson::dom::element root;
+  std::string fixed;
+  if (serde_fix_numbers(line, fixed)) line = fixed;  // serde_json's float rounding (see serdenum.hpp)
   if (wk.parser->parse(line.data(), line.size()).get(root)) {
     w.obj().key("error").obj().ks("code", "BAD_JSON").ks("message", "invalid JSON").end_obj().knull("id").end_obj();
     return;

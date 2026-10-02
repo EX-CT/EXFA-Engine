@@ -1,4 +1,5 @@
 #include "api.hpp"
+#include "serdenum.hpp"
 
 #include <algorithm>
 #include <simdjson.h>
@@ -35,6 +36,8 @@ bool Worker::calc_element(const simdjson::dom::element& root, JW& w) {
 
 bool Worker::calc_json(std::string_view request) {
   out.clear();
+  std::string fixed;
+  if (serde_fix_numbers(request, fixed)) request = fixed;  // serde_json's float rounding (see serdenum.hpp)
   simdjson::dom::element root;
   auto e = parser->parse(request.data(), request.size()).get(root);
   if (e) {
