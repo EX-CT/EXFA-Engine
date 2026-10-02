@@ -1109,6 +1109,32 @@ void Fit::register_all(const FitRequest& req, bool no_boosters) {
       }
       if (!state_ok(e->category, state)) continue;
       // ---- special effects (no modifierInfo in the SDE)
+      if (kind == Kind::Fighter && ds.effect_mods(*e).empty()) {
+        // fighter self abilities (Pyfa hand-written handlers; via eve-dogma-rs)
+        struct FM {
+          const char* t;
+          const char* a;
+          int op;
+        };
+        static const FM MWD[] = {{"maxVelocity", "fighterAbilityMicroWarpDriveSpeedBonus", 6},
+                                 {"signatureRadius", "fighterAbilityMicroWarpDriveSignatureRadiusBonus", 6}};
+        static const FM AB[] = {{"maxVelocity", "fighterAbilityAfterburnerSpeedBonus", 6}};
+        static const FM EVA[] = {{"maxVelocity", "fighterAbilityEvasiveManeuversSpeedBonus", 6},
+                                 {"signatureRadius", "fighterAbilityEvasiveManeuversSignatureRadiusBonus", 6},
+                                 {"shieldEmDamageResonance", "fighterAbilityEvasiveManeuversEmResonance", 4},
+                                 {"shieldThermalDamageResonance", "fighterAbilityEvasiveManeuversThermResonance", 4},
+                                 {"shieldKineticDamageResonance", "fighterAbilityEvasiveManeuversKinResonance", 4},
+                                 {"shieldExplosiveDamageResonance", "fighterAbilityEvasiveManeuversExpResonance", 4}};
+        std::string_view en = ds.effect_name(*e);
+        std::span<const FM> fm;
+        if (en == "fighterAbilityMicroWarpDrive") fm = MWD;
+        else if (en == "fighterAbilityAfterburner") fm = AB;
+        else if (en == "fighterAbilityEvasiveManeuvers") fm = EVA;
+        if (!fm.empty()) {
+          for (const FM& x : fm) push_mod(i, ds.attr_id(x.t), x.op, attr_src(i, ds.attr_id(x.a)), src_cat);
+          continue;
+        }
+      }
       if (eid == K.e_ab || eid == K.e_mwd) {
         push_mod(ship, 4, 2, attr_src(i, K.massAddition), src_cat);
         Src p;
