@@ -164,6 +164,7 @@ fn main() {
     }
     let stackable = |id: u32| -> bool { (id as usize) > amax || a_flags[id as usize] & 3 != 1 };
     writeln!(out, "pub const ATTR_COUNT: usize = {};", amax + 1).unwrap();
+    writeln!(out, "pub const ATTR_N: usize = {};", d["attributes"].as_object().unwrap().len()).unwrap();
     arr(&mut out, "ATTR_DEFAULT", "f64", &a_def.iter().map(|v| lit(*v)).collect::<Vec<_>>());
     arr(&mut out, "ATTR_FLAGS", "u8", &a_flags);
     arr(&mut out, "ATTR_MIN", "u16", &a_min);
@@ -451,6 +452,13 @@ fn main() {
     let (nb, noff) = blob(&names);
     writeln!(out, "pub static TYPE_NAMES: &str = {nb:?};").unwrap();
     arr(&mut out, "TYPE_NAME_OFF", "u32", &noff);
+    // Chinese names (dataset `names.zh`; "" = none) and meta levels (-1 = none) for search / type helpers
+    let zh = &d["names"]["zh"];
+    let zh_names: Vec<String> = tl.iter().map(|(id, _)| zh[id.to_string()].as_str().unwrap_or("").to_string()).collect();
+    let (zb, zoff) = blob(&zh_names);
+    writeln!(out, "pub static TYPE_NAMES_ZH: &str = {zb:?};").unwrap();
+    arr(&mut out, "TYPE_NAME_ZH_OFF", "u32", &zoff);
+    arr(&mut out, "TYPE_META_LEVEL", "i16", &tl.iter().map(|(_, t)| t["meta_level"].as_i64().unwrap_or(-1)).collect::<Vec<_>>());
     skills.sort();
     arr(&mut out, "PUBLISHED_SKILLS", "u32", &skills);
 

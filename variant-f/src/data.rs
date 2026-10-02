@@ -161,3 +161,12 @@ pub fn muta_output(muta: u32, base: u32) -> Option<u32> {
 pub fn attr_by_name(name: &str) -> Option<u16> {
     (0..ATTR_DEFAULT.len() as u16).find(|&a| attr_name(a) == Some(name))
 }
+
+pub fn type_name_zh(ix: usize) -> Option<&'static str> {
+    let s = &TYPE_NAMES_ZH[TYPE_NAME_ZH_OFF[ix] as usize..TYPE_NAME_ZH_OFF[ix + 1] as usize];
+    if s.is_empty() { None } else { Some(s) }
+}
+pub fn type_meta_level(ix: usize) -> Option<i16> {
+    let v = TYPE_META_LEVEL[ix];
+    if v < 0 { None } else { Some(v) }
+}

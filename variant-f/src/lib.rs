@@ -44,14 +44,15 @@ pub fn calc_json(request_json: &str) -> String {
 pub fn meta() -> Value {
     json!({"engine": concat!("eve-dogma-f ", env!("CARGO_PKG_VERSION")), "schema_version": 1, "sde_build": data::SDE_BUILD,
            "sde_release_date": data::SDE_RELEASE_DATE, "dataset_sha256": data::DATASET_SHA256, "types": data::TYPE_COUNT,
-           "effects": data::EFFECT_COUNT, "compiled_local_modifiers": data::COMPILED_LOCAL_MODIFIERS})
+           "effects": data::EFFECT_COUNT, "attributes": data::ATTR_N, "compiled_local_modifiers": data::COMPILED_LOCAL_MODIFIERS})
 }
 
-/// Search published types by (English) name.
+/// Search published types by English (case-insensitive) or Chinese name.
 pub fn search(q: &str, limit: usize) -> Value {
     let ql = q.to_lowercase();
     let mut hits: Vec<usize> =
-        (0..data::TYPE_COUNT).filter(|&ix| data::type_published(ix) && data::type_name(ix).to_lowercase().contains(&ql)).collect();
+        (0..data::TYPE_COUNT).filter(|&ix| data::type_published(ix) && (data::type_name(ix).to_lowercase().contains(&ql) || data::type_name_zh(ix).map(|z| z.contains(q)).unwrap_or(false)))
+            .collect();
     hits.sort_by_key(|&ix| {
         let n = data::type_name(ix);
         (!n.to_lowercase().starts_with(&ql), n.len(), n)
@@ -61,8 +62,8 @@ pub fn search(q: &str, limit: usize) -> Value {
             .take(limit)
             .map(|ix| {
                 let t = data::ty(ix);
-                json!({"type_id": data::TYPE_IDS[ix], "name": data::type_name(ix), "group": data::group_name(t.group),
-                       "category_id": t.category, "slot": engine::infer_slot(ix)})
+                json!({"type_id": data::TYPE_IDS[ix], "name": data::type_name(ix), "name_zh": data::type_name_zh(ix), "group": data::group_name(t.group),
+                       "category_id": t.category, "meta_level": data::type_meta_level(ix), "slot": engine::infer_slot(ix)})
             })
             .collect(),
     )
@@ -75,8 +76,10 @@ pub fn type_info(key: &str) -> Value {
         return json!({"error": {"code": "UNKNOWN_TYPE", "message": key}});
     };
     let t = data::ty(ix);
+    // mass / capacity / volume / radius are separate type fields in the dataset (folded into the attribute table here)
     let attrs: serde_json::Map<String, Value> = data::type_attr_ids(ix)
         .iter()
+        .filter(|&&x| !matches!(x, 4 | 38 | 161 | 162))
         .map(|&x| (data::attr_name(x).map(|s| s.to_string()).unwrap_or(x.to_string()), json!(data::type_attr(ix, x))))
         .collect();
     let effects: Vec<Value> = data::type_effects(ix)
@@ -86,7 +89,7 @@ pub fn type_info(key: &str) -> Value {
             json!({"id": data::EFF_IDS[ei], "name": data::eff_name(ei), "default": x & 1 != 0})
         })
         .collect();
-    json!({"type_id": data::TYPE_IDS[ix], "name": data::type_name(ix), "group": data::group_name(t.group), "group_id": t.group,
+    json!({"type_id": data::TYPE_IDS[ix], "name": data::type_name(ix), "name_zh": data::type_name_zh(ix), "group": data::group_name(t.group), "group_id": t.group,
            "category_id": t.category, "published": data::type_published(ix), "mass": data::type_mass(ix), "volume": data::type_volume(ix),
            "capacity": data::type_capacity(ix), "slot": engine::infer_slot(ix), "attributes": attrs, "effects": effects})
 }

@@ -57,7 +57,7 @@ pub fn apply_local(f: &mut Fit, ei: u16, i: usize, p: bool) {
   is no JSON load at all. Cold start + one calc is about 2–3 ms native. The reference engine needs hundreds of ms to
   load its dataset.
 * The generated source is large (5.4 MB). Fat LTO + codegen-units=1 keep the output compact but make builds slower.
-* Not implemented: Chinese names in search (omitted for size). EFT import/export (`eft`, RPC `eft_parse`/`eft_export`) is ported from eve-dogma-rs; mutated types resolve through a build-time mutaplasmid mapping table.
+* Chinese names (`names.zh`, ≈ 330 KB) are compiled in for `search`/`type`. EFT import/export (`eft`, RPC `eft_parse`/`eft_export`) is ported from eve-dogma-rs; mutated types resolve through a build-time mutaplasmid mapping table.
 
 ## WASM
 * `wasm32-wasip1`: the same CLI binary. Run it with `wasmtime run eve-dogma-f.wasm calc < req.json`. Precompiling with
