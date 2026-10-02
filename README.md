@@ -42,16 +42,16 @@ Exit code: 0 on success, 2 if the response is an error object (`calc`), 1 on usa
 * `results/bench/`: `bench.py --only J` scorecard (bench version and machine load are in `RUN.txt`)
 * `results/compare_ref.txt`: byte/tolerance comparison against the eve-dogma-rs binary (`tools/compare_ref.py`)
 
-Bench 1.5.0 (295 cases), shared 8-core box (J measured 2026-10-03 05:37 CST at load 8.7; A measured 2026-10-03 05:26 CST at load 7.8):
+Bench 1.6.0 (297 cases), shared 8-core box (J measured 2026-10-03 05:47 CST at load 13.0; A measured 2026-10-03 05:42 CST at load 7.9):
 
 | | J (this) | A (eve-dogma-rs) |
 |---|---|---|
-| cases / values vs Pyfa | 295/295, 18 978/18 978 | 295/295, 18 978/18 978 |
-| latency, one fit (bench ms/calc) | 0.034 ms | 0.529 ms |
-| batch throughput | 20 067 fits/s | 1 368 fits/s |
-| cold start (one process per case, median) | 5 ms | 121 ms |
-| EFT export vs Pyfa (informational) | 295/295 | 295/295 |
-| byte-identical output to A (e552cb9) | 295/295 calc cases, all RPC methods | – |
+| cases / values vs Pyfa | 297/297, 19 103/19 103 | 297/297, 19 103/19 103 |
+| latency, one fit (bench ms/calc) | 0.039 ms | 0.432 ms |
+| batch throughput | 18 082 fits/s | 1 777 fits/s |
+| cold start (one process per case, median) | 2 ms | 138 ms |
+| EFT export vs Pyfa (informational) | 297/297 | 297/297 |
+| byte-identical output to A (0f589b5) | 297/297 calc cases, all RPC methods | – |
 
 `EVEJ_TIMING=1` prints a phase breakdown (dataset open, ids, read, calc, write) to stderr.
 

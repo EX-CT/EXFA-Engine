@@ -1,1 +1,1 @@
-bench: 1.5.0+2d6f9cb, variant commit dca13b9 (scored head = the bench's work/J clone), measured 2026-10-03 05:37 CST, load 8.7
+bench: 1.6.0+a814f99, variant commit 92d361c (scored head = the bench's work/J clone), measured 2026-10-03 05:47 CST, load 13.0

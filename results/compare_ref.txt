@@ -1,3 +1,3 @@
-# reference: eve-dogma-rs e552cb9 (committed HEAD, built from git archive)
-cases: 295  byte-identical (engine name normalised): 295  within tolerance: 295
-leaf values: 89816  differing beyond tolerance: 0
+# reference: eve-dogma-rs 0f589b5 (committed HEAD, built from git archive)
+cases: 297  byte-identical (engine name normalised): 297  within tolerance: 297
+leaf values: 90330  differing beyond tolerance: 0

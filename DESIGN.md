@@ -42,8 +42,9 @@ FitRequest JSON --simdjson ondemand/DOM--> FitRequest --build--> Fit (items + at
 * The same feature set as the reference: projected modules, drones and whole fits (frozen into base values),
   fleet bursts, booster fits (strongest |value| per buff id), environment effects, the Reactive Armor
   Hardener simulation, damage patterns, reload, incoming remote reps, neuts, nos and cap transfers, projected
-  tracking/guidance disruptors (Pyfa Effect6424/6423: the target's Gunnery modules / Missile Launcher Operation
-  charges, with range factor and resistance), and the contract 1.4.2 semantics (projected `amount`, fleet-buff
+  tracking/guidance disruptors and remote tracking computers (Pyfa Effect6424/6423/shipModuleRemoteTrackingComputer:
+  the target's Gunnery modules / Missile Launcher Operation charges, with range factor and resistance; RTCs gated by
+  the target's disallowAssistance), and the contract 1.4.2 semantics (projected `amount`, fleet-buff
   precedence, use/injected/delta GJ/s).
 * All floating-point arithmetic follows the reference expression order, including Rust's
   `Iterator::sum` starting from −0.0 and `min_by`/`max_by` tie-breaking. This keeps outputs byte-identical.
@@ -103,14 +104,16 @@ rules, plus the same stagger and clip semantics.
 
 ## Trade-offs
 * Byte-for-byte reference fidelity was chosen over independent re-derivation from Pyfa. Every value matches
-  Pyfa wherever the reference does (all 18 978 bench 1.5.0 values today). The cost is that J inherits any
+  Pyfa wherever the reference does (all 19 103 bench 1.6.0 values today). The cost is that J inherits any
   divergence the reference has, and that new reference features must be ported (done up to eve-dogma-rs
-  e552cb9, contract revision 1.4.2).
+  0f589b5, contract revision 1.4.2).
 * The binary cache costs about 110 ms once per dataset and ~20 MB of disk. It can be disabled.
 * The lazy evaluator only computes what the stats need. A full attribute dump (`type`) goes through the same
   path.
 * EFT: `eft FILE [--calc] [--skills N]`, rpc `eft_parse` / `eft_export`. Export follows Pyfa's exporter layout
   (contract 1.4.1 ruling 4; bench check 289/289); slot fillers use the built fit's slot totals after modifiers.
+* `type` lists the type-level mass/capacity/volume/radius among the attributes (a non-zero field overrides the
+  attribute; always present), like eve-dogma-rs since 1d09341.
 * `search` follows the interim 1.4.1 spec (kinds, exact > prefix > substring, typeID ties, limit 20).
   Lowercasing covers ASCII, Latin-1/Ext-A, Greek, Cyrillic and fullwidth letters (Rust uses full Unicode).
 
