@@ -39,5 +39,12 @@ Branch note: `variant-f` is an orphan branch (the lab branches share no history)
 
 `--dataset PATH` is accepted (ignored) so command lines written for the reference engine keep working.
 
-License: LGPL-3.0-or-later (engine semantics derived from eve-dogma-rs; behaviour tables that mirror Pyfa (GPL-3.0)
-handlers are described in DESIGN.md "Provenance").
+## License
+
+LGPL-3.0-or-later (per eve-fit-docs `LICENSING.md`; `license = "LGPL-3.0-or-later"` in `Cargo.toml`). The full
+LGPL v3 text is in [`LICENSE`](LICENSE); as the LGPL v3 is a set of additional permissions on top of the GPL v3,
+the GPL v3 text is included as [`LICENSE.GPL-3.0`](LICENSE.GPL-3.0) (same layout as eve-dogma-rs).
+
+Provenance: engine semantics derived from eve-dogma-rs; behaviour tables that mirror Pyfa (GPL-3.0) handlers are
+described in DESIGN.md "Provenance". Import/export formats are written from public format descriptions and
+Pyfa used only as a black-box test oracle (no Pyfa code). EVE data is CCP's (not covered by this licence).
