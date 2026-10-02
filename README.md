@@ -42,21 +42,33 @@ Exit code: 0 on success, 2 if the response is an error object (`calc`), 1 on usa
 * `results/bench/`: `bench.py --only J` scorecard (bench version and machine load are in `RUN.txt`)
 * `results/compare_ref.txt`: byte/tolerance comparison against the eve-dogma-rs binary (`tools/compare_ref.py`)
 
-Bench 1.7.0 (306 cases), shared 8-core box (J measured 2026-10-03 06:04 CST at load 5.7; A measured 2026-10-03 05:57 CST at load 6.8):
+Bench 1.8.0 (326 cases), shared 8-core box (J measured 2026-10-03 06:18 CST at load 11.2; A measured 2026-10-03 06:10 CST at load 8.6):
 
 | | J (this) | A (eve-dogma-rs) |
 |---|---|---|
-| cases / values vs Pyfa | 306/306, 19 621/19 621 | 306/306, 19 621/19 621 |
-| latency, one fit (bench ms/calc) | 0.045 ms | 0.551 ms |
-| batch throughput | 16 133 fits/s | 1 634 fits/s |
-| cold start (one process per case, median) | 2 ms | 124 ms |
-| EFT export vs Pyfa (informational) | 306/306 | 306/306 |
-| byte-identical output to A (aa46025) | 306/306 calc cases, all RPC methods | – |
+| cases / values vs Pyfa | 326/326, 21 051/21 051 | 326/326, 21 051/21 051 |
+| latency, one fit (bench ms/calc) | 0.052 ms | 0.507 ms |
+| batch throughput | 11 554 fits/s | 1 429 fits/s |
+| cold start (one process per case, median) | 3 ms | 147 ms |
+| EFT export vs Pyfa (informational) | 326/326 | 326/326 |
+| byte-identical output to A (0e0b7ec) | 326/326 calc cases, all RPC methods | – |
 
 Timings on this shared box swing by ±50 % with the load from other agents (the bench takes one run per metric).
 Best J run so far: 0.034 ms/fit, 20 067 fits/s, 2 ms cold (dca13b9, bench 1.5.0, load 8.7).
 
 `EVEJ_TIMING=1` prints a phase breakdown (dataset open, ids, read, calc, write) to stderr.
+
+## Known contract differences vs eve-dogma-rs
+
+These are accepted by the coordinator. None of them affect calc outputs.
+
+* `BAD_REQUEST` messages: the error **codes** and paths match the reference, but the message text is J's own
+  wording rather than serde's.
+* Duplicate type names in `type_by_name`-style lookups (EFT parsing, search) resolve to the smallest published
+  type id.
+* `meta.engine` is `eve-dogma-j 0.1.0`.
+* Structs sent as JSON arrays (serde's sequence form) are accepted since a203c98. Requests are normalised on the
+  error path only, so the fast path is unchanged. `tools/arrconv_ref.py` checks this against the reference.
 
 ## License
 
