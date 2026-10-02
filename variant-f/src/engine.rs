@@ -181,6 +181,15 @@ pub struct EngineError {
     pub path: String,
 }
 
+fn state_name(s: State) -> &'static str {
+    match s {
+        State::Offline => "offline",
+        State::Online => "online",
+        State::Active => "active",
+        State::Overheated => "overheated",
+    }
+}
+
 fn state_ok(category: u8, state: State) -> bool {
     match category {
         0 | 4 => state >= State::Online,
@@ -566,6 +575,22 @@ impl Fit {
         }
         if let Some(mu) = &m.mutation {
             self.apply_mutation(idx, mu);
+        }
+        // Pyfa Module.isValidState: active needs an activatable effect (and no activationBlocked), overheated an
+        // overload effect; an invalid state falls back to online (as the Pyfa oracle does).
+        {
+            let it = &self.items[idx];
+            let st = it.state;
+            if st >= State::Active {
+                let can_active = it.effects().any(|(ei, _)| matches!(d::EFF_META[ei].cat, 1 | 2))
+                    && d::type_attr(it.ty, a::activationBlocked).unwrap_or(0.0) <= 0.0;
+                let can_heat = it.effects().any(|(ei, _)| d::EFF_META[ei].cat == 5);
+                if !can_active || (st == State::Overheated && !can_heat) {
+                    let msg = format!("{path}: state '{}' not possible for this module, using online", state_name(st));
+                    self.items[idx].state = State::Online;
+                    self.warnings.push(msg);
+                }
+            }
         }
         if let Some(c) = m.charge_type_id {
             let cidx = self.new_item(c, Kind::Charge, Loc::Ship, &format!("{path}/charge_type_id"))?;
