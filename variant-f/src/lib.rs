@@ -182,6 +182,64 @@ fn format_export(p: &Value) -> Value {
     json!({"text": text})
 }
 
+fn imported_json(f: &formats::Imported) -> Value {
+    let mut v = serde_json::to_value(&f.req).unwrap_or(Value::Null);
+    if let Value::Object(o) = &mut v {
+        o.insert("name".into(), json!(f.name));
+        o.insert("notes".into(), json!(f.notes));
+    }
+    v
+}
+
+/// `format_import {text, format, path?}` -> `{"kind", "fits": [FitRequest + name/notes]}`;
+/// formats eft, dna, dna_alt, esi, xml, auto (Pyfa's detection order).
+fn format_import(p: &Value) -> Value {
+    let text = p.get("text").and_then(|t| t.as_str()).unwrap_or("");
+    let path = p.get("path").and_then(|t| t.as_str());
+    let mut fmt = p.get("format").and_then(|f| f.as_str()).unwrap_or("auto").to_string();
+    if fmt == "auto" {
+        match formats::detect(text, path) {
+            Some(f) => fmt = f.to_string(),
+            None => {
+                return match formats::items_import(text) {
+                    Some((kind, items)) => json!({"kind": kind, "items": items.iter().map(|(t, n, m)| json!({"type_id": t, "amount": n, "mutation": m})).collect::<Vec<_>>()}),
+                    None => json!({"error": {"code": "UNSUPPORTED_FORMAT", "message": "format not recognised"}}),
+                }
+            }
+        }
+    }
+    let one = |r: Result<formats::Imported, String>, kind: &str| match r {
+        Ok(f) => json!({"kind": kind, "fits": [imported_json(&f)]}),
+        Err(e) => json!({"error": {"code": "IMPORT", "message": e}}),
+    };
+    match fmt.as_str() {
+        "eft" => one(formats::eft_import(text), "EFT"),
+        "dna" => one(formats::dna_import(text, None, false), "DNA"),
+        "dna_alt" => {
+            let s = text.find("DNA:").map(|i| &text[i + 4..]).unwrap_or(text);
+            let s = s.split_whitespace().next().unwrap_or("");
+            one(formats::dna_import(s, None, true), "DNA")
+        }
+        "dna_link" => match formats::dna_link(text) {
+            Some((dna, name)) => one(formats::dna_import(&dna, Some(&name), false), "DNA"),
+            None => json!({"error": {"code": "IMPORT", "message": "bad fitting link"}}),
+        },
+        "esi" => one(formats::esi_import(text), "JSON"),
+        "eftcfg" => {
+            let stem = path.map(|p| p.rsplit('/').next().unwrap_or(p)).and_then(|f| f.split('.').next()).unwrap_or("");
+            match formats::eftcfg_import(text, stem) {
+                Ok(v) => json!({"kind": "EFT Config", "fits": v.iter().map(imported_json).collect::<Vec<_>>()}),
+                Err(e) => json!({"error": {"code": "IMPORT", "message": e}}),
+            }
+        }
+        "xml" => match formats::xml_import(text) {
+            Ok(v) => json!({"kind": "XML", "fits": v.iter().map(imported_json).collect::<Vec<_>>()}),
+            Err(e) => json!({"error": {"code": "IMPORT", "message": e}}),
+        },
+        f => json!({"error": {"code": "UNSUPPORTED_FORMAT", "message": f}}),
+    }
+}
+
 /// JSONL RPC line: {"id","method","params"} -> {"id","result"}
 pub fn rpc(line: &str) -> Value {
     let v: Value = match serde_json::from_str(line) {
@@ -204,6 +262,7 @@ pub fn rpc(line: &str) -> Value {
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },
         "format_export" => format_export(&p),
+        "format_import" => format_import(&p),
         "search" => {
             let kinds: Option<Vec<String>> = match p.get("kinds") {
                 Some(Value::Array(a)) => Some(a.iter().filter_map(|k| k.as_str().map(|s| s.to_lowercase())).collect()),

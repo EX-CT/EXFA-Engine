@@ -180,3 +180,8 @@ pub fn drone_eft_rank(type_id: u32) -> u8 {
 pub fn category_name(id: u32) -> Option<&'static str> {
     CAT_IDS.binary_search(&id).ok().map(|c| &CAT_NAMES[CAT_NAME_OFF[c] as usize..CAT_NAME_OFF[c + 1] as usize])
 }
+
+/// True when `t` is the output type of some mutaplasmid (an "abyssal"/mutated item type).
+pub fn is_muta_output(t: u32) -> bool {
+    MUTA_MAP.iter().any(|x| x.2 == t)
+}
