@@ -726,26 +726,26 @@
  "errors": 0,
  "perf": {
   "single_process_per_case_ms": {
-   "median": 2.185673998610582,
-   "min": 1.6325420001521707,
-   "max": 7.936955000332091
+   "median": 5.918328002735507,
+   "min": 1.6749880014685914,
+   "max": 16.143079999892507
   },
   "batch_corpus": {
    "requests": 1485,
-   "total_s": 0.08212797000305727,
-   "fits_per_s": 18081.53787247779,
-   "avg_ms_incl_startup": 0.05530503030508907,
+   "total_s": 0.13880796400189865,
+   "fits_per_s": 10698.233423981983,
+   "avg_ms_incl_startup": 0.09347337643225499,
    "responses": 1485,
    "exit": 0
   },
   "latency_one_fit": {
    "case": "exct_rifter",
    "n": 500,
-   "startup_plus_one_ms": 4.804837997653522,
-   "per_calc_ms": 0.03925203407539768
+   "startup_plus_one_ms": 17.224300005182158,
+   "per_calc_ms": 0.050847152282902874
   },
   "deterministic": true
  },
  "host": "x86_64",
- "time": "2026-10-03T05:47:03+0800"
+ "time": "2026-10-03T05:49:51+0800"
 }

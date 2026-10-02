@@ -42,14 +42,14 @@ Exit code: 0 on success, 2 if the response is an error object (`calc`), 1 on usa
 * `results/bench/`: `bench.py --only J` scorecard (bench version and machine load are in `RUN.txt`)
 * `results/compare_ref.txt`: byte/tolerance comparison against the eve-dogma-rs binary (`tools/compare_ref.py`)
 
-Bench 1.6.0 (297 cases), shared 8-core box (J measured 2026-10-03 05:47 CST at load 13.0; A measured 2026-10-03 05:42 CST at load 7.9):
+Bench 1.6.0 (297 cases), shared 8-core box (J measured 2026-10-03 05:49 CST at load 7.9; A measured 2026-10-03 05:42 CST at load 7.9):
 
 | | J (this) | A (eve-dogma-rs) |
 |---|---|---|
 | cases / values vs Pyfa | 297/297, 19 103/19 103 | 297/297, 19 103/19 103 |
-| latency, one fit (bench ms/calc) | 0.039 ms | 0.432 ms |
-| batch throughput | 18 082 fits/s | 1 777 fits/s |
-| cold start (one process per case, median) | 2 ms | 138 ms |
+| latency, one fit (bench ms/calc) | 0.051 ms | 0.432 ms |
+| batch throughput | 10 698 fits/s | 1 777 fits/s |
+| cold start (one process per case, median) | 6 ms | 138 ms |
 | EFT export vs Pyfa (informational) | 297/297 | 297/297 |
 | byte-identical output to A (0f589b5) | 297/297 calc cases, all RPC methods | – |
 

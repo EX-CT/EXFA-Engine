@@ -1,1 +1,1 @@
-bench: 1.6.0+a814f99, variant commit 92d361c (scored head = the bench's work/J clone), measured 2026-10-03 05:47 CST, load 13.0
+bench: 1.6.0+a814f99, variant commit 6ab59df (scored head = the bench's work/J clone), measured 2026-10-03 05:49 CST, load 7.9; median of 3 runs by latency (0.047 / 0.051 / 0.073 ms; box under contention from other agents, see README note)
