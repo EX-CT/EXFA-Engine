@@ -1412,6 +1412,39 @@ void Fit::register_projected(uint32_t i) {
       push(K.scanResolution, K.scanResolutionBonus, 6);
       if (starts("remoteSensorBoost"))
         for (int k = 0; k < 4; k++) push(K.scanStrengthG[k], K.scanStrengthPercent[k], 6);
+    } else if (name == "shipModuleTrackingDisruptor" || name == "shipModuleGuidanceDisruptor") {
+      // Pyfa Effect6424 / Effect6423 (via eve-dogma-rs): penalise the target's gunnery modules / missile charges.
+      if (target_offense_ok) {
+        const bool td = name == "shipModuleTrackingDisruptor";
+        static const char* TDP[][2] = {{"trackingSpeedBonus", "trackingSpeed"}, {"maxRangeBonus", "maxRange"}, {"falloffBonus", "falloff"}};
+        static const char* GDP[][2] = {{"aoeCloudSizeBonus", "aoeCloudSize"}, {"aoeVelocityBonus", "aoeVelocity"},
+                                       {"missileVelocityBonus", "maxVelocity"}, {"explosionDelayBonus", "explosionDelay"}};
+        const uint32_t sk = ds.type_by_name(td ? "Gunnery" : "Missile Launcher Operation");
+        const double tf = range_factor_local(pbase(i, "maxRange"), pbase(i, "falloffEffectiveness"), items[i].has_distance,
+                                             items[i].distance, true);
+        uint32_t src_a[4], tgt_a[4];
+        const int np = td ? 3 : 4;
+        for (int k = 0; k < np; k++) {
+          src_a[k] = ds.attr_id(td ? TDP[k][0] : GDP[k][0]);
+          tgt_a[k] = ds.attr_id(td ? TDP[k][1] : GDP[k][1]);
+        }
+        const size_t n = items.size();
+        for (size_t t = 0; t < n; t++) {
+          const Item& it = items[t];
+          if (!(it.loc == Loc::Ship && it.owned && it.kind == (td ? Kind::Module : Kind::Charge) && it.needs_skill(sk))) continue;
+          for (int k = 0; k < np; k++) {
+            Src s;
+            s.k = Src::Proj;
+            s.a = i;
+            s.b = src_a[k];
+            s.c = ship;
+            s.d = resist;
+            s.f = tf;
+            s.mul = false;
+            push_mod((uint32_t)t, tgt_a[k], 6, s, src_cat);
+          }
+        }
+      }
     } else {
       std::vector<ProjSpecial> ps;
       if (proj_special_for(i, name, resist, ps)) {
