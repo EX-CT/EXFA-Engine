@@ -1,6 +1,7 @@
 #include "engine.hpp"
 
 #include <algorithm>
+#include <mutex>
 #include <array>
 #include <cmath>
 #include <optional>
@@ -640,6 +641,57 @@ static bool parse_u32_rust(std::string_view s, uint32_t& out) {
   return true;
 }
 
+// Per-skill relevance conditions for skill pruning (built once per process; the dataset is immutable).
+// A skill is relevant if any condition holds: kind 0 always, 1 group `key` present among the fit's item groups,
+// 2 skill `key` required by a fit item. `st` marks conditions that only apply to structures (domain Structure).
+namespace {
+struct RelCond {
+  uint8_t kind, st;
+  uint32_t key;
+};
+struct SkillRelTable {
+  std::vector<uint32_t> off;  // per ds.skills index: [off[i], off[i+1]) into conds
+  std::vector<RelCond> conds;
+};
+const SkillRelTable& skill_rel_table(const Dataset& ds) {
+  static SkillRelTable tab;
+  static std::once_flag once;
+  std::call_once(once, [&] {
+    tab.off.reserve(ds.skills.size() + 1);
+    for (uint32_t sk : ds.skills) {
+      tab.off.push_back((uint32_t)tab.conds.size());
+      const TypeRec* t = ds.type(sk);
+      if (!t) continue;
+      for (const TEff& te : ds.type_effects(*t)) {
+        if (te.id == 132) continue;  // skillEffect
+        const EffRec* e = ds.effect(te.id);
+        if (!e) continue;
+        if (e->mod_cnt == 0) {
+          tab.conds.push_back({0, 0, 0});
+          continue;
+        }
+        for (const ModRec& m : ds.effect_mods(*e)) {
+          if (m.func < 0 || m.func > 4 || m.op == 9) continue;
+          if (m.domain == 0 || m.domain == 3 || m.domain >= 5) continue;
+          uint8_t st = m.domain == 4;
+          if (m.func == 2) {
+            const GroupRec* g = ds.group(m.extra);
+            if (!g || (m.domain == 2 && g->category == 16)) tab.conds.push_back({0, st, 0});
+            else tab.conds.push_back({1, st, m.extra});
+          } else if (m.func == 3 || m.func == 4) {
+            tab.conds.push_back({2, st, m.extra == 0 ? sk : m.extra});
+          } else {
+            tab.conds.push_back({0, st, 0});
+          }
+        }
+      }
+    }
+    tab.off.push_back((uint32_t)tab.conds.size());
+  });
+  return tab;
+}
+}  // namespace
+
 bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool no_boosters) {
   items.reserve(640);
   la_.reserve(4096);
@@ -729,10 +781,25 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
       }
       return false;
     };
+    const SkillRelTable& rel = skill_rel_table(ds);
+    auto fast_relevant = [&](size_t si, uint32_t sk) {
+      if (in(need, sk)) return true;
+      for (uint32_t c = rel.off[si]; c < rel.off[si + 1]; c++) {
+        const RelCond& rc = rel.conds[c];
+        if (rc.st && !is_structure) continue;
+        if (rc.kind == 0 || (rc.kind == 1 ? in(groups, rc.key) : in(need, rc.key))) return true;
+      }
+      return false;
+    };
     for (auto& [sk, l] : lv) {
       const TypeRec* st = ds.type(sk);
       if (!st) continue;
-      if (!no_prune && !relevant(sk, *st)) continue;
+      if (!no_prune) {
+        // ds.skills is sorted: locate the precomputed conditions, else (unpublished skill) evaluate directly
+        auto it = std::lower_bound(ds.skills.begin(), ds.skills.end(), sk);
+        bool r = (it != ds.skills.end() && *it == sk) ? fast_relevant((size_t)(it - ds.skills.begin()), sk) : relevant(sk, *st);
+        if (!r) continue;
+      }
       int32_t idx = new_item(sk, Kind::Skill, Loc::Char, "/character/skills", -1, err);
       if (idx < 0) return false;
       set_base(idx, ATTR_SKILL_LEVEL, (double)std::min<uint8_t>(l, 5));
