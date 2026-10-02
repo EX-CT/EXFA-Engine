@@ -335,14 +335,28 @@ double Fit::base(uint32_t item, uint32_t attr) const {
 
 // Python round(v, 2): correctly rounded on the exact binary value (ties to even), as eve-dogma-rs's
 // format!("{v:.2}").parse() (since aa46025)
-static double py_round2(double v) {
-  if (!std::isfinite(v)) return v;
+static double py_round2_slow(double v) {
   char buf[400];
   auto r = std::to_chars(buf, buf + sizeof buf, v, std::chars_format::fixed, 2);
   if (r.ec != std::errc()) return v;
   double o = v;
   std::from_chars(buf, r.ptr, o);
   return o;
+}
+
+// Fast exact path: n = the integer nearest to the exact product v*100 (t + e, e from fma), unless it is within a hair
+// of a tie; then n/100 (one correctly rounded division) is the double nearest the decimal n/100, i.e. what parsing
+// the formatted string gives. Ties and huge values take the formatting path.
+static double py_round2(double v) {
+  if (!std::isfinite(v)) return v;
+  if (std::fabs(v) < 1e12) {
+    const double t = v * 100.0;
+    const double e = std::fma(v, 100.0, -t);
+    const double n = std::nearbyint(t);
+    const double d = (t - n) + e;
+    if (std::fabs(d) < 0.4999999) return n / 100.0;
+  }
+  return py_round2_slow(v);
 }
 
 double Fit::caps(uint32_t item, const AttrRec* info, double val) {
