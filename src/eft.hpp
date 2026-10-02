@@ -11,7 +11,9 @@ namespace evej {
 // EFT text -> FitRequest; returns empty string on success, else the EFT_PARSE message.
 std::string eft_parse(const Dataset& ds, std::string_view text, FitRequest& out);
 // FitRequest -> EFT text
-std::string eft_export(const Dataset& ds, const FitRequest& req, std::string_view name);
+class Fit;
+// FitRequest -> EFT text (Pyfa exportEft layout); `totals` is the built fit (slot counts after modifiers) or null
+std::string eft_export(const Dataset& ds, const FitRequest& req, std::string_view name, Fit* totals);
 // serde-style JSON of a FitRequest (keys sorted, every field present)
 void fit_request_json(const FitRequest& r, JW& w);
 // Re-indent compact JSON like serde_json::to_string_pretty

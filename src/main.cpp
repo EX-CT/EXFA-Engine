@@ -328,7 +328,12 @@ static void rpc_line(Worker& wk, std::string_view line, JW& w) {
       std::string_view nm = "EXCT fit";
       std::string_view x;
       if (params["name"].get_string().get(x) == simdjson::SUCCESS) nm = x;
-      w.obj().ks("text", eft_export(wk.ds, r, nm)).end_obj();
+      if (!wk.fit) wk.fit = std::make_unique<Fit>(wk.ds, wk.ids);
+      else wk.fit->reset();
+      EngineError ferr{};
+      bool built = wk.fit->build(r, ferr);
+      std::string text = eft_export(wk.ds, r, nm, built ? wk.fit.get() : nullptr);
+      w.obj().ks("text", text).end_obj();
     }
   } else if (method == "meta") {
     meta_json(wk.ds, w);
@@ -338,7 +343,17 @@ static void rpc_line(Worker& wk, std::string_view line, JW& w) {
       uint64_t l;
       if (params["limit"].get_uint64().get(l) == simdjson::SUCCESS) lim = l;
     }
-    search_json(wk.ds, pstr("query"), lim, w);
+    std::vector<std::string> kinds;
+    bool has_kinds = false;
+    simdjson::dom::array ka;
+    if (has_p && params["kinds"].get_array().get(ka) == simdjson::SUCCESS) {
+      has_kinds = true;
+      for (auto x : ka) {
+        std::string_view ks;
+        if (x.get_string().get(ks) == simdjson::SUCCESS) kinds.emplace_back(ks);
+      }
+    }
+    search_json(wk.ds, pstr("query"), lim, w, has_kinds ? &kinds : nullptr);
   } else if (method == "type") {
     std::string key;
     simdjson::dom::element x;
@@ -531,7 +546,7 @@ int main(int argc, char** argv) {
   for (size_t i = 1; i < args.size(); i++) rest += (i > 1 ? " " : "") + args[i];
   if (cmd == "meta") meta_json(*ds, w, load_ms);
   else if (cmd == "type") type_json(*ds, rest, w);
-  else if (cmd == "search") search_json(*ds, rest, 25, w);
+  else if (cmd == "search") search_json(*ds, rest, 20, w);
   std::string o = json_pretty(w.s);
   o.push_back('\n');
   write_out(o);

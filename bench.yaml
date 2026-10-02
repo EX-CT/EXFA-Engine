@@ -2,3 +2,4 @@
 build: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && ninja -C build && ./build/eve-dogma-j build-cache --dataset {dataset}
 cmd: ./build/eve-dogma-j calc --dataset {dataset}
 batch_cmd: ./build/eve-dogma-j batch --dataset {dataset}
+rpc_cmd: ./build/eve-dogma-j serve-stdio --dataset {dataset}

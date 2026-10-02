@@ -4,7 +4,11 @@
 #include <charconv>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
+
+#include "engine.hpp"
 
 namespace evej {
 namespace {
@@ -447,67 +451,259 @@ void fit_request_json(const FitRequest& r, JW& w) {
   w.end_obj();
 }
 
-std::string eft_export(const Dataset& ds, const FitRequest& req, std::string_view fit_name) {
+namespace {
+// Python repr(float) of Pyfa's floatUnerr(v) (7 significant digits), as Pyfa prints mutated values.
+double powi(double a, int b) {  // compiler-rt __powidf2 (Rust f64::powi)
+  bool recip = b < 0;
+  double r = 1;
+  while (true) {
+    if (b & 1) r *= a;
+    b /= 2;
+    if (b == 0) break;
+    a *= a;
+  }
+  return recip ? 1 / r : r;
+}
+std::string py_float(double v) {
+  if (v != 0.0 && std::isfinite(v)) {
+    int rf = 7 - (int)std::ceil(std::log10(std::fabs(v)));
+    if (rf >= 0) {
+      char b[512];
+      snprintf(b, sizeof b, "%.*f", rf, v);
+      v = strtod(b, nullptr);
+    } else {
+      double p = powi(10.0, -rf);
+      v = std::round(v / p) * p;
+    }
+  }
+  if (std::isnan(v)) return "NaN";
+  if (std::isinf(v)) return v > 0 ? "inf" : "-inf";
+  double a = std::fabs(v);
+  char buf[512];
+  if (a != 0.0 && !(a >= 1e-4 && a < 1e16)) {
+    auto r = std::to_chars(buf, buf + sizeof buf, v, std::chars_format::scientific);
+    return std::string(buf, r.ptr);  // d.ddde+XX (2-digit minimum exponent, like Python)
+  }
+  if (std::trunc(v) == v) {
+    snprintf(buf, sizeof buf, "%.1f", v);
+    return buf;
+  }
+  return rust_display(v);
+}
+int drone_order(bool has, uint32_t mg) {
+  if (!has) return 12;
+  switch (mg) {
+    case 837: case 1531: return 0;
+    case 3881: return 1;
+    case 838: case 1532: return 2;
+    case 3882: return 3;
+    case 839: case 359: return 4;
+    case 3883: return 5;
+    case 911: case 1533: return 6;
+    case 843: case 1586: return 7;
+    case 841: case 1029: return 8;
+    case 842: case 1030: return 9;
+    case 158: case 358: return 10;
+    case 1643: case 1646: return 11;
+    default: return 12;
+  }
+}
+const char* FIGHTER_ORDER[6] = {"Light Fighter", "Structure Light Fighter", "Heavy Fighter", "Structure Heavy Fighter",
+                                "Support Fighter", "Structure Support Fighter"};
+std::string join(const std::vector<std::string>& v, const char* sep) {
+  std::string o;
+  for (size_t i = 0; i < v.size(); i++) {
+    if (i) o += sep;
+    o += v[i];
+  }
+  return o;
+}
+int64_t sat_i64(double x) {
+  if (std::isnan(x)) return 0;
+  if (x >= 9.2233720368547758e18) return INT64_MAX;
+  if (x <= -9.2233720368547758e18) return INT64_MIN;
+  return (int64_t)x;
+}
+}  // namespace
+
+// Byte-for-byte Pyfa exportEft (all options on), as eve-dogma-rs (contract v1.4.1 ruling 4).
+std::string eft_export(const Dataset& ds, const FitRequest& req, std::string_view fit_name, Fit* totals) {
   auto n = [&](uint32_t id) -> std::string {
     const TypeRec* t = ds.type(id);
     return t ? S(ds.type_name(*t)) : std::to_string(id);
   };
-  std::string out = "[" + n(req.ship_type_id) + ", " + S(fit_name) + "]\n";
-  std::vector<const Mutation*> muts;
-  auto tag = [&](const std::optional<Mutation>& m) -> std::string {
-    if (!m) return {};
-    muts.push_back(&*m);
-    return " [" + std::to_string(muts.size()) + "]";
+  auto tattr = [&](uint32_t id, const char* a) -> double {
+    const TypeRec* t = ds.type(id);
+    double v;
+    uint32_t aid = ds.attr_id(a);
+    return t && ds.type_attr(*t, aid, v) ? v : 0.0;
   };
-  for (Slot slot : {Slot::Low, Slot::Mid, Slot::High, Slot::Rig, Slot::Subsystem, Slot::Service}) {
-    bool any = false;
-    for (auto& m : req.modules) {
-      Slot s = m.slot;
-      if (s == Slot::None) {
-        const TypeRec* t = ds.type(m.type_id);
-        s = t ? (Slot)t->slot : Slot::None;
+  auto group_of = [&](uint32_t id) -> const GroupRec* {
+    const TypeRec* t = ds.type(id);
+    return t ? ds.group(t->group) : nullptr;
+  };
+  auto total = [&](const char* a) -> int64_t { return totals ? sat_i64(totals->get(totals->ship, ds.attr_id(a))) : 0; };
+  std::vector<const Mutation*> muts;
+  std::vector<std::string> sections;
+  // modules
+  {
+    struct R {
+      Slot s;
+      const char* label;
+      const char* attr;
+    };
+    static const R racks_def[6] = {{Slot::Low, "Low", "lowSlots"},          {Slot::Mid, "Med", "medSlots"},
+                                   {Slot::High, "High", "hiSlots"},         {Slot::Rig, "Rig", "rigSlots"},
+                                   {Slot::Subsystem, "Subsystem", "maxSubSystems"}, {Slot::Service, "Service", "serviceSlots"}};
+    std::vector<std::string> racks;
+    for (const R& rk : racks_def) {
+      std::vector<std::string> lines;
+      for (auto& m : req.modules) {
+        Slot s = m.slot;
+        if (s == Slot::None) {
+          const TypeRec* t = ds.type(m.type_id);
+          s = t ? (Slot)t->slot : Slot::None;
+        }
+        if (s != rk.s) continue;
+        std::string l = n(m.mutation ? m.mutation->base_type_id : m.type_id);
+        std::string tag;
+        if (m.mutation && m.mutation->mutaplasmid_type_id) {
+          muts.push_back(&*m.mutation);
+          tag = " [" + std::to_string(muts.size()) + "]";
+        }
+        if (m.charge_type_id) l += ", " + n(*m.charge_type_id);
+        if (m.state && *m.state == State::Offline) l += " /offline";
+        l += tag;
+        lines.push_back(std::move(l));
       }
-      if (s != slot) continue;
-      any = true;
-      out += n(m.mutation ? m.mutation->base_type_id : m.type_id);
-      if (m.charge_type_id) out += ", " + n(*m.charge_type_id);
-      if (m.state && *m.state == State::Offline) out += " /OFFLINE";
-      out += tag(m.mutation);
-      out += "\n";
+      int64_t free = total(rk.attr) - (int64_t)lines.size();
+      for (int64_t k = 0; k < free; k++) lines.push_back(std::string("[Empty ") + rk.label + " slot]");
+      if (!lines.empty()) racks.push_back(join(lines, "\n"));
     }
-    if (any) out += "\n";
+    if (!racks.empty()) sections.push_back(join(racks, "\n\n"));
   }
-  for (auto& d : req.drones)
-    out += n(d.mutation ? d.mutation->base_type_id : d.type_id) + " x" + std::to_string(d.quantity) + tag(d.mutation) + "\n";
-  for (auto& f : req.fighters) out += n(f.type_id) + " x" + std::to_string(f.quantity.value_or(1)) + "\n";
-  if (!req.implants.empty() || !req.boosters.empty()) {
-    out += "\n";
-    for (uint32_t i : req.implants) out += n(i) + "\n";
-    for (auto& b : req.boosters) out += n(b.type_id) + "\n";
+  // drones, fighters
+  {
+    std::vector<std::string> minion;
+    struct DK {
+      int ord;
+      bool mut;
+      std::string full;
+      const DroneReq* d;
+    };
+    std::vector<DK> dk;
+    for (auto& d : req.drones) {
+      uint32_t base = d.mutation ? d.mutation->base_type_id : d.type_id;
+      bool mut = d.mutation && d.mutation->mutaplasmid_type_id;
+      const TypeRec* bt = ds.type(base);
+      std::string full;
+      if (mut) {
+        const TypeRec* t = ds.type(d.type_id);
+        full = t ? S(ds.type_name(*t)) : std::string();
+      } else {
+        full = n(d.type_id);
+      }
+      dk.push_back({drone_order(bt && bt->has_market_group, bt ? bt->market_group : 0), mut, std::move(full), &d});
+    }
+    std::stable_sort(dk.begin(), dk.end(), [](const DK& a, const DK& b) {
+      if (a.ord != b.ord) return a.ord < b.ord;
+      if (a.mut != b.mut) return a.mut < b.mut;
+      return a.full < b.full;
+    });
+    std::vector<std::string> dl;
+    for (auto& x : dk) {
+      const DroneReq& d = *x.d;
+      std::string tag;
+      if (x.mut) {
+        muts.push_back(&*d.mutation);
+        tag = " [" + std::to_string(muts.size()) + "]";
+      }
+      dl.push_back(n(d.mutation ? d.mutation->base_type_id : d.type_id) + " x" + std::to_string(d.quantity) + tag);
+    }
+    if (!dl.empty()) minion.push_back(join(dl, "\n"));
+    struct FK {
+      size_t ord;
+      std::string name;
+      const FighterReq* f;
+    };
+    std::vector<FK> fk;
+    for (auto& f : req.fighters) {
+      const GroupRec* g = group_of(f.type_id);
+      std::string_view gn = g ? ds.group_name(*g) : std::string_view();
+      size_t ord = 6;
+      for (size_t k = 0; k < 6; k++)
+        if (gn == FIGHTER_ORDER[k]) {
+          ord = k;
+          break;
+        }
+      fk.push_back({ord, n(f.type_id), &f});
+    }
+    std::stable_sort(fk.begin(), fk.end(), [](const FK& a, const FK& b) { return a.ord != b.ord ? a.ord < b.ord : a.name < b.name; });
+    std::vector<std::string> fl;
+    for (auto& x : fk) {
+      double mx = tattr(x.f->type_id, "fighterSquadronMaxSize");
+      uint32_t max = mx <= 0 || std::isnan(mx) ? 0 : (mx >= 4294967295.0 ? UINT32_MAX : (uint32_t)mx);
+      uint32_t q = x.f->quantity ? (*x.f->quantity >= max ? max : *x.f->quantity) : max;
+      fl.push_back(x.name + " x" + std::to_string(q));
+    }
+    if (!fl.empty()) minion.push_back(join(fl, "\n"));
+    if (!minion.empty()) sections.push_back(join(minion, "\n\n"));
   }
-  if (!req.cargo.empty()) {
-    out += "\n";
-    for (auto& c : req.cargo) out += n(c.type_id) + " x" + std::to_string(c.quantity) + "\n";
+  // implants (by implantness), boosters (by boosterness)
+  {
+    std::vector<std::string> cs;
+    std::vector<uint32_t> imps = req.implants;
+    std::stable_sort(imps.begin(), imps.end(), [&](uint32_t a, uint32_t b) { return tattr(a, "implantness") < tattr(b, "implantness"); });
+    std::vector<std::string> il;
+    for (uint32_t i : imps) il.push_back(n(i));
+    if (!il.empty()) cs.push_back(join(il, "\n"));
+    std::vector<uint32_t> boos;
+    for (auto& b : req.boosters) boos.push_back(b.type_id);
+    std::stable_sort(boos.begin(), boos.end(), [&](uint32_t a, uint32_t b) { return tattr(a, "boosterness") < tattr(b, "boosterness"); });
+    std::vector<std::string> bl;
+    for (uint32_t i : boos) bl.push_back(n(i));
+    if (!bl.empty()) cs.push_back(join(bl, "\n"));
+    if (!cs.empty()) sections.push_back(join(cs, "\n\n"));
   }
+  // cargo by (category name, group name, type name)
+  {
+    struct CK {
+      std::string cat, grp, name;
+      const CargoReq* c;
+    };
+    std::vector<CK> ck;
+    for (auto& c : req.cargo) {
+      const GroupRec* g = group_of(c.type_id);
+      ck.push_back({g ? S(ds.category_name(g->category)) : std::string(), g ? S(ds.group_name(*g)) : std::string(), n(c.type_id), &c});
+    }
+    std::stable_sort(ck.begin(), ck.end(), [](const CK& a, const CK& b) {
+      if (a.cat != b.cat) return a.cat < b.cat;
+      if (a.grp != b.grp) return a.grp < b.grp;
+      return a.name < b.name;
+    });
+    std::vector<std::string> cl;
+    for (auto& x : ck) cl.push_back(x.name + " x" + std::to_string(x.c->quantity));
+    if (!cl.empty()) sections.push_back(join(cl, "\n"));
+  }
+  // mutation details
   if (!muts.empty()) {
-    out += "\n";
+    std::vector<std::string> blocks;
     for (size_t k = 0; k < muts.size(); k++) {
       const Mutation& m = *muts[k];
-      out += "[" + std::to_string(k + 1) + "] " + n(m.base_type_id) + "\n";
-      if (m.mutaplasmid_type_id) out += "  " + n(*m.mutaplasmid_type_id) + "\n";
       std::vector<std::pair<std::string, double>> kv;
-      for (auto& [a, v] : m.attributes) kv.push_back({std::to_string(a), v});
-      std::sort(kv.begin(), kv.end(), [](auto& x, auto& y) { return x.first < y.first; });
-      std::string line;
-      for (size_t i = 0; i < kv.size(); i++) {
-        const AttrRec* ar = ds.attr(kv[i].first.empty() ? 0 : (uint32_t)std::stoul(kv[i].first));
-        if (i) line += ", ";
-        line += (ar ? S(ds.attr_name(*ar)) : kv[i].first) + " " + rust_display(kv[i].second);
+      for (auto& [a, v] : m.attributes) {
+        const AttrRec* ar = ds.attr(a);
+        kv.push_back({ar ? S(ds.attr_name(*ar)) : std::to_string(a), v});
       }
-      if (!kv.empty()) out += "  " + line + "\n";
+      std::stable_sort(kv.begin(), kv.end(), [](auto& x, auto& y) { return x.first < y.first; });
+      std::vector<std::string> parts;
+      for (auto& [a, v] : kv) parts.push_back(a + " " + py_float(v));
+      blocks.push_back("[" + std::to_string(k + 1) + "] " + n(m.base_type_id) + "\n  " + n(*m.mutaplasmid_type_id) + "\n  " +
+                       join(parts, ", "));
     }
+    sections.push_back(join(blocks, "\n"));
   }
-  return out;
+  return "[" + n(req.ship_type_id) + ", " + S(fit_name) + "]\n\n" + join(sections, "\n\n\n");
 }
 
 std::string json_pretty(std::string_view s) {

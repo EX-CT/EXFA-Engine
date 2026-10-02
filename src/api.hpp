@@ -2,6 +2,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "dataset.hpp"
 #include "engine.hpp"
@@ -26,5 +27,6 @@ struct Worker {
 void write_error(JW& w, const char* code, std::string_view message, std::string_view path);
 void meta_json(const Dataset& ds, JW& w, double load_ms = -1);
 void type_json(const Dataset& ds, std::string_view key, JW& w);
-void search_json(const Dataset& ds, std::string_view q, size_t limit, JW& w);
+void search_json(const Dataset& ds, std::string_view q, size_t limit, JW& w,
+                 const std::vector<std::string>* kinds = nullptr);
 }  // namespace evej

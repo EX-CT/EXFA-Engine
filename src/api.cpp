@@ -108,30 +108,92 @@ void type_json(const Dataset& ds, std::string_view key, JW& w) {
   w.ki("type_id", t->id).key("volume").num_raw(t->volume).end_obj();
 }
 
-void search_json(const Dataset& ds, std::string_view q, size_t limit, JW& w) {
-  std::string ql = lower(q);
+// Unicode-ish lowercase (ASCII, Latin-1, Latin Ext-A, Greek, Cyrillic, fullwidth) for search matching.
+static std::string ulower(std::string_view s) {
+  std::string o;
+  o.reserve(s.size());
+  size_t i = 0;
+  auto put = [&](uint32_t c) {
+    if (c < 0x80) o.push_back((char)c);
+    else if (c < 0x800) { o.push_back((char)(0xC0 | (c >> 6))); o.push_back((char)(0x80 | (c & 63))); }
+    else if (c < 0x10000) { o.push_back((char)(0xE0 | (c >> 12))); o.push_back((char)(0x80 | ((c >> 6) & 63))); o.push_back((char)(0x80 | (c & 63))); }
+    else { o.push_back((char)(0xF0 | (c >> 18))); o.push_back((char)(0x80 | ((c >> 12) & 63))); o.push_back((char)(0x80 | ((c >> 6) & 63))); o.push_back((char)(0x80 | (c & 63))); }
+  };
+  while (i < s.size()) {
+    unsigned char c0 = (unsigned char)s[i];
+    uint32_t c;
+    size_t n;
+    if (c0 < 0x80) { c = c0; n = 1; }
+    else if ((c0 >> 5) == 6 && i + 1 < s.size()) { c = ((c0 & 31u) << 6) | (s[i + 1] & 63); n = 2; }
+    else if ((c0 >> 4) == 14 && i + 2 < s.size()) { c = ((c0 & 15u) << 12) | ((s[i + 1] & 63u) << 6) | (s[i + 2] & 63); n = 3; }
+    else if ((c0 >> 3) == 30 && i + 3 < s.size()) { c = ((c0 & 7u) << 18) | ((s[i + 1] & 63u) << 12) | ((s[i + 2] & 63u) << 6) | (s[i + 3] & 63); n = 4; }
+    else { o.push_back((char)c0); i++; continue; }
+    if (c >= 'A' && c <= 'Z') c += 32;
+    else if (c >= 0xC0 && c <= 0xDE && c != 0xD7) c += 32;
+    else if (c >= 0x100 && c <= 0x17F && c != 0x130 && c != 0x138 && c != 0x149 && c != 0x178 && c != 0x17F) {
+      bool odd_upper = (c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E);
+      if (odd_upper ? (c & 1) : !(c & 1)) c += 1;
+    } else if (c == 0x178) c = 0xFF;
+    else if (c >= 0x391 && c <= 0x3A9 && c != 0x3A2) c += 32;
+    else if (c >= 0x410 && c <= 0x42F) c += 32;
+    else if (c >= 0x400 && c <= 0x40F) c += 80;
+    else if (c >= 0xFF21 && c <= 0xFF3A) c += 32;
+    put(c);
+    i += n;
+  }
+  return o;
+}
+
+static const char* search_kind(const Dataset& ds, const TypeRec& t) {
+  switch (t.category) {
+    case 6: return "ship";
+    case 7: return "module";
+    case 8: return "charge";
+    case 18: return "drone";
+    case 87: return "fighter";
+    case 32: return "subsystem";
+    case 16: return "skill";
+    case 20: {
+      const GroupRec* g = ds.group(t.group);
+      return g && ds.group_name(*g).find("Booster") != std::string_view::npos ? "booster" : "implant";
+    }
+    default: return nullptr;
+  }
+}
+
+// Interim search spec (contract v1.4.1): published types of the scored kinds, exact > prefix > substring on the
+// lowercased English or Chinese name, ties by type id; default limit 20.
+void search_json(const Dataset& ds, std::string_view q, size_t limit, JW& w, const std::vector<std::string>* kinds) {
+  while (!q.empty() && isspace((unsigned char)q.front())) q.remove_prefix(1);
+  while (!q.empty() && isspace((unsigned char)q.back())) q.remove_suffix(1);
+  std::string ql = ulower(q);
   struct Hit {
+    uint8_t r;
     const TypeRec* t;
-    bool not_prefix;
-    std::string_view name;
+    const char* kind;
   };
   std::vector<Hit> hits;
   for (auto& t : ds.types) {
     if (!t.published) continue;
-    std::string_view n = ds.type_name(t);
-    std::string ln = lower(n);
-    bool m = ln.find(ql) != std::string::npos;
-    if (!m) {
-      auto zh = ds.zh_name(t.id);
-      m = !zh.empty() && zh.find(q) != std::string_view::npos;
+    const char* k = search_kind(ds, t);
+    if (!k) continue;
+    if (kinds) {
+      bool ok = false;
+      for (auto& x : *kinds)
+        if (x == k) ok = true;
+      if (!ok) continue;
     }
-    if (m) hits.push_back({&t, ln.compare(0, ql.size(), ql) != 0, n});
+    std::string en = ulower(ds.type_name(t));
+    std::string zh = ulower(ds.zh_name(t.id));
+    uint8_t r;
+    if (en == ql || (!zh.empty() && zh == ql)) r = 0;
+    else if (en.compare(0, ql.size(), ql) == 0 || (!zh.empty() && zh.compare(0, ql.size(), ql) == 0)) r = 1;
+    else if (en.find(ql) != std::string::npos || (!zh.empty() && zh.find(ql) != std::string::npos)) r = 2;
+    else continue;
+    hits.push_back({r, &t, k});
   }
-  std::stable_sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) {
-    if (a.not_prefix != b.not_prefix) return a.not_prefix < b.not_prefix;
-    if (a.name.size() != b.name.size()) return a.name.size() < b.name.size();
-    return a.name < b.name;
-  });
+  std::sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) { return a.r != b.r ? a.r < b.r : a.t->id < b.t->id; });
+  static const char* MATCH[3] = {"exact", "prefix", "substring"};
   w.arr();
   for (size_t i = 0; i < hits.size() && i < limit; i++) {
     const TypeRec& t = *hits[i].t;
@@ -139,7 +201,7 @@ void search_json(const Dataset& ds, std::string_view q, size_t limit, JW& w) {
     const GroupRec* g = ds.group(t.group);
     if (g) w.str(ds.group_name(*g));
     else w.null();
-    w.key("meta_level");
+    w.ks("kind", hits[i].kind).ks("match", MATCH[hits[i].r]).key("meta_level");
     if (t.has_meta_level) w.i64(t.meta_level);
     else w.null();
     w.ks("name", ds.type_name(t)).key("name_zh");
