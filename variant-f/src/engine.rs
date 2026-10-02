@@ -169,7 +169,8 @@ enum ProjAction {
     Rr { kind: u8, amount: f64, dur_s: f64 },
     /// Pyfa filteredItemBoost / filteredChargeBoost on the target's modules (or their charges) requiring `skill`:
     /// postPercent, stacking-penalised, offensive (tracking / guidance disruptors).
-    ModItems { skill: u32, charge: bool, attr: u16, v: f64, factor: f64, resist: u16 },
+    /// `assist`: assistance effect (blocked by the target's disallowAssistance) instead of an offensive one.
+    ModItems { skill: u32, charge: bool, attr: u16, v: f64, factor: f64, resist: u16, assist: bool },
     Drain(ExtDrain),
     /// ECM jam strengths (magnetometric, ladar, radar, gravimetric) already scaled by range/squadron, + resist attr
     Ecm { st: [f64; 4], resist: u16 },
@@ -970,16 +971,18 @@ impl Fit {
         }
         let ship = self.ship;
         let no_offense = self.base(ship, a::disallowOffensiveModifiers) != 0.0;
+        let no_assist = self.base(ship, a::disallowAssistance) != 0.0;
         for a in acts {
             match a {
                 ProjAction::Mod { off: true, .. } if no_offense => {}
                 ProjAction::Ecm { .. } if no_offense => {}
-                ProjAction::ModItems { .. } if no_offense => {}
+                ProjAction::ModItems { assist: false, .. } if no_offense => {}
+                ProjAction::ModItems { assist: true, .. } if no_assist => {}
                 ProjAction::Mod { attr, op, v, factor, resist, pen, .. } => {
                     let mul = op == 4 || op == 0;
                     self.push(ship, attr, op, pen, Src::Projected { v, factor, resist, mul });
                 }
-                ProjAction::ModItems { skill, charge, attr, v, factor, resist } => {
+                ProjAction::ModItems { skill, charge, attr, v, factor, resist, .. } => {
                     for m in 0..self.items.len() {
                         if self.items[m].kind != Kind::Module || self.items[m].loc != Loc::Ship {
                             continue;
@@ -1546,6 +1549,12 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                     one.push(ProjAction::Mod { attr: a::warpScrambleStatus, op: 2, v: g(a::fighterAbilityWarpDisruptionPointStrength), factor: qty, resist, pen: false, off: true });
                 }
             }
+            e::shipModuleRemoteTrackingComputer => {
+                let f = rf(a::maxRange, a::falloffEffectiveness);
+                for (src, tgt) in [(a::trackingSpeedBonus, a::trackingSpeed), (a::maxRangeBonus, a::maxRange), (a::falloffBonus, a::falloff)] {
+                    one.push(ProjAction::ModItems { skill: SKILL_GUNNERY, charge: false, attr: tgt, v: g(src), factor: f, resist, assist: true });
+                }
+            }
             e::shipModuleTrackingDisruptor | e::shipModuleGuidanceDisruptor => {
                 let f = rf(a::maxRange, a::falloffEffectiveness);
                 let (skill, charge, pairs): (u32, bool, &[(u16, u16)]) = if eid == e::shipModuleTrackingDisruptor {
@@ -1563,7 +1572,7 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                     )
                 };
                 for &(src, tgt) in pairs {
-                    one.push(ProjAction::ModItems { skill, charge, attr: tgt, v: g(src), factor: f, resist });
+                    one.push(ProjAction::ModItems { skill, charge, attr: tgt, v: g(src), factor: f, resist, assist: false });
                 }
             }
             e::entityEnergyNeutralizerFalloff => {
@@ -1613,8 +1622,8 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                         ProjAction::Mod { attr: *attr, op: *op, v: *v, factor: *factor, resist: *resist, pen: *pen, off: *off }
                     }
                     ProjAction::Rr { kind, amount, dur_s } => ProjAction::Rr { kind: *kind, amount: *amount, dur_s: *dur_s },
-                    ProjAction::ModItems { skill, charge, attr, v, factor, resist } => {
-                        ProjAction::ModItems { skill: *skill, charge: *charge, attr: *attr, v: *v, factor: *factor, resist: *resist }
+                    ProjAction::ModItems { skill, charge, attr, v, factor, resist, assist } => {
+                        ProjAction::ModItems { skill: *skill, charge: *charge, attr: *attr, v: *v, factor: *factor, resist: *resist, assist: *assist }
                     }
                     ProjAction::Drain(dr) => ProjAction::Drain(*dr),
                     ProjAction::Ecm { st, resist } => ProjAction::Ecm { st: *st, resist: *resist },
