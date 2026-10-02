@@ -29,14 +29,16 @@ inline bool ev_less(const Ev& a, const Ev& b) {
 // push; pop's sift-down-to-bottom + sift-up gives the same layout as classic sift-down for a total order), so
 // the final element order (used by the avg-drain sum) is identical to the reference.
 struct Heap {
+  struct HE {
+    double t;
+    uint32_t id;
+  };
   std::vector<Ev> slots;
   std::vector<uint32_t> free_;
-  std::vector<uint32_t> v;  // heap of slot indices
-  bool less(uint32_t a, uint32_t b) const {
-    const Ev& x = slots[a];
-    const Ev& y = slots[b];
-    if (x.t != y.t) return x.t < y.t;
-    return ev_less(x, y);
+  std::vector<HE> v;  // heap entries carry t inline; ties fall back to the full ordering
+  bool less(const HE& a, const HE& b) const {
+    if (a.t != b.t) return a.t < b.t;
+    return ev_less(slots[a.id], slots[b.id]);
   }
   void push(const Ev& e) {
     uint32_t id;
@@ -48,22 +50,23 @@ struct Heap {
       id = (uint32_t)slots.size();
       slots.push_back(e);
     }
-    v.push_back(id);
-    size_t i = v.size() - 1;
+    HE h{e.t, id};
+    size_t i = v.size();
+    v.push_back(h);
     while (i > 0) {
       size_t p = (i - 1) / 2;
-      if (!less(id, v[p])) break;
+      if (!less(h, v[p])) break;
       v[i] = v[p];
       i = p;
     }
-    v[i] = id;
+    v[i] = h;
   }
   bool pop(Ev& out) {
     if (v.empty()) return false;
-    uint32_t top = v[0];
+    uint32_t top = v[0].id;
     out = slots[top];
     free_.push_back(top);
-    uint32_t last = v.back();
+    HE last = v.back();
     v.pop_back();
     size_t n = v.size();
     if (n == 0) return true;
@@ -82,19 +85,19 @@ struct Heap {
   std::vector<Ev> into_vec() const {
     std::vector<Ev> o;
     o.reserve(v.size() + 1);
-    for (uint32_t id : v) o.push_back(slots[id]);
+    for (auto& h : v) o.push_back(slots[h.id]);
     return o;
   }
 };
 // memo of exp(dt / tau) for recurring time steps (exact: same input bits -> same result)
 struct ExpMemo {
-  uint64_t k[16];
-  double r[16];
-  bool used[16] = {};
+  uint64_t k[256];
+  double r[256];
+  bool used[256] = {};
   double get(double a) {
     uint64_t b;
     memcpy(&b, &a, 8);
-    unsigned h = (unsigned)((b ^ (b >> 29) ^ (b >> 41)) & 15);
+    unsigned h = (unsigned)(((b * 0x9E3779B97F4A7C15ull) >> 56) & 255);
     if (used[h] && k[h] == b) return r[h];
     double e = std::exp(a);
     used[h] = true;
@@ -119,6 +122,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
   Heap heap;
   heap.slots.reserve(64);
   heap.v.reserve(64);
+  heap.free_.reserve(64);
   ExpMemo em;
   uint64_t seq = 0, period = 1;
   bool disable_period = false;

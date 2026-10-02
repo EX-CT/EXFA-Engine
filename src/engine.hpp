@@ -173,6 +173,10 @@ class Fit {
   std::vector<std::unique_ptr<std::vector<uint32_t>>> list_store_;
   std::vector<std::unique_ptr<Spool>> spool_store_;
   std::vector<uint32_t> ship_loc_, char_loc_, owned_, char_skill_tgt_;
+  // (key << 32 | item) sorted indexes for group / required-skill filtered target sets
+  std::vector<uint64_t> ix_ship_grp_, ix_char_grp_, ix_ship_skill_, ix_owned_skill_, ix_char_skill_;
+  template <class F>
+  static void each_key(const std::vector<uint64_t>& ix, uint32_t key, F&& f);
 };
 
 }  // namespace evej

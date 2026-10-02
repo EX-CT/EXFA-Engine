@@ -863,6 +863,26 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
     if (it.owned && it.n_req) owned_.push_back(i);
     if ((it.owned || it.loc == Loc::Char) && it.kind != Kind::Skill && it.n_req) char_skill_tgt_.push_back(i);
   }
+  {
+    auto add_sk = [&](std::vector<uint64_t>& ix, uint32_t i) {
+      const Item& it = items[i];
+      for (uint32_t k = 0; k < it.n_req; k++) {
+        bool dup = false;
+        for (uint32_t j = 0; j < k; j++)
+          if (it.req_skills[j] == it.req_skills[k]) dup = true;
+        if (!dup) ix.push_back((uint64_t)it.req_skills[k] << 32 | i);
+      }
+    };
+    for (uint32_t i : ship_loc_) {
+      ix_ship_grp_.push_back((uint64_t)items[i].group << 32 | i);
+      add_sk(ix_ship_skill_, i);
+    }
+    for (uint32_t i : char_loc_) ix_char_grp_.push_back((uint64_t)items[i].group << 32 | i);
+    for (uint32_t i : owned_) add_sk(ix_owned_skill_, i);
+    for (uint32_t i : char_skill_tgt_) add_sk(ix_char_skill_, i);
+    for (auto* v : {&ix_ship_grp_, &ix_char_grp_, &ix_ship_skill_, &ix_owned_skill_, &ix_char_skill_})
+      std::sort(v->begin(), v->end());
+  }
   register_all(req, no_boosters);
   apply_rah(req);
   return true;
@@ -883,6 +903,12 @@ void Fit::push_mod(uint32_t target, uint32_t attr, int op, const Src& src, uint3
   if (a.tail == UINT32_MAX) a.head = mi;
   else mods_[a.tail].next = mi;
   a.tail = mi;
+}
+
+template <class F>
+void Fit::each_key(const std::vector<uint64_t>& ix, uint32_t key, F&& f) {
+  auto it = std::lower_bound(ix.begin(), ix.end(), (uint64_t)key << 32);
+  for (; it != ix.end() && (uint32_t)(*it >> 32) == key; ++it) f((uint32_t)*it);
 }
 
 // func: 0 Item, 1 Location, 2 LocationGroup, 3 LocationRequiredSkill, 4 OwnerRequiredSkill, else EffectStopper
@@ -907,16 +933,13 @@ void Fit::for_targets(uint32_t src, int func, int domain, uint32_t extra, F&& f)
           for (uint32_t i : ship_loc_) f(i);
           return;
         case 2:
-          for (uint32_t i : ship_loc_)
-            if (items[i].group == extra) f(i);
+          each_key(ix_ship_grp_, extra, f);
           return;
         case 3:
-          for (uint32_t i : ship_loc_)
-            if (items[i].needs_skill(extra)) f(i);
+          each_key(ix_ship_skill_, extra, f);
           return;
         case 4:
-          for (uint32_t i : owned_)
-            if (items[i].needs_skill(extra)) f(i);
+          each_key(ix_owned_skill_, extra, f);
           return;
         default: return;
       }
@@ -927,13 +950,11 @@ void Fit::for_targets(uint32_t src, int func, int domain, uint32_t extra, F&& f)
           for (uint32_t i : char_loc_) f(i);
           return;
         case 2:
-          for (uint32_t i : char_loc_)
-            if (items[i].group == extra) f(i);
+          each_key(ix_char_grp_, extra, f);
           return;
         case 3:
         case 4:
-          for (uint32_t i : char_skill_tgt_)
-            if (items[i].needs_skill(extra)) f(i);
+          each_key(ix_char_skill_, extra, f);
           return;
         default: return;
       }

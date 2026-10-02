@@ -709,7 +709,8 @@ void Calc::run(JW& w) {
     bool use_row = active(i) && cap_need != 0.0 && full > 0.0;
     double use_ = 0;
     if (use_row) {
-      double avg = avg_cycle_ms(i, factor_reload);
+      // Pyfa forces reload into capacitor boosters' average cycle (module.forceReload)
+      double avg = avg_cycle_ms(i, factor_reload || is_inj);
       use_ = avg > 0.0 ? cap_need / (avg / 1000.0) : 0.0;
       if (use_ > 0.0) cap_used += use_;
       else cap_added -= use_;
