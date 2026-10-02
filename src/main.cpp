@@ -182,6 +182,7 @@ static int run_batch(const Dataset& ds, const Ids& ids, int threads) {
   std::deque<std::string> res;
   std::deque<char> ready;
   size_t res_base = 0, next_seq = 0;
+  size_t written = 0;  // results already handed to stdout by the writer (an inline answer must not overtake them)
   bool in_done = false;
   std::vector<std::thread> pool;
   for (int t = 0; t < threads; t++)
@@ -222,6 +223,7 @@ static int run_batch(const Dataset& ds, const Ids& ids, int threads) {
       for (auto& o : batch) write_out(o);
       if (caught_up) fflush(stdout);
       lk.lock();
+      written += batch.size();
     }
   });
   Worker inline_wk(ds, ids);
@@ -248,7 +250,7 @@ static int run_batch(const Dataset& ds, const Ids& ids, int threads) {
       bool idle;
       {
         std::lock_guard<std::mutex> g(m);
-        idle = res.empty();
+        idle = written == next_seq;
       }
       if (idle) {
         inline_wk.calc_json(fresh[0].line);
