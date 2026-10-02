@@ -1338,16 +1338,19 @@ impl Fit {
 use crate::data::PENALTY;
 
 /// Apply resolved modifiers (op, penalised, value) to `val` in dogma operator order (Pyfa-compatible float order).
+/// op 8 = PostMul that Pyfa stacks in the "default" penalty group together with PostPercent boosts
+/// (hand-written Pyfa effects calling multiplyItemAttr(..., stackingPenalties=True) without a group).
 fn combine(mut val: f64, hig: bool, vals: &[(i8, bool, f64)], present: u16) -> f64 {
+    let present = if present & (1 << 9) != 0 { present | (1 << 7) } else { present };
     // Pyfa folds every non-penalised post multiplier (postMul / postDiv / postPercent) into one product
     // and applies it once before the penalised ones (val * (m1 * m2)), which matters for float-exact
     // results that are later truncated (e.g. cap-sim cycle times).
     let mut post_mult = 1.0f64;
     let mut post_any = false;
     for &(o, pen, v) in vals.iter() {
-        if !pen && (4..=6).contains(&o) {
+        if !pen && ((4..=6).contains(&o) || o == 8) {
             post_mult *= match o {
-                4 => v,
+                4 | 8 => v,
                 5 => {
                     if v == 0.0 { 1.0 } else { 1.0 / v }
                 }
@@ -1370,7 +1373,7 @@ fn combine(mut val: f64, hig: bool, vals: &[(i8, bool, f64)], present: u16) -> f
         let mut pos_v: Vec<f64> = Vec::new();
         let mut neg_v: Vec<f64> = Vec::new();
         for &(o, pen, v) in vals.iter() {
-            if o != op {
+            if o != op && !(op == 6 && o == 8) {
                 continue;
             }
             match op {
@@ -1385,8 +1388,8 @@ fn combine(mut val: f64, hig: bool, vals: &[(i8, bool, f64)], present: u16) -> f
                 2 => val += v,
                 3 => val -= v,
                 _ => {
-                    let m = match op {
-                        0 | 4 => v,
+                    let m = match o {
+                        0 | 4 | 8 => v,
                         1 | 5 => {
                             if v == 0.0 { 1.0 } else { 1.0 / v }
                         }
@@ -1455,7 +1458,11 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
     for ei in effs {
         let meta = d::EFF_META[ei];
         let eid = d::EFF_IDS[ei];
-        if meta.cat != 2 && meta.cat != 3 && eid != e::ECMBurstJammer {
+        let doomsday = matches!(
+            eid,
+            e::doomsdayAOEWeb | e::doomsdayAOENeut | e::doomsdayAOEPaint | e::doomsdayAOETrack | e::doomsdayAOEDamp | e::doomsdayAOEECM
+        );
+        if meta.cat != 2 && meta.cat != 3 && eid != e::ECMBurstJammer && !doomsday {
             continue;
         }
         if meta.flags & 8 != 0 && !sf.items[i].fighter_abilities.contains(&eid) {
@@ -1549,6 +1556,32 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                     one.push(ProjAction::Mod { attr: a::warpScrambleStatus, op: 2, v: g(a::fighterAbilityWarpDisruptionPointStrength), factor: qty, resist, pen: false, off: true });
                 }
             }
+            // titan burst projectors (Pyfa Effect6476..6513): full strength, no range factor
+            e::doomsdayAOEWeb => one.push(ProjAction::Mod { attr: a::maxVelocity, op: 6, v: g(a::speedFactor), factor: 1.0, resist, pen: true, off: true }),
+            e::doomsdayAOEPaint => {
+                one.push(ProjAction::Mod { attr: a::signatureRadius, op: 6, v: g(a::signatureRadiusBonus), factor: 1.0, resist, pen: true, off: true })
+            }
+            e::doomsdayAOEDamp => {
+                one.push(ProjAction::Mod { attr: a::maxTargetRange, op: 6, v: g(a::maxTargetRangeBonus), factor: 1.0, resist, pen: true, off: true });
+                one.push(ProjAction::Mod { attr: a::scanResolution, op: 6, v: g(a::scanResolutionBonus), factor: 1.0, resist, pen: true, off: true });
+            }
+            e::doomsdayAOETrack => {
+                for (src, tgt) in [
+                    (a::aoeCloudSizeBonus, a::aoeCloudSize),
+                    (a::aoeVelocityBonus, a::aoeVelocity),
+                    (a::missileVelocityBonus, a::maxVelocity),
+                    (a::explosionDelayBonus, a::explosionDelay),
+                ] {
+                    one.push(ProjAction::ModItems { skill: SKILL_MISSILE_LAUNCHER_OPERATION, charge: true, attr: tgt, v: g(src), factor: 1.0, resist, assist: false });
+                }
+                for (src, tgt) in [(a::trackingSpeedBonus, a::trackingSpeed), (a::maxRangeBonus, a::maxRange), (a::falloffBonus, a::falloff)] {
+                    one.push(ProjAction::ModItems { skill: SKILL_GUNNERY, charge: false, attr: tgt, v: g(src), factor: 1.0, resist, assist: false });
+                }
+            }
+            e::doomsdayAOENeut => {
+                one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount: g(a::energyNeutralizerAmount), resist, sig_res: 0.0, assistance: false }));
+            }
+            e::doomsdayAOEECM => one.push(ecm(ECM_MOD, 1.0)),
             e::npcEntityWeaponDisruptor => {
                 if !cutoff(a::maxRange) {
                     for (src, tgt) in [(a::trackingSpeedBonus, a::trackingSpeed), (a::maxRangeBonus, a::maxRange), (a::falloffBonus, a::falloff)] {

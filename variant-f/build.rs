@@ -32,6 +32,20 @@ fn lit(v: f64) -> String {
     }
 }
 
+/// Effects whose penalised PostMul modifiers Pyfa (GPL-3.0, eos/effects.py, behaviour only) applies via
+/// multiplyItemAttr(..., stackingPenalties=True) in the "default" penalty group, i.e. stacked together with
+/// PostPercent boosts (e.g. remote sensor dampeners vs a Warp Core Stabilizer's scanResolutionMultiplier).
+const PYFA_DEFAULT_GROUP_MUL: [&str; 8] = [
+    "fighterAbilityEvasiveManeuvers",
+    "industrialCoreEffect2",
+    "modifyMaxVelocityOfShipPassive",
+    "moduleBonusIntegratedSensorArray",
+    "moduleBonusTriageModule",
+    "scanResolutionMultiplierOnline",
+    "shipCapitalAgilityBonus",
+    "systemAgility",
+];
+
 fn u(v: &Value) -> Option<u32> {
     v.as_u64().map(|x| x as u32).or_else(|| v.as_f64().map(|x| x as u32))
 }
@@ -315,6 +329,8 @@ fn main() {
             } else {
                 extra.to_string()
             };
+            // Pyfa stacks these effects' penalised PostMul with PostPercent boosts ("default" penalty group)
+            let op = if op == 4 && pen == "p" && PYFA_DEFAULT_GROUP_MUL.contains(&e.name.as_str()) { 8 } else { op };
             let args = format!("{modified}, {op}, i, {modifying}, {pen}");
             let call = match (dom, func) {
                 (0, 0) => format!("f.m_item(i, {args});"),
