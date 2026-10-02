@@ -17,9 +17,7 @@ bool present(const element& o, std::string_view k, element& out) {
 }
 uint64_t as_uint(const element& e, const char* what) {
   uint64_t u;
-  if (e.get_uint64().get(u) == simdjson::SUCCESS) return u;
-  double d;
-  if (e.get_double().get(d) == simdjson::SUCCESS && d >= 0 && d == (double)(uint64_t)d) return (uint64_t)d;
+  if (e.get_uint64().get(u) == simdjson::SUCCESS) return u;  // serde: integers only (2.0 is a float)
   throw Err{std::string("invalid type for ") + what + ", expected unsigned integer"};
 }
 uint32_t as_u32(const element& e, const char* what) {
@@ -52,6 +50,20 @@ simdjson::dom::object as_obj(const element& e, const char* what) {
   if (e.get_object().get(o) == simdjson::SUCCESS) return o;
   throw Err{std::string("invalid type for ") + what + ", expected object"};
 }
+// non-Option field with a serde default: absent -> default, explicit null -> error (serde rejects it)
+bool nn(const element& o, std::string_view k, element& out) {
+  if (o[k].get(out) != simdjson::SUCCESS) return false;
+  if (out.is_null()) throw Err{"invalid type: null for `" + std::string(k) + "`"};
+  return true;
+}
+uint32_t def_u32(const element& o, std::string_view k, uint32_t def, const char* what) {
+  element e;
+  return nn(o, k, e) ? as_u32(e, what) : def;
+}
+double def_f64(const element& o, std::string_view k, double def, const char* what) {
+  element e;
+  return nn(o, k, e) ? as_f64(e, what) : def;
+}
 std::optional<uint32_t> opt_u32(const element& o, std::string_view k, const char* what) {
   element e;
   if (!present(o, k, e)) return std::nullopt;
@@ -64,7 +76,7 @@ std::optional<double> opt_f64(const element& o, std::string_view k, const char* 
 }
 bool opt_bool(const element& o, std::string_view k, bool def, const char* what) {
   element e;
-  if (!present(o, k, e)) return def;
+  if (!nn(o, k, e)) return def;
   return as_bool(e, what);
 }
 uint32_t req_u32(const element& o, std::string_view k, const char* what) {
@@ -111,7 +123,7 @@ Mutation parse_mutation(const element& e) {
   m.base_type_id = req_u32(e, "base_type_id", "base_type_id");
   m.mutaplasmid_type_id = opt_u32(e, "mutaplasmid_type_id", "mutaplasmid_type_id");
   element a;
-  if (present(e, "attributes", a)) {
+  if (nn(e, "attributes", a)) {
     std::vector<std::pair<std::string, double>> kv;
     for (auto [k, v] : as_obj(a, "mutation.attributes")) kv.push_back({std::string(k), as_f64(v, "mutation attribute")});
     std::stable_sort(kv.begin(), kv.end(), [](auto& x, auto& y) { return x.first < y.first; });
@@ -144,7 +156,7 @@ DroneReq parse_drone(const element& e) {
   as_obj(e, "drone");
   DroneReq d;
   d.type_id = req_u32(e, "type_id", "type_id");
-  d.quantity = opt_u32(e, "quantity", "quantity").value_or(1);
+  d.quantity = def_u32(e, "quantity", 1, "quantity");
   d.active = opt_u32(e, "active", "active");
   element x;
   if (present(e, "mutation", x)) d.mutation = parse_mutation(x);
@@ -152,7 +164,7 @@ DroneReq parse_drone(const element& e) {
 }
 void u32_list(const element& o, std::string_view k, std::vector<uint32_t>& out, const char* what) {
   element e;
-  if (!present(o, k, e)) return;
+  if (!nn(o, k, e)) return;
   for (auto x : as_arr(e, what)) out.push_back(as_u32(x, what));
 }
 void parse_fit(const element& root, FitRequest& r, int depth);
@@ -187,13 +199,14 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
   {
     as_obj(root, "request");
     element x, y;
+    (void)opt_u32(root, "schema_version", "schema_version");
     if (!present(root, "ship", x)) throw Err{"missing field `ship`"};
     as_obj(x, "ship");
     r.ship_type_id = req_u32(x, "type_id", "ship.type_id");
     r.mode_type_id = opt_u32(x, "mode_type_id", "mode_type_id");
-    if (present(root, "character", x)) {
+    if (nn(root, "character", x)) {
       as_obj(x, "character");
-      if (present(x, "skills", y)) {
+      if (nn(x, "skills", y)) {
         as_obj(y, "skills");
         element z;
         if (present(y, "default_level", z)) {
@@ -201,7 +214,7 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
           if (v > 255) throw Err{"default_level out of range"};
           r.default_level = (uint8_t)v;
         }
-        if (present(y, "levels", z)) {
+        if (nn(y, "levels", z)) {
           for (auto [k, v] : as_obj(z, "levels")) {
             uint32_t lv = as_u32(v, "skill level");
             if (lv > 255) throw Err{"skill level out of range"};
@@ -213,14 +226,14 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
       }
       r.security_status = opt_f64(x, "security_status", "security_status");
     }
-    if (present(root, "modules", x))
+    if (nn(root, "modules", x))
       for (auto m : as_arr(x, "modules")) r.modules.push_back(parse_module(m));
-    if (present(root, "drones", x))
+    if (nn(root, "drones", x))
       for (auto m : as_arr(x, "drones")) r.drones.push_back(parse_drone(m));
-    if (present(root, "fighters", x))
+    if (nn(root, "fighters", x))
       for (auto m : as_arr(x, "fighters")) r.fighters.push_back(parse_fighter(m));
     u32_list(root, "implants", r.implants, "implants");
-    if (present(root, "boosters", x))
+    if (nn(root, "boosters", x))
       for (auto m : as_arr(x, "boosters")) {
         as_obj(m, "booster");
         BoosterReq b;
@@ -228,17 +241,17 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
         u32_list(m, "side_effects", b.side_effects, "side_effects");
         r.boosters.push_back(std::move(b));
       }
-    if (present(root, "cargo", x))
+    if (nn(root, "cargo", x))
       for (auto m : as_arr(x, "cargo")) {
         as_obj(m, "cargo");
         CargoReq c;
         c.type_id = req_u32(m, "type_id", "type_id");
-        c.quantity = opt_u32(m, "quantity", "quantity").value_or(1);
+        c.quantity = def_u32(m, "quantity", 1, "quantity");
         r.cargo.push_back(c);
       }
-    if (present(root, "fleet", x)) {
+    if (nn(root, "fleet", x)) {
       as_obj(x, "fleet");
-      if (present(x, "buffs", y))
+      if (nn(x, "buffs", y))
         for (auto b : as_arr(y, "buffs")) {
           as_obj(b, "buff");
           Buff bf;
@@ -248,13 +261,13 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
           bf.value = as_f64(v, "buff value");
           r.buffs.push_back(bf);
         }
-      if (present(x, "booster_fits", y))
+      if (nn(x, "booster_fits", y))
         for (auto bf : as_arr(y, "booster_fits")) {
           r.booster_fits.emplace_back();
           parse_fit(bf, r.booster_fits.back(), depth + 1);
         }
     }
-    if (present(root, "projected", x))
+    if (nn(root, "projected", x))
       for (auto p : as_arr(x, "projected")) {
         as_obj(p, "projected");
         Projected pr;
@@ -268,11 +281,11 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
           pr.fit = std::make_shared<FitRequest>();
           parse_fit(k, *pr.fit, depth + 1);
         }
-        pr.amount = opt_u32(p, "amount", "amount").value_or(1);
+        pr.amount = def_u32(p, "amount", 1, "amount");
         pr.distance_m = opt_f64(p, "distance_m", "distance_m");
         r.projected.push_back(std::move(pr));
       }
-    if (present(root, "environment", x)) {
+    if (nn(root, "environment", x)) {
       as_obj(x, "environment");
       u32_list(x, "effect_type_ids", r.env_effects, "effect_type_ids");
       if (present(x, "system_security", y)) r.system_security = std::string(as_str(y, "system_security"));
@@ -280,25 +293,25 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
     if (present(root, "damage_pattern", x)) {
       as_obj(x, "damage_pattern");
       Resists d;
-      d.em = opt_f64(x, "em", "em").value_or(0);
-      d.thermal = opt_f64(x, "thermal", "thermal").value_or(0);
-      d.kinetic = opt_f64(x, "kinetic", "kinetic").value_or(0);
-      d.explosive = opt_f64(x, "explosive", "explosive").value_or(0);
+      d.em = def_f64(x, "em", 0, "em");
+      d.thermal = def_f64(x, "thermal", 0, "thermal");
+      d.kinetic = def_f64(x, "kinetic", 0, "kinetic");
+      d.explosive = def_f64(x, "explosive", 0, "explosive");
       r.damage_pattern = d;
     }
     if (present(root, "target_profile", x)) {
       as_obj(x, "target_profile");
       TargetProfile t;
-      t.em = opt_f64(x, "em", "em").value_or(0);
-      t.thermal = opt_f64(x, "thermal", "thermal").value_or(0);
-      t.kinetic = opt_f64(x, "kinetic", "kinetic").value_or(0);
-      t.explosive = opt_f64(x, "explosive", "explosive").value_or(0);
+      t.em = def_f64(x, "em", 0, "em");
+      t.thermal = def_f64(x, "thermal", 0, "thermal");
+      t.kinetic = def_f64(x, "kinetic", 0, "kinetic");
+      t.explosive = def_f64(x, "explosive", 0, "explosive");
       t.signature_radius = opt_f64(x, "signature_radius", "signature_radius");
       t.max_velocity = opt_f64(x, "max_velocity", "max_velocity");
       t.radius = opt_f64(x, "radius", "radius");
       r.target_profile = t;
     }
-    if (present(root, "overrides", x))
+    if (nn(root, "overrides", x))
       for (auto o : as_arr(x, "overrides")) {
         as_obj(o, "override");
         Override ov;
@@ -309,7 +322,7 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
         ov.value = as_f64(v, "override value");
         r.overrides.push_back(ov);
       }
-    if (present(root, "options", x)) {
+    if (nn(root, "options", x)) {
       as_obj(x, "options");
       r.nos_no_target_cap = opt_bool(x, "nos_no_target_cap", false, "nos_no_target_cap");
       r.factor_reload = opt_bool(x, "factor_reload", false, "factor_reload");
@@ -318,7 +331,7 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
       if (present(x, "default_spool", y)) r.default_spool = parse_spool(y);
       if (present(x, "rah", y)) r.rah = std::string(as_str(y, "rah"));
       if (present(x, "include_attributes", y)) r.include_attributes = std::string(as_str(y, "include_attributes"));
-      if (present(x, "cap_sim", y)) {
+      if (nn(x, "cap_sim", y)) {
         as_obj(y, "cap_sim");
         r.cs_reload = opt_bool(y, "reload", false, "cap_sim.reload");
         r.cs_stagger = opt_bool(y, "stagger", false, "cap_sim.stagger");

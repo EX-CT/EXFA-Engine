@@ -123,3 +123,8 @@ behind the bench's expected values.
 * `options` omitted → `validate` true (contract 1.4.1 ruling 2; J always behaved this way).
 * eve-dogma-rs is developed with uncommitted WIP in its working tree; J's parity checks use binaries built
   from the committed HEAD (`git archive`), not the live `target/release` binary.
+* Request typing follows serde: integer fields reject floats (`2.0`), explicit `null` is accepted only for
+  `Option` fields, `schema_version` must be a u32 or null. Fuzzing (tools/fuzz_ref.py, 3 × 3000 mutated corpus
+  requests) gives identical outcomes to eve-dogma-rs (same output or same error code) except ~0.3 %: serde also
+  accepts a struct written as a JSON array (positional fields, e.g. `"environment": []`); J rejects that with
+  BAD_REQUEST. No crashes.
