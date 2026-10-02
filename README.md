@@ -53,6 +53,9 @@ Bench 1.6.0 (297 cases), shared 8-core box (J measured 2026-10-03 05:49 CST at l
 | EFT export vs Pyfa (informational) | 297/297 | 297/297 |
 | byte-identical output to A (0f589b5) | 297/297 calc cases, all RPC methods | – |
 
+Timings on this shared box swing by ±50 % with the load from other agents (the bench takes one run per metric).
+Best J run so far: 0.034 ms/fit, 20 067 fits/s, 2 ms cold (dca13b9, bench 1.5.0, load 8.7).
+
 `EVEJ_TIMING=1` prints a phase breakdown (dataset open, ids, read, calc, write) to stderr.
 
 ## License
