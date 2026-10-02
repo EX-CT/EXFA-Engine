@@ -23,9 +23,11 @@ Bench progression (all 100 %): 1.2: 226 → 1.3: 249 → 1.4: 289 → 1.5: 295 �
   illegal in game: duplicate siege modules, duplicate structure rigs (maxGroupFitted), and one 0.05 cpu difference on a
   dropped-module Tengu.
 * **Sweep.** Every published module (active, overheated and offline) and every implant is fitted on an empty
-  Hyperion: 4 811 fits, all matching Pyfa. The sweep found the lance/superweapon/cyno/jump-portal handlers, capital
+  Hyperion: 4 811 fits, all matching Pyfa. Drones (154) and charges (1 002, each in a matching launcher or turret) also
+  all match. The sweep found the lance/superweapon/cyno/jump-portal handlers, capital
   MJFG, sensor-array warp status, and Pyfa's handler-type rules (no-class effects never activate, 'offline' handlers
-  apply in every state).
+  apply in every state), breacher pod damage (Pyfa `pure` damage, strongest applies), and the EWAR drone
+  cycle time (speed before duration).
 
 ## Engine cost
 Single thread, measured with valgrind instruction counts as a stable metric:

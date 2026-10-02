@@ -54,22 +54,25 @@ struct Dmg {
     th: f64,
     ki: f64,
     ex: f64,
+    /// breacher pod damage (untyped, Pyfa DmgTypes.pure): does not stack, the strongest applies
+    pure: f64,
 }
 impl Dmg {
     fn total(&self) -> f64 {
-        self.em + self.th + self.ki + self.ex
+        self.em + self.th + self.ki + self.ex + self.pure
     }
     fn scale(&self, k: f64) -> Dmg {
-        Dmg { em: self.em * k, th: self.th * k, ki: self.ki * k, ex: self.ex * k }
+        Dmg { em: self.em * k, th: self.th * k, ki: self.ki * k, ex: self.ex * k, pure: self.pure * k }
     }
     fn add(&mut self, o: &Dmg) {
         self.em += o.em;
         self.th += o.th;
         self.ki += o.ki;
         self.ex += o.ex;
+        self.pure = self.pure.max(o.pure);
     }
     fn vs(&self, r: &Resists) -> f64 {
-        self.em * (1.0 - r.em) + self.th * (1.0 - r.thermal) + self.ki * (1.0 - r.kinetic) + self.ex * (1.0 - r.explosive)
+        self.em * (1.0 - r.em) + self.th * (1.0 - r.thermal) + self.ki * (1.0 - r.kinetic) + self.ex * (1.0 - r.explosive) + self.pure
     }
     fn json(&self) -> J {
         jv!({"em": self.em, "thermal": self.th, "kinetic": self.ki, "explosive": self.ex, "total": self.total()})
@@ -288,11 +291,17 @@ impl Fit {
         if kind == "missile" && it.charge.is_some() {
             mult *= self.get(self.char, a::missileDamageMultiplier);
         }
+        if let Some(c) = it.charge.filter(|&c| self.has_eff(c, &[e::dotMissileLaunching])) {
+            // breacher pod (Pyfa BreacherInfo): untyped damage per 1 s tick, no damage multipliers
+            let dm = Dmg { em: 0.0, th: 0.0, ki: 0.0, ex: 0.0, pure: self.get(c, a::dotMaxDamagePerTick) };
+            return (dm, kind);
+        }
         let dm = Dmg {
             em: self.get(src, DMG[0]) * mult,
             th: self.get(src, DMG[1]) * mult,
             ki: self.get(src, DMG[2]) * mult,
             ex: self.get(src, DMG[3]) * mult,
+            pure: 0.0,
         };
         (dm, kind)
     }
@@ -383,7 +392,14 @@ impl Fit {
             // Pyfa getVolleyParameters: DOT doomsdays hit every doomsdayDamageCycleTime for doomsdayDamageDuration
             let (dd, dc) = (g(i, a::doomsdayDamageDuration), g(i, a::doomsdayDamageCycleTime));
             let subcycles = if dd != 0.0 && dc != 0.0 && !self.has_eff(i, &[e::doomsdaySlash]) { float_unerr(dd / dc).floor() } else { 1.0 };
-            let dps = if cyc > 0.0 { vol_spooled.scale(subcycles * 1000.0 / cyc) } else { Dmg::default() };
+            let dps = if base.pure > 0.0 {
+                // Pyfa getDps: a breacher's dps is its first tick
+                vol_spooled
+            } else if cyc > 0.0 {
+                vol_spooled.scale(subcycles * 1000.0 / cyc)
+            } else {
+                Dmg::default()
+            };
             w_vol.add(&vol_spooled);
             w_dps.add(&dps);
             let mut w = jv!({
@@ -420,8 +436,13 @@ impl Fit {
                 continue;
             }
             let mult = if self.has(i, a::damageMultiplier) { self.get(i, a::damageMultiplier) } else { 1.0 };
-            let v = Dmg { em: g(i, DMG[0]), th: g(i, DMG[1]), ki: g(i, DMG[2]), ex: g(i, DMG[3]) }.scale(mult * n);
-            let cyc = self.raw_cycle_ms(i);
+            let v = Dmg { em: g(i, DMG[0]), th: g(i, DMG[1]), ki: g(i, DMG[2]), ex: g(i, DMG[3]), pure: 0.0 }.scale(mult * n);
+            // Pyfa Drone.cycleTime: first non-zero of speed, duration, durationHighisGood (missile drones: as before)
+            let cyc = if self.has(i, a::entityMissileTypeID) {
+                self.raw_cycle_ms(i)
+            } else {
+                [a::speed, a::duration, a::durationHighisGood].iter().map(|&x| g(i, x)).find(|&x| x != 0.0).unwrap_or(0.0).max(0.0)
+            };
             if v.total() == 0.0 || cyc == 0.0 {
                 continue;
             }
@@ -475,7 +496,7 @@ impl Fit {
                 }
                 let m = g(i, at[0]);
                 let m = if m == 0.0 { 1.0 } else { m };
-                let v = Dmg { em: g(i, at[1]), th: g(i, at[2]), ki: g(i, at[3]), ex: g(i, at[4]) }.scale(m * n);
+                let v = Dmg { em: g(i, at[1]), th: g(i, at[2]), ki: g(i, at[3]), ex: g(i, at[4]), pure: 0.0 }.scale(m * n);
                 fv.add(&v);
                 vols[k] = (eid, v);
             }
