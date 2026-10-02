@@ -1,6 +1,7 @@
 #include "capsim.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <numeric>
 #include <cstring>
@@ -132,6 +133,24 @@ struct ExpMemo {
     return e;
   }
 };
+// Python round(v, 1) (eve-dogma-rs py_round1): correctly rounded, exact ties to even. Fast exact path as
+// py_round2 in engine.cpp (nearest integer to the exact product v*10 unless within a hair of a tie).
+double py_round1(double v) {
+  if (!std::isfinite(v)) return v;
+  if (std::fabs(v) < 1e12) {
+    const double t = v * 10.0;
+    const double e = std::fma(v, 10.0, -t);
+    const double n = std::nearbyint(t);
+    const double d = (t - n) + e;
+    if (std::fabs(d) < 0.4999999) return n / 10.0;
+  }
+  char buf[400];
+  auto r = std::to_chars(buf, buf + sizeof buf, v, std::chars_format::fixed, 1);
+  if (r.ec != std::errc()) return v;
+  double o = v;
+  std::from_chars(buf, r.ptr, o);
+  return o;
+}
 uint64_t gcd(uint64_t a, uint64_t b) { return b == 0 ? a : gcd(b, a % b); }
 
 using Key = std::vector<std::pair<uint64_t, uint64_t>>;
@@ -260,7 +279,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
           has_last = true;
           break;
         }
-        cap_wrap = std::round(cap * 10.0) / 10.0;
+        cap_wrap = py_round1(cap);  // Python round(cap, 1)
         awaiting_wrap = std::move(k);
         t_wrap += periodf;
       }
