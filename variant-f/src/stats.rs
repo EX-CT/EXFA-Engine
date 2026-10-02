@@ -82,19 +82,18 @@ fn round6(v: f64) -> f64 {
 }
 
 /// Recursively round floats for stable, readable output.
-fn tidy(v: Value) -> Value {
+fn tidy(v: &mut Value) {
     match v {
         Value::Number(n) => {
             if n.is_f64() {
                 if let Some(f) = n.as_f64() {
-                    return json!(round6(f));
+                    *v = json!(round6(f));
                 }
             }
-            Value::Number(n)
         }
-        Value::Array(x) => Value::Array(x.into_iter().map(tidy).collect()),
-        Value::Object(o) => Value::Object(o.into_iter().map(|(k, v)| (k, tidy(v))).collect()),
-        x => x,
+        Value::Array(x) => x.iter_mut().for_each(tidy),
+        Value::Object(o) => o.values_mut().for_each(tidy),
+        _ => {}
     }
 }
 
@@ -676,7 +675,9 @@ impl Fit {
             }
             _ => {}
         }
-        tidy(Value::Object(out))
+        let mut out = Value::Object(out);
+        tidy(&mut out);
+        out
     }
 
     pub fn dump_attrs(&self, i: usize) -> Value {

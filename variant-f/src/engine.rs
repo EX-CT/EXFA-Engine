@@ -60,6 +60,8 @@ pub enum Src {
     Projected { v: f64, factor: f64, resist: u16, mul: bool },
 }
 
+const NONE: u32 = u32::MAX;
+
 #[derive(Debug, Clone, Copy)]
 pub struct AMod {
     pub op: i8,
@@ -69,7 +71,9 @@ pub struct AMod {
 
 pub struct Slot_ {
     pub base: f64,
-    pub mods: Vec<AMod>,
+    /// head of this slot's modifier chain in `Fit::mods` (NONE = no modifiers); order is irrelevant to eval
+    head: u32,
+    n: u32,
     val: Cell<f64>,
     /// 0 = not computed, 1 = computing (cycle guard), 2 = cached
     st: Cell<u8>,
@@ -114,6 +118,8 @@ impl Item {
 pub struct Fit {
     pub items: Vec<Item>,
     pub slots: Vec<Slot_>,
+    /// modifier arena: (modifier, next index in the same slot's chain)
+    mods: Vec<(AMod, u32)>,
     pub ship: usize,
     pub char: usize,
     pub warnings: Vec<String>,
@@ -229,10 +235,10 @@ impl Fit {
         match self.items[i].dyn_attrs.binary_search_by_key(&attr, |x| x.0) {
             Ok(k) => {
                 let s = self.items[i].dyn_attrs[k].1 as usize;
-                self.slots[s] = Slot_ { base, mods: Vec::new(), val: Cell::new(0.0), st: Cell::new(0) };
+                self.slots[s] = Slot_ { base, head: NONE, n: 0, val: Cell::new(0.0), st: Cell::new(0) };
             }
             Err(k) => {
-                self.slots.push(Slot_ { base, mods: Vec::new(), val: Cell::new(0.0), st: Cell::new(0) });
+                self.slots.push(Slot_ { base, head: NONE, n: 0, val: Cell::new(0.0), st: Cell::new(0) });
                 let s = (self.slots.len() - 1) as u32;
                 self.items[i].dyn_attrs.insert(k, (attr, s));
             }
@@ -244,7 +250,7 @@ impl Fit {
             Ok(k) => self.items[i].dyn_attrs[k].1 as usize,
             Err(k) => {
                 let base = d::type_attr(self.items[i].ty, attr).unwrap_or_else(|| d::attr_default(attr));
-                self.slots.push(Slot_ { base, mods: Vec::new(), val: Cell::new(0.0), st: Cell::new(0) });
+                self.slots.push(Slot_ { base, head: NONE, n: 0, val: Cell::new(0.0), st: Cell::new(0) });
                 let s = self.slots.len() - 1;
                 self.items[i].dyn_attrs.insert(k, (attr, s as u32));
                 s
@@ -255,7 +261,10 @@ impl Fit {
     #[inline]
     fn push(&mut self, t: usize, attr: u16, op: i8, pen: bool, src: Src) {
         let s = self.ensure(t, attr);
-        self.slots[s].mods.push(AMod { op, pen, src });
+        let k = self.mods.len() as u32;
+        self.mods.push((AMod { op, pen, src }, self.slots[s].head));
+        self.slots[s].head = k;
+        self.slots[s].n += 1;
     }
 
     pub fn has(&self, i: usize, attr: u16) -> bool {
@@ -554,7 +563,8 @@ impl Fit {
     pub fn build(req: &FitRequest) -> Result<Fit, EngineError> {
         let mut fit = Fit {
             items: Vec::with_capacity(700),
-            slots: Vec::with_capacity(4096),
+            slots: Vec::with_capacity(2048),
+            mods: Vec::with_capacity(4096),
             ship: 0,
             char: 0,
             warnings: Vec::new(),
@@ -1121,7 +1131,7 @@ impl Fit {
         }
         slot.st.set(1);
         let mut val = slot.base;
-        let n = slot.mods.len();
+        let n = slot.n as usize;
         if n > 0 {
             let hig = d::attr_flags(attr) & d::AF_HIGH_IS_GOOD != 0 || d::attr_flags(attr) & 1 == 0;
             // resolve source values once; bucket by operator (op -1..7 -> 0..8)
@@ -1134,7 +1144,10 @@ impl Fit {
                 &mut buf_big[..]
             };
             let mut present = 0u16;
-            for (k, m) in slot.mods.iter().enumerate() {
+            let mut cur = slot.head;
+            for k in 0..n {
+                let (m, next) = &self.mods[cur as usize];
+                cur = *next;
                 vals[k] = (m.op, m.pen, self.src_value(&m.src));
                 present |= 1 << ((m.op + 1) as u16 & 15);
             }
