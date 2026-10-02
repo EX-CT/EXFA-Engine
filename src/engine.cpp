@@ -669,7 +669,7 @@ static std::string lower(std::string_view s) {
   return o;
 }
 
-static bool parse_u32_rust(std::string_view s, uint32_t& out) {
+bool parse_u32_rust(std::string_view s, uint32_t& out) {
   // Rust's str::parse::<u32>: optional '+', digits only, no overflow
   if (!s.empty() && s[0] == '+') s.remove_prefix(1);
   if (s.empty()) return false;

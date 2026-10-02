@@ -122,6 +122,8 @@ struct EngineError {
   std::string message, path;
 };
 
+bool parse_u32_rust(std::string_view s, uint32_t& out);  // Rust's str::parse::<u32>
+
 class Fit {
  public:
   Fit(const Dataset& ds, const Ids& ids) : ds(ds), K(ids) {}

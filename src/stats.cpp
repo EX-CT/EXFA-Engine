@@ -1,3 +1,4 @@
+#include <functional>
 // Fit statistics on top of the evaluated dogma graph (same formulas as eve-dogma-rs / Pyfa).
 #include "stats.hpp"
 
@@ -25,7 +26,9 @@ double range_factor(double optimal, double falloff, std::optional<double> distan
 
 static std::optional<double> lock_time(double scan_res, double sig) {
   if (scan_res <= 0.0 || sig <= 0.0) return std::nullopt;
-  double a = std::asinh(sig);
+  // Rust's f64::asinh (std 1.85: ln_1p(|x| + |x| / (hypot(1, 1/|x|) + 1/|x|)), sign copied), not libm's asinh
+  const double ax = std::fabs(sig), ix = 1.0 / ax;
+  double a = std::copysign(std::log1p(ax + ax / (std::hypot(1.0, ix) + ix)), sig);
   return std::min(40000.0 / scan_res / (a * a), 1800.0);
 }
 
@@ -403,9 +406,115 @@ struct Calc {
         if (f.items[i].kind == Kind::Skill) have.push_back({f.items[i].type_id, f.base(i, 280)});
       std::sort(have.begin(), have.end(), [](auto& a, auto& b) { return a.first < b.first; });
     }
-    auto have_lvl = [&](uint32_t s) {
+    auto have_lvl_j = [&](uint32_t s) {
       auto it = std::lower_bound(have.begin(), have.end(), s, [](auto& p, uint32_t x) { return p.first < x; });
       return it != have.end() && it->first == s ? it->second : 0.0;
+    };
+    // The reference reads the levels of the skill items it instantiated. A skill required by the fit's own
+    // items is always instantiated (by both engines); for any other required skill (e.g. one only a projected
+    // module's charge needs) J's pruning differs from the reference's, so decide with the reference's predicate
+    // (eve-dogma-rs skill_relevant + ship_touched) and take the requested level.
+    const std::vector<uint32_t>& need = f.prune_need_;
+    const std::vector<uint32_t>& groups = f.prune_groups_;
+    bool touched_ready = false;
+    std::vector<uint32_t> touched;
+    auto build_touched = [&]() {
+      touched_ready = true;
+      auto add = [&](uint32_t tid) {
+        const TypeRec* t = ds.type(tid);
+        if (!t) return;
+        for (const TEff& te : ds.type_effects(*t))
+          if (const EffRec* e = ds.effect(te.id))
+            for (const ModRec& m : ds.effect_mods(*e))
+              if (m.func == 0 && m.domain != 0) touched.push_back(m.modified);
+      };
+      std::function<void(const FitRequest&)> walk = [&](const FitRequest& r) {
+        add(r.ship_type_id);
+        if (r.mode_type_id) add(*r.mode_type_id);
+        for (auto& m : r.modules) {
+          add(m.type_id);
+          if (m.charge_type_id) add(*m.charge_type_id);
+          if (m.mutation) add(m.mutation->base_type_id);
+        }
+        for (auto& d : r.drones) add(d.type_id);
+        for (auto& x : r.fighters) add(x.type_id);
+        for (uint32_t i : r.implants) add(i);
+        for (auto& b : r.boosters) add(b.type_id);
+        for (uint32_t e : r.env_effects) add(e);
+        for (auto& p : r.projected) {
+          if (p.module) {
+            add(p.module->type_id);
+            if (p.module->charge_type_id) add(*p.module->charge_type_id);
+          }
+          if (p.drone) add(p.drone->type_id);
+          if (p.fighter) add(p.fighter->type_id);
+          if (p.fit) walk(*p.fit);
+        }
+        for (auto& bf : r.booster_fits) walk(bf);
+      };
+      walk(req);
+      for (const DbuffRec& b : ds.dbuffs)
+        for (uint32_t a : ds.pool(b.item_off, b.item_cnt)) touched.push_back(a);
+      std::sort(touched.begin(), touched.end());
+    };
+    auto in = [](const std::vector<uint32_t>& v, uint32_t x) { return std::binary_search(v.begin(), v.end(), x); };
+    const bool ref_prune = !req.include_attributes.has_value();
+    auto ref_relevant = [&](uint32_t s) {
+      if (in(need, s)) return true;
+      const TypeRec* t = ds.type(s);
+      if (!t) return false;
+      for (const TEff& te : ds.type_effects(*t)) {
+        if (te.id == 132) continue;
+        const EffRec* e = ds.effect(te.id);
+        if (!e) continue;
+        if (e->mod_cnt == 0) return true;
+        for (const ModRec& m : ds.effect_mods(*e)) {
+          bool hit;
+          switch (m.func) {
+            case 0:
+              if (!ref_prune) hit = true;
+              else if (m.domain == 0) hit = false;
+              else if (m.domain == 1) {
+                double x;
+                if (ds.type_attr(*f.items[f.ship].t, m.modified, x)) hit = true;
+                else {
+                  if (!touched_ready) build_touched();
+                  hit = in(touched, m.modified);
+                }
+              } else hit = true;
+              break;
+            case 2: {
+              const GroupRec* g = ds.group(m.extra);
+              hit = in(groups, m.extra) || !g || g->category == 16;
+              break;
+            }
+            case 3:
+            case 4: hit = in(need, m.extra == 0 ? s : m.extra); break;
+            default: hit = true;  // Location, EffectStopper
+          }
+          if (hit) return true;
+        }
+      }
+      return false;
+    };
+    auto req_level = [&](uint32_t s) -> double {
+      // published skills at default_level, then the request's overrides (by id or name; later keys win)
+      std::optional<uint8_t> lv;
+      if (std::binary_search(ds.skills.begin(), ds.skills.end(), s)) lv = req.default_level.value_or(0);
+      for (auto& [k, v] : req.skill_levels) {
+        uint32_t id;
+        if (!parse_u32_rust(k, id)) id = ds.type_by_name(k);
+        if (id == s) lv = v;
+      }
+      if (!lv) return 0.0;
+      double l = (double)std::min<uint8_t>(*lv, 5);
+      for (auto& o : req.overrides)
+        if (o.type_id == s && o.attribute_id == 280) l = o.value;
+      return l;
+    };
+    auto have_lvl = [&](uint32_t s) -> double {
+      if (in(need, s)) return have_lvl_j(s);
+      return ref_relevant(s) ? req_level(s) : 0.0;
     };
     struct Miss {
       uint32_t s;
