@@ -181,6 +181,81 @@ impl Fit {
     }
 
     /// Average cycle time in ms (Pyfa getCycleParameters(...).averageTime)
+    /// Pyfa Fighter.getCycleParametersPerEffect (+ FighterAbility numShots/reloadTime): per ability
+    /// (effect id, plain cycle ms, average cycle ms incl. refuels, shots per refuel).
+    fn fighter_cycles(&self, i: usize, factor_reload: bool) -> Vec<(u32, f64, f64, u32)> {
+        const ABIL: [(u32, u16, bool); 8] = [
+            (e::fighterAbilityMissiles, a::fighterAbilityMissilesDuration, true),
+            (e::fighterAbilityEnergyNeutralizer, a::fighterAbilityEnergyNeutralizerDuration, false),
+            (e::fighterAbilityStasisWebifier, a::fighterAbilityStasisWebifierDuration, false),
+            (e::fighterAbilityWarpDisruption, a::fighterAbilityWarpDisruptionDuration, false),
+            (e::fighterAbilityECM, a::fighterAbilityECMDuration, false),
+            (e::fighterAbilityEvasiveManeuvers, a::fighterAbilityEvasiveManeuversDuration, false),
+            (e::fighterAbilityAttackM, a::fighterAbilityAttackMissileDuration, false),
+            (e::fighterAbilityLaunchBomb, a::fighterAbilityLaunchBombDuration, true),
+        ];
+        let role = self.get(i, a::fighterSquadronRole) as i64;
+        let (shots_role, rearm) = match role {
+            2 => (12u32, 4000.0),
+            4 => (6, 6000.0),
+            5 => (3, 20000.0),
+            _ => (0, 0.0),
+        };
+        let refuel = self.get(i, a::fighterRefuelingTime);
+        // (eid, cycle, numShots, hasCharges)
+        let mut v: Vec<(u32, f64, u32, bool)> = Vec::new();
+        for (eid, dur, charges) in ABIL {
+            if self.items[i].has_effect(eid) {
+                let c = self.get(i, dur);
+                if c > 0.0 {
+                    v.push((eid, c, if charges { shots_role } else { 0 }, charges));
+                }
+            }
+        }
+        let limited = v.iter().filter(|x| x.2 > 0).min_by(|x, y| (x.1 * x.2 as f64).partial_cmp(&(y.1 * y.2 as f64)).unwrap());
+        let Some(&(ml_eid, ml_c, ml_n, _)) = limited.filter(|_| factor_reload) else {
+            return v.iter().map(|x| (x.0, x.1, x.1, x.2)).collect();
+        };
+        let unerr = |x: f64| {
+            if x == 0.0 || x.is_infinite() {
+                return x;
+            }
+            let k = 7 - x.abs().log10().ceil() as i32;
+            let p = 10f64.powi(k);
+            (x * p).round() / p
+        };
+        let dur_to_refuel = ml_c * ml_n as f64;
+        let per: Vec<(u32, f64, u32, Option<f64>)> = v
+            .iter()
+            .map(|x| {
+                if x.0 == ml_eid {
+                    (x.0, x.1, ml_n, None)
+                } else {
+                    let full = unerr(dur_to_refuel / x.1) as i64 as u32;
+                    let extra = unerr(dur_to_refuel - full as f64 * x.1);
+                    (x.0, x.1, full, if extra == 0.0 { None } else { Some(extra) })
+                }
+            })
+            .collect();
+        let mut refuel_time = f64::MIN;
+        for (k, p) in per.iter().enumerate() {
+            let spent = p.2 + p.3.is_some() as u32;
+            let spent = spent.max(v[k].2);
+            let rt = refuel + if v[k].3 { rearm * spent as f64 } else { 0.0 };
+            refuel_time = refuel_time.max(rt);
+        }
+        per.iter()
+            .enumerate()
+            .map(|(k, p)| {
+                let avg = match p.3 {
+                    Some(extra) => (p.1 * p.2 as f64 + extra + refuel_time) / (p.2 + 1) as f64,
+                    None => (p.1 * p.2 as f64 + refuel_time) / p.2.max(1) as f64,
+                };
+                (p.0, p.1, avg, v[k].2)
+            })
+            .collect()
+    }
+
     fn avg_cycle_ms(&self, i: usize, factor_reload: bool) -> f64 {
         let active = self.raw_cycle_ms(i);
         if active == 0.0 {
@@ -236,7 +311,7 @@ impl Fit {
         let sum = |attr: u16, f: &dyn Fn(usize) -> bool| -> f64 { modules.iter().filter(|&&i| f(i)).map(|&i| self.get(i, attr)).sum() };
         let cpu_used = sum(a::cpu, &online);
         let pg_used = sum(a::power, &online);
-        let calib_used: f64 = modules.iter().filter(|&&i| self.items[i].slot == Some(Slot::Rig)).map(|&i| self.get(i, a::upgradeCost)).sum();
+        let calib_used: f64 = modules.iter().filter(|&&i| self.items[i].slot == Some(Slot::Rig) && self.items[i].state >= State::Online).map(|&i| self.get(i, a::upgradeCost)).sum();
         let drones: Vec<usize> = (0..self.items.len()).filter(|&i| self.items[i].kind == Kind::Drone).collect();
         let fighters: Vec<usize> = (0..self.items.len()).filter(|&i| self.items[i].kind == Kind::Fighter).collect();
         let bw_used: f64 = drones.iter().map(|&i| g(i, a::droneBandwidthUsed) * self.items[i].active_count as f64).sum();
@@ -389,19 +464,36 @@ impl Fit {
             }
             let mut fv = Dmg::default();
             let mut fd = Dmg::default();
-            for (eid, at) in FIGHTER_ATTACKS {
+            let cyc = self.fighter_cycles(i, factor_reload);
+            let mut vols: [(u32, Dmg); 2] = [(0, Dmg::default()), (0, Dmg::default())];
+            for (k, (eid, at)) in FIGHTER_ATTACKS.iter().enumerate() {
+                let eid = *eid;
                 if !self.items[i].has_effect(eid) || !self.items[i].fighter_abilities.contains(&eid) {
                     continue;
                 }
                 let m = g(i, at[0]);
                 let m = if m == 0.0 { 1.0 } else { m };
                 let v = Dmg { em: g(i, at[1]), th: g(i, at[2]), ki: g(i, at[3]), ex: g(i, at[4]) }.scale(m * n);
-                let dur = g(i, at[5]);
                 fv.add(&v);
-                if dur > 0.0 {
-                    fd.add(&v.scale(1000.0 / dur));
-                }
+                vols[k] = (eid, v);
             }
+            // Pyfa Fighter.getCycleParametersPerEffectOptimizedDps: never-refuel cycling (charge-less abilities only)
+            // vs. cycling with refuels, whichever gives more dps.
+            let dps_with = |inf: bool| {
+                let mut t = Dmg::default();
+                for (eid, v) in &vols {
+                    if let Some(&(_, c_inf, c_rel, shots)) = cyc.iter().find(|c| c.0 == *eid) {
+                        let c = if inf { if shots == 0 { c_inf } else { 0.0 } } else { c_rel };
+                        if c > 0.0 {
+                            t.add(&v.scale(1000.0 / c));
+                        }
+                    }
+                }
+                t
+            };
+            let d_inf = dps_with(true);
+            let d_rel = dps_with(false);
+            fd.add(if d_inf.total() >= d_rel.total() { &d_inf } else { &d_rel });
             if fv.total() > 0.0 {
                 f_vol.add(&fv);
                 f_dps.add(&fd);
