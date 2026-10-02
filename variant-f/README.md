@@ -19,6 +19,22 @@ cargo build --release
 ./target/release/eve-dogma-f meta | search QUERY | type ID|NAME | bench FILE -n N
 ```
 
+### WASM
+
+```bash
+rustup target add wasm32-wasip1 wasm32-unknown-unknown
+cargo build --release --target wasm32-wasip1                 # CLI as WASI module
+wasmtime run target/wasm32-wasip1/release/eve-dogma-f.wasm calc < request.json
+cargo build --lib --profile release-small --target wasm32-unknown-unknown   # 2.9 MB, C-ABI exports
+node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogma_f.wasm < request.json
+```
+
+### Bench
+
+`bench.yaml` is the eve-dogma-bench manifest. The bench gives **249/249 cases, 13 812/13 812 values** (see RESULTS.md, `bench/`).
+
+Branch note: `variant-f` is an orphan branch (the lab branches share no history) and holds only `variant-f/`.
+
 `--dataset PATH` is accepted (ignored) so command lines written for the reference engine keep working.
 
 License: LGPL-3.0-or-later (engine semantics derived from eve-dogma-rs, see DESIGN.md "Provenance").

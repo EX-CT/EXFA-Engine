@@ -1,0 +1,65 @@
+# Variant F: design
+
+## Core idea
+The SDE is compiled into Rust code. `build.rs` reads `dataset-3569502.json.gz` (eve-sde-pipeline format v1, path from
+`$EVE_DOGMA_DATASET`) and writes `$OUT_DIR/gen.rs` (about 5.4 MB of Rust), which is pulled in with `include!`. At runtime
+the engine never parses dataset JSON and never interprets modifier records. Every effect is a match arm of straight-line
+calls.
+
+```rust
+// generated (shape)
+pub fn apply_local(f: &mut Fit, ei: u16, i: usize, p: bool) {
+    match ei {
+        123 => { f.m_ship_loc(i, a::maxVelocity, a::speedFactor, 6, true); f.m_item(i, a::mass, a::massAddition, 2, false); }
+        ...
+    }
+}
+```
+
+### Build-time steps
+| what | how |
+|---|---|
+| attributes | dense tables indexed by attribute id: default, flags (stackable / highIsGood / 2-dp rounding), min/max cap attribute, name |
+| types | sorted `TYPE_IDS` + `TypeRec` records. Attribute values are stored as u16 indexes into a pool of unique f64 values (4 141 values), and effects are packed `(effect index << 1) \| default` |
+| effects → code | 5 118 local modifiers become `apply_local` arms. The domain/func/op and the stacking-penalty decision are resolved at build time (the flag is a constant `false` for stackable attributes and the bastion hull-resonance exception) |
+| projected effects | `apply_projected` arms plus effect metadata (range/falloff/resistance attribute, web/TP/damp/sebo class) |
+| skills folded | 512 published skills. Each skill's outbound modifiers (878) are emitted with the **source value precomputed for levels 0..5** (`SKILL_VALS[slot][lvl]`). A build-time mini-evaluator runs the skill's own Item-domain modifiers. Skills therefore never become items at runtime. Skills with overrides or unpublished skills fall back to generic items. The generator panics if any effect could modify skill attributes, which keeps the fold sound |
+| warfare buffs | `apply_dbuff` is generated from dbuff collections |
+| misc | T3D default modes, fighter default abilities, mutaplasmid tables, can-fit/charge-group attribute lists, a name index for search, and the stacking-penalty table `exp(-k²/7.1289)` |
+
+### Runtime
+* `Fit` has an item list, a slot arena for modified attributes, and per-item sorted *dynamic* attribute lists. An attribute
+  becomes materialised only when a modifier targets it. Every other attribute reads straight through to the static type
+  table, with min/max caps and rounding still applied.
+* Indexes: by location (ship/char), by group, and by required skill.
+* Lazy memoised evaluation uses stack buffers. Stacking penalties come from the constant table.
+* Projections: `collect_projection` evaluates the source side (a module, drone, or whole projected fit) into actions.
+  These are modifiers carrying range factor and resistance, remote reps (incl. AAR paste ×3 and mutadaptive spool),
+  cap drains (neut/nos, signature-scaled), and cap transfer. They are applied to the target fit.
+* Fleet boosts: explicit buffs, local bursts, and `booster_fits`. The strongest value per buff id wins.
+* Stats/capsim/RAH follow the reference engine (eve-dogma-rs). Missile range follows Pyfa's `missileMaxRangeData`.
+
+## Trade-offs
+* **Rebuild per dataset.** A new SDE needs a recompile (native release ≈ 35 s, wasm32-wasip1 ≈ 24 s, wasm32-unknown-unknown
+  release-small ≈ 12 s). `--dataset` is accepted and ignored. `meta` reports the sha256 of the compiled-in dataset.
+* **Binary size vs. startup.** The binary is 3.8 MB native (3.4 MB wasip1, 2.9 MB unknown-unknown size-opt), but there
+  is no JSON load at all. Cold start + one calc is about 2–3 ms native. The reference engine needs hundreds of ms to
+  load its dataset.
+* The generated source is large (5.4 MB). Fat LTO + codegen-units=1 keep the output compact but make builds slower.
+* Not implemented: Chinese names in search (omitted for size), EFT import.
+
+## WASM
+* `wasm32-wasip1`: the same CLI binary. Run it with `wasmtime run eve-dogma-f.wasm calc < req.json`. Precompiling with
+  `wasmtime compile` gives about 6.6 ms cold.
+* `wasm32-unknown-unknown` (`--lib --profile release-small`): C-ABI exports `alloc`, `dealloc`, `calc(ptr,len)->u64`,
+  `rpc(ptr,len)->u64`. See `examples/node-calc.mjs`.
+
+## Repository note
+The lab repo's branches share no history, so `variant-f` is an **orphan branch** that contains only `variant-f/`.
+
+## Provenance
+LGPL-3.0-or-later. `src/request.rs` and `src/capsim.rs` are copies of eve-dogma-rs (LGPL-3.0-or-later). `src/engine.rs`
+and `src/stats.rs` are derived from eve-dogma-rs's engine/stats semantics (RAH, capsim usage, stat formulas), and their file
+headers say so. The code generator (`build.rs`), the folded-skill scheme, the projection system and the data layout are new.
+Pyfa (GPL) was only read for behaviour (missile range formula, remote-rep diminishing, sensor-booster attributes). No
+Pyfa code was copied.
