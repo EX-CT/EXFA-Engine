@@ -1238,6 +1238,10 @@ void Fit::register_all(const FitRequest& req, bool no_boosters) {
       // Pyfa 'active' handlers for SDE effects without modifiers (some are target-category in the SDE)
       if (e->mod_cnt == 0 && kind == Kind::Module && state >= State::Active && local_special(i, ds.effect_name(*e), src_cat))
         continue;
+      if (kind == Kind::Beacon && ds.effect_name(*e) == "OffensiveDefensiveReduction") {
+        incursion_effect(i);
+        continue;
+      }
       if (!state_ok(e->category, state)) continue;
       // ---- special effects (no modifierInfo in the SDE)
       if (kind == Kind::Fighter && ds.effect_mods(*e).empty()) {
@@ -1332,7 +1336,7 @@ void Fit::register_projected(uint32_t i) {
     if (!e) continue;
     std::string_view ename = ds.effect_name(*e);
     const bool fab = ename.substr(0, 14) == "fighterAbility";
-    if (e->category != 2 && e->category != 3 && ename != "ECMBurstJammer") continue;
+    if (e->category != 2 && e->category != 3 && ename != "ECMBurstJammer" && ename.substr(0, 11) != "doomsdayAOE") continue;
     if (abilities && fab && std::find(abilities->begin(), abilities->end(), te.id) == abilities->end()) continue;
     if (state < State::Active) continue;
     double opt = 0, fo = 0;
@@ -1369,7 +1373,10 @@ void Fit::register_projected(uint32_t i) {
       push_mod(ship, target_attr, op, s, src_cat);
     };
     auto mods = ds.effect_mods(*e);
-    if (!mods.empty()) {
+    // burst projectors and the Standup weapon disruptor stay engine-side even if a dataset revision gives them
+    // modifiers (as eve-dogma-rs: the generic path has no AoE full-strength rule)
+    const bool engine_side = ename.substr(0, 11) == "doomsdayAOE" || ename == "structureModuleEffectWeaponDisruption";
+    if (!mods.empty() && !engine_side) {
       for (const ModRec& m : mods)
         if ((m.domain == 5 || m.domain == 6 || m.domain == 1) && m.func == 0) push(m.modified, m.modifying, m.op);
       continue;
@@ -1402,6 +1409,33 @@ void Fit::register_projected(uint32_t i) {
         push_f(K.warpScrambleStatus, 2, ds.attr_id("fighterAbilityWarpDisruptionPointStrength"), qty);
       continue;
     }
+    // burst projectors (Pyfa Effect6476-6482/6513, via eve-dogma-rs): full strength in the AoE (no range factor)
+    if (name == "doomsdayAOEWeb" || name == "doomsdayAOEPaint" || name == "doomsdayAOEDamp") {
+      if (target_offense_ok) {
+        if (name == "doomsdayAOEWeb") push_f(K.maxVelocity, 6, K.speedFactor, 1.0);
+        else if (name == "doomsdayAOEPaint") push_f(K.signatureRadius, 6, K.signatureRadiusBonus, 1.0);
+        else {
+          push_f(K.maxTargetRange, 6, K.maxTargetRangeBonus, 1.0);
+          push_f(K.scanResolution, 6, K.scanResolutionBonus, 1.0);
+        }
+      }
+      continue;
+    }
+    if (name == "doomsdayAOENeut") {
+      proj_special.push_back(ProjSpecial{false, 0, i, K.energyNeutralizerAmount, K.duration, resist, 1.0, 1.0, 1.0});
+      continue;
+    }
+    if (name == "doomsdayAOEECM") {
+      if (target_offense_ok) {
+        ProjSpecial ps{false, 0, i, 0, 0, resist, 1.0, 1.0, 0.0};
+        ps.ecm = true;
+        ps.fighter = false;
+        proj_special.push_back(ps);
+      }
+      continue;
+    }
+    if (name == "doomsdayAOEBubble" || name == "doomsdayAOEGuide") continue;
+    const bool weapon_disruption = name == "doomsdayAOETrack" || name == "structureModuleEffectWeaponDisruption";
     if (starts("remoteWebifier") || name == "structureModuleEffectStasisWebifier") {
       push(K.maxVelocity, K.speedFactor, 6);
     } else if (starts("remoteTargetPaint") || name == "structureModuleEffectTargetPainter") {
@@ -1411,6 +1445,45 @@ void Fit::register_projected(uint32_t i) {
       push(K.scanResolution, K.scanResolutionBonus, 6);
       if (starts("remoteSensorBoost"))
         for (int k = 0; k < 4; k++) push(K.scanStrengthG[k], K.scanStrengthPercent[k], 6);
+    } else if (weapon_disruption) {
+      // AoE weapon disruption burst (full strength) / Standup Weapon Disruptor (range factor): turrets and missiles
+      if (target_offense_ok) {
+        const double tf = name == "doomsdayAOETrack"
+                              ? 1.0
+                              : range_factor_local(pbase(i, "maxRange"), pbase(i, "falloffEffectiveness"),
+                                                   items[i].has_distance, items[i].distance, true);
+        const uint32_t gun = ds.type_by_name("Gunnery"), mls = ds.type_by_name("Missile Launcher Operation");
+        static const char* TDP[][2] = {{"trackingSpeedBonus", "trackingSpeed"}, {"maxRangeBonus", "maxRange"}, {"falloffBonus", "falloff"}};
+        static const char* GDP[][2] = {{"aoeCloudSizeBonus", "aoeCloudSize"}, {"aoeVelocityBonus", "aoeVelocity"},
+                                       {"missileVelocityBonus", "maxVelocity"}, {"explosionDelayBonus", "explosionDelay"}};
+        const size_t n = items.size();
+        for (size_t t = 0; t < n; t++) {
+          const Item& it = items[t];
+          if (it.loc != Loc::Ship || !it.owned) continue;
+          const char* (*pairs)[2];
+          int np;
+          if (it.kind == Kind::Module && it.needs_skill(gun)) {
+            pairs = TDP;
+            np = 3;
+          } else if (it.kind == Kind::Charge && it.needs_skill(mls)) {
+            pairs = GDP;
+            np = 4;
+          } else {
+            continue;
+          }
+          for (int k = 0; k < np; k++) {
+            Src s;
+            s.k = Src::Proj;
+            s.a = i;
+            s.b = ds.attr_id(pairs[k][0]);
+            s.c = ship;
+            s.d = resist;
+            s.f = tf;
+            s.mul = false;
+            push_mod((uint32_t)t, ds.attr_id(pairs[k][1]), 6, s, src_cat);
+          }
+        }
+      }
     } else if (name == "shipModuleTrackingDisruptor" || name == "shipModuleGuidanceDisruptor" ||
                name == "shipModuleRemoteTrackingComputer" || name == "npcEntityWeaponDisruptor") {
       // Pyfa Effect6424 / Effect6423 / shipModuleRemoteTrackingComputer (via eve-dogma-rs): modify the target's
@@ -1493,6 +1566,8 @@ bool Fit::local_special(uint32_t i, std::string_view name, uint32_t src_cat) {
     static const char* S[4] = {"Gravimetric", "Magnetometric", "Radar", "Ladar"};
     for (auto s : S)
       push_mod(ship, a(std::string("scan") + s + "Strength"), 6, attr_src(i, a(std::string("scan") + s + "StrengthPercent")), src_cat);
+  } else if (name == "moduleBonusBreacherPodDamageControl") {
+    push_mod(ship, a("breacherPodDamageResistance"), 6, attr_src(i, a("breacherPodActivatedDamageReceivedPercentage")), 6);
   } else if (name == "microJumpPortalDrive" || name == "microJumpPortalDriveCapital") {
     push_mod(ship, a("signatureRadius"), 6, attr_src(i, a("signatureRadiusBonusPercent")), src_cat);
   } else if (name == "warpDisruptSphere") {
@@ -1516,6 +1591,42 @@ bool Fit::local_special(uint32_t i, std::string_view name, uint32_t src_cat) {
     return false;
   }
   return true;
+}
+
+// Sansha / Drifter incursion system effects (Pyfa Effect4728 OffensiveDefensiveReduction, LGPL; via eve-dogma-rs):
+// unpenalised PostPercent of missile-charge and smartbomb damage, turret and drone damageMultiplier by
+// systemEffectDamageReduction, and of the ship's armor/shield resonances by the beacon's resistance bonuses.
+void Fit::incursion_effect(uint32_t b) {
+  auto a = [&](std::string_view n) { return ds.attr_id(n); };
+  const uint32_t red = a("systemEffectDamageReduction");
+  const uint32_t mls = ds.type_by_name("Missile Launcher Operation"), gunnery = ds.type_by_name("Gunnery");
+  uint32_t smartbomb = 0;
+  for (const GroupRec& g : ds.groups)
+    if (ds.group_name(g) == "Smart Bomb") {
+      smartbomb = g.id;
+      break;
+    }
+  static const char* DMG[4] = {"emDamage", "thermalDamage", "kineticDamage", "explosiveDamage"};
+  const size_t n = items.size();
+  for (size_t t = 0; t < n; t++) {
+    const Item& it = items[t];
+    if (!it.owned || (it.loc != Loc::Ship && it.kind != Kind::Drone)) continue;
+    bool dmg = false, mult = false;
+    if (it.kind == Kind::Charge) dmg = it.needs_skill(mls);
+    else if (it.kind == Kind::Module) {
+      dmg = it.group == smartbomb;
+      mult = it.needs_skill(gunnery);
+    } else if (it.kind == Kind::Drone) {
+      mult = true;
+    }
+    if (dmg)
+      for (auto d : DMG) push_mod((uint32_t)t, a(d), 6, attr_src(b, red), 6);
+    if (mult) push_mod((uint32_t)t, a("damageMultiplier"), 6, attr_src(b, red), 6);
+  }
+  static const char* D[4] = {"Em", "Thermal", "Kinetic", "Explosive"};
+  for (auto d : D)
+    for (const char* l : {"armor", "shield"})
+      push_mod(ship, a(std::string(l) + d + "DamageResonance"), 6, attr_src(b, a(std::string(l) + d + "DamageResistanceBonus")), 6);
 }
 
 // Pyfa's 'projected' handlers for remote reps, cap transfers and neuts/nos (eos/effects.py, LGPL; via eve-dogma-rs).
@@ -1626,6 +1737,25 @@ void Fit::register_buffs(const FitRequest& req, bool no_boosters) {
       offer(id, v, attr_src(i, K.warfareBuffValue[k]));
     }
   }
+  // abyssal weather / AoE cloud beacons (Pyfa weather_* / aoe_beacon_* effects): warfareBuff1/2 of the environment
+  // item join the same pool (strongest |value| per buff id)
+  for (uint32_t i = 0; i < n; i++) {
+    if (items[i].kind != Kind::Beacon) continue;
+    bool weather = false;
+    for (const TEff& te : items[i].effs)
+      if (const EffRec* er = ds.effect(te.id)) {
+        std::string_view en = ds.effect_name(*er);
+        if (en.substr(0, 8) == "weather_" || en.substr(0, 11) == "aoe_beacon_") weather = true;
+      }
+    if (!weather) continue;
+    for (int k = 0; k < 2; k++) {
+      uint32_t ida = K.warfareBuffID[k];
+      uint32_t id = has(i, ida) ? (uint32_t)get(i, ida) : 0;
+      if (id == 0 || in_agg(id)) continue;
+      double v = get(i, K.warfareBuffValue[k]);
+      offer(id, v, const_src(v));
+    }
+  }
   if (!no_boosters)
     for (size_t bk = 0; bk < req.booster_fits.size(); bk++) {
       Fit b(ds, K);
@@ -1664,15 +1794,52 @@ void Fit::apply_buff(uint32_t id, const Src& src, uint32_t) {
   const DbuffRec* info = ds.dbuff(id);
   if (!info) return;
   const int op = info->op;
-  for (uint32_t a : ds.pool(info->item_off, info->item_cnt)) push_mod(ship, a, op, src, 0);
+  // Pyfa applies most buffs stacking-penalised; the abyssal weather resistance/HP/velocity buffs are not
+  const uint32_t cat = (id == 90 || id == 93 || id == 94 || id == 95 || id == 96 || id == 98 || id == 99) ? 6 : 0;
+  for (uint32_t a : ds.pool(info->item_off, info->item_cnt)) push_mod(ship, a, op, src, cat);
+  // AoE cloud / weather buffs also hit drones that require the Drones skill (Pyfa fit.py commandBonus)
+  {
+    static const char* const D79[] = {"signatureRadius", nullptr};
+    static const char* const D90[] = {"shieldEmDamageResonance", "armorEmDamageResonance", "emDamageResonance", nullptr};
+    static const char* const D93[] = {"shieldExplosiveDamageResonance", "armorExplosiveDamageResonance", "explosiveDamageResonance", nullptr};
+    static const char* const D95[] = {"shieldThermalDamageResonance", "armorThermalDamageResonance", "thermalDamageResonance", nullptr};
+    static const char* const D99[] = {"shieldKineticDamageResonance", "armorKineticDamageResonance", "kineticDamageResonance", nullptr};
+    static const char* const D94[] = {"shieldCapacity", nullptr};
+    static const char* const D96[] = {"armorHP", nullptr};
+    static const char* const D97[] = {"maxRange", "falloff", nullptr};
+    static const char* const D98[] = {"maxVelocity", nullptr};
+    const char* const* da = nullptr;
+    switch (id) {
+      case 79: da = D79; break;
+      case 90: da = D90; break;
+      case 93: da = D93; break;
+      case 95: da = D95; break;
+      case 99: da = D99; break;
+      case 94: da = D94; break;
+      case 96: da = D96; break;
+      case 97: da = D97; break;
+      case 98: da = D98; break;
+      default: break;
+    }
+    if (da) {
+      std::vector<uint32_t> drones;
+      for (uint32_t d = 0; d < items.size(); d++)
+        if (items[d].kind == Kind::Drone && items[d].needs_skill(3436)) drones.push_back(d);
+      for (uint32_t d : drones)
+        for (const char* const* nm = da; *nm; nm++) {
+          const uint32_t a = ds.attr_id(*nm);
+          if (a != 0) push_mod(d, a, op, src, cat);
+        }
+    }
+  }
   for (uint32_t a : ds.pool(info->loc_off, info->loc_cnt))
-    for_targets(ship, 1, 1, 0, [&](uint32_t t) { push_mod(t, a, op, src, 0); });
+    for_targets(ship, 1, 1, 0, [&](uint32_t t) { push_mod(t, a, op, src, cat); });
   auto lg = ds.pool(info->lgrp_off, info->lgrp_cnt);
   for (size_t k = 0; k + 1 < lg.size(); k += 2)
-    for_targets(ship, 2, 1, lg[k + 1], [&](uint32_t t) { push_mod(t, lg[k], op, src, 0); });
+    for_targets(ship, 2, 1, lg[k + 1], [&](uint32_t t) { push_mod(t, lg[k], op, src, cat); });
   auto ls = ds.pool(info->lskill_off, info->lskill_cnt);
   for (size_t k = 0; k + 1 < ls.size(); k += 2)
-    for_targets(ship, 3, 1, ls[k + 1], [&](uint32_t t) { push_mod(t, ls[k], op, src, 0); });
+    for_targets(ship, 3, 1, ls[k + 1], [&](uint32_t t) { push_mod(t, ls[k], op, src, cat); });
 }
 
 // Reactive Armor Hardener adaptation: same cycle simulation as Pyfa/eos (LGPL), via eve-dogma-rs.
