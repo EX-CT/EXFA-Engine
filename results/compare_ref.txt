@@ -1,3 +1,3 @@
+# reference: eve-dogma-rs 6ff616d (committed HEAD, built from git archive)
 cases: 289  byte-identical (engine name normalised): 289  within tolerance: 289
 leaf values: 87988  differing beyond tolerance: 0
-reference: eve-dogma-rs ae4bfb0 0 dirty src files

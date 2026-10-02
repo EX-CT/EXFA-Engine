@@ -1,1 +1,1 @@
-bench: 1.4.0+65fab29, measured 2026-10-03 04:49 CST, load 7.17 8.80 8.77
+bench: 1.4.1+96ea259, variant commit f468571, measured 2026-10-03 05:19 CST, load 11.0 10.0 9.0

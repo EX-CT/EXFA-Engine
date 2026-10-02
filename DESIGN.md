@@ -76,7 +76,13 @@ rules, plus the same stagger and clip semantics.
 * Typical warm-start phases: open 0.03 ms, ids 0.02 ms, first calc 0.4–0.8 ms (cold CPU caches and page faults
   on the image), then about 0.05 ms per calc.
 
-## Hot-path notes (measured with callgrind, instructions per rifter calc ≈ 1.2 M)
+## Hot-path notes (measured with callgrind, instructions per rifter calc ≈ 0.95 M)
+* Skill pruning: a skill is instantiated only if one of its modifiers can reach an item other than itself
+  (ship / char targets, location-group targets present in the fit, required-skill targets the fit's items need)
+  or a fit item requires it. A skill's own attributes are only read by its own modifiers, so self-, "other"- and
+  target-domain modifiers do not make it relevant. This is stricter than eve-dogma-rs's rule (which keeps any
+  skill with an item modifier) and removes ~200 of ~500 skills for a typical fit: -19 % instructions on the
+  rifter, -16 % on the corpus, output unchanged (checked against `EVEJ_NO_PRUNE=1` and the reference).
 * Modifier targets filtered by location group or required skill come from per-fit sorted `(key, item)` indexes,
   instead of scanning all skills for every modifier.
 * Attribute entries are created without a base value. The type's base or default is filled lazily on first read,
@@ -92,11 +98,14 @@ rules, plus the same stagger and clip semantics.
 * Byte-for-byte reference fidelity was chosen over independent re-derivation from Pyfa. Every value matches
   Pyfa wherever the reference does (all 13 812 bench values today). The cost is that J inherits any
   divergence the reference has, and that new reference features must be ported (done up to eve-dogma-rs
-  ae4bfb0).
+  6ff616d, contract revision 1.4.1).
 * The binary cache costs about 110 ms once per dataset and ~20 MB of disk. It can be disabled.
 * The lazy evaluator only computes what the stats need. A full attribute dump (`type`) goes through the same
   path.
-* EFT import/export commands are not implemented. The contract's request/response JSON is the interface.
+* EFT: `eft FILE [--calc] [--skills N]`, rpc `eft_parse` / `eft_export`. Export follows Pyfa's exporter layout
+  (contract 1.4.1 ruling 4; bench check 289/289); slot fillers use the built fit's slot totals after modifiers.
+* `search` follows the interim 1.4.1 spec (kinds, exact > prefix > substring, typeID ties, limit 20).
+  Lowercasing covers ASCII, Latin-1/Ext-A, Greek, Cyrillic and fullwidth letters (Rust uses full Unicode).
 
 ## Provenance
 The dogma algorithms (modifier graph semantics, stacking, capsim, RAH, stats formulas) were ported from
@@ -111,3 +120,6 @@ behind the bench's expected values.
   identical.
 * `meta.engine` = `eve-dogma-j 0.1.0`.
 * Batch: the contract only requires in-order JSONL. J's parallel execution keeps that order.
+* `options` omitted → `validate` true (contract 1.4.1 ruling 2; J always behaved this way).
+* eve-dogma-rs is developed with uncommitted WIP in its working tree; J's parity checks use binaries built
+  from the committed HEAD (`git archive`), not the live `target/release` binary.
