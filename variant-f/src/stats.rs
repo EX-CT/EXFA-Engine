@@ -380,7 +380,10 @@ impl Fit {
             let spool = self.items[i].spool.unwrap_or(default_spool);
             let (sp, _, _) = spoolup(g(i, a::damageMultiplierBonusMax), g(i, a::damageMultiplierBonusPerCycle), raw / 1000.0, spool);
             let vol_spooled = base.scale(1.0 + sp);
-            let dps = if cyc > 0.0 { vol_spooled.scale(1000.0 / cyc) } else { Dmg::default() };
+            // Pyfa getVolleyParameters: DOT doomsdays hit every doomsdayDamageCycleTime for doomsdayDamageDuration
+            let (dd, dc) = (g(i, a::doomsdayDamageDuration), g(i, a::doomsdayDamageCycleTime));
+            let subcycles = if dd != 0.0 && dc != 0.0 && !self.has_eff(i, &[e::doomsdaySlash]) { float_unerr(dd / dc).floor() } else { 1.0 };
+            let dps = if cyc > 0.0 { vol_spooled.scale(subcycles * 1000.0 / cyc) } else { Dmg::default() };
             w_vol.add(&vol_spooled);
             w_dps.add(&dps);
             let mut w = jv!({

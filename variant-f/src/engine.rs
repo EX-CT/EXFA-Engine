@@ -162,6 +162,7 @@ pub struct ExtDrain {
 /// One effect projected onto this fit, fully evaluated on the projecting side.
 const SKILL_GUNNERY: u32 = 3300;
 const SKILL_MISSILE_LAUNCHER_OPERATION: u32 = 3319;
+const PROPULSION_MODULE_GROUP: u32 = 46;
 
 enum ProjAction {
     /// `off`: offensive fighter ability (dropped on targets with disallowOffensiveModifiers)
@@ -516,6 +517,58 @@ impl Fit {
         let ship = self.ship;
         // MJD sig bloom is not stacking-penalised (unlike the MWD's)
         self.push(ship, a::signatureRadius, 6, false, Src::Attr { item: i as u32, attr: a::signatureRadiusBonusPercent });
+    }
+    /// lances / disruptive lances: ship speed boost (penalised) + warp scramble status
+    pub fn sp_lance(&mut self, i: usize, p: bool) {
+        let ship = self.ship;
+        self.push(ship, a::maxVelocity, 6, p && !d::attr_stackable(a::maxVelocity), Src::Attr { item: i as u32, attr: a::speedFactor });
+        self.push(ship, a::warpScrambleStatus, 2, false, Src::Attr { item: i as u32, attr: a::siegeModeWarpStatus });
+    }
+    /// warp disruption field generator (local part): no assistance; uncharged = HIC bubble bonuses (unpenalised)
+    pub fn sp_wdfg(&mut self, i: usize) {
+        let ship = self.ship;
+        self.push(ship, a::disallowAssistance, 7, false, Src::Const(1.0));
+        if self.items[i].charge.is_some() {
+            return;
+        }
+        let s = |attr| Src::Attr { item: i as u32, attr };
+        self.push(ship, a::mass, 6, false, s(a::massBonusPercentage));
+        self.push(ship, a::signatureRadius, 6, false, s(a::signatureRadiusBonus));
+        for k in range_of(&self.by_group, PROPULSION_MODULE_GROUP) {
+            let t = self.by_group[k].1 as usize;
+            if self.items[t].kind == Kind::Module {
+                self.push(t, a::speedBoostFactor, 6, false, s(a::speedBoostFactorBonus));
+                self.push(t, a::speedFactor, 6, false, s(a::speedFactorBonus));
+            }
+        }
+    }
+    pub fn sp_entosis(&mut self, i: usize, p: bool) {
+        let ship = self.ship;
+        self.push(ship, a::disallowAssistance, 7, false, Src::Attr { item: i as u32, attr: a::disallowAssistance });
+        for (t, s) in [
+            (a::scanGravimetricStrength, a::scanGravimetricStrengthPercent),
+            (a::scanMagnetometricStrength, a::scanMagnetometricStrengthPercent),
+            (a::scanRadarStrength, a::scanRadarStrengthPercent),
+            (a::scanLadarStrength, a::scanLadarStrengthPercent),
+        ] {
+            self.push(ship, t, 6, p && !d::attr_stackable(t), Src::Attr { item: i as u32, attr: s });
+        }
+    }
+    pub fn sp_mjfg(&mut self, i: usize, p: bool) {
+        let ship = self.ship;
+        self.push(ship, a::signatureRadius, 6, p && !d::attr_stackable(a::signatureRadius), Src::Attr { item: i as u32, attr: a::signatureRadiusBonusPercent });
+    }
+    /// emergency hull energizer: hull resonances x hull*DamageResonance ("postMul" penalty group)
+    pub fn sp_ehe(&mut self, i: usize, p: bool) {
+        let ship = self.ship;
+        for (t, s) in [
+            (a::emDamageResonance, a::hullEmDamageResonance),
+            (a::thermalDamageResonance, a::hullThermalDamageResonance),
+            (a::kineticDamageResonance, a::hullKineticDamageResonance),
+            (a::explosiveDamageResonance, a::hullExplosiveDamageResonance),
+        ] {
+            self.push(ship, t, 4, p && !d::attr_stackable(t), Src::Attr { item: i as u32, attr: s });
+        }
     }
     pub fn sp_slot(&mut self, i: usize, p: bool) {
         let ship = self.ship;
@@ -971,7 +1024,7 @@ impl Fit {
         }
         let ship = self.ship;
         let no_offense = self.base(ship, a::disallowOffensiveModifiers) != 0.0;
-        let no_assist = self.base(ship, a::disallowAssistance) != 0.0;
+        let no_assist = self.get(ship, a::disallowAssistance) != 0.0;
         for a in acts {
             match a {
                 ProjAction::Mod { off: true, .. } if no_offense => {}

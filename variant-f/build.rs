@@ -288,7 +288,11 @@ fn main() {
         };
         metas.push(format!(
             "EffMeta{{cat:{},flags:{flags},range:{},falloff:{},resist:{},proj:{proj}}}",
-            e.cat, e.range, e.falloff, e.resist
+            // Pyfa's entosisLink handler is type 'active' (a target effect in the SDE)
+            if e.name == "entosisLink" { 1 } else { e.cat },
+            e.range,
+            e.falloff,
+            e.resist
         ));
     }
     arr(&mut out, "EFF_META", "EffMeta", &metas);
@@ -300,6 +304,13 @@ fn main() {
         (eid("microJumpDrive"), "f.sp_mjd(i);"),
         (eid("slotModifier"), "f.sp_slot(i, p);"),
         (eid("hardPointModifierEffect"), "f.sp_hardpoint(i, p);"),
+        // Pyfa hand-written handlers (eos/effects.py, GPL-3): no modifierInfo in the SDE
+        (eid("doomsdayBeamDOT"), "f.sp_lance(i, p);"),
+        (eid("debuffLance"), "f.sp_lance(i, p);"),
+        (eid("warpDisruptSphere"), "f.sp_wdfg(i);"),
+        (eid("entosisLink"), "f.sp_entosis(i, p);"),
+        (eid("microJumpPortalDrive"), "f.sp_mjfg(i, p);"),
+        (eid("emergencyHullEnergizer"), "f.sp_ehe(i, p);"),
     ]
     .into_iter()
     .collect();
