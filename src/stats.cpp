@@ -349,9 +349,16 @@ struct Calc {
     }
     // skills
     std::vector<std::pair<uint32_t, double>> have;
-    for (uint32_t i = 0; i < f.items.size(); i++)
-      if (f.items[i].kind == Kind::Skill) have.push_back({f.items[i].type_id, f.base(i, 280)});
-    std::sort(have.begin(), have.end(), [](auto& a, auto& b) { return a.first < b.first; });
+    if (req.overrides.empty()) {
+      // skill items were created in id order with base skillLevel = min(level, 5) (Fit::build), and only an
+      // attribute override could change that base afterwards
+      have.reserve(f.skill_levels.size());
+      for (auto& [sk, l] : f.skill_levels) have.push_back({sk, (double)std::min<uint8_t>(l, 5)});
+    } else {
+      for (uint32_t i = 0; i < f.items.size(); i++)
+        if (f.items[i].kind == Kind::Skill) have.push_back({f.items[i].type_id, f.base(i, 280)});
+      std::sort(have.begin(), have.end(), [](auto& a, auto& b) { return a.first < b.first; });
+    }
     auto have_lvl = [&](uint32_t s) {
       auto it = std::lower_bound(have.begin(), have.end(), s, [](auto& p, uint32_t x) { return p.first < x; });
       return it != have.end() && it->first == s ? it->second : 0.0;
