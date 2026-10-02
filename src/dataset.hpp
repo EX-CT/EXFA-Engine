@@ -31,6 +31,7 @@ struct TypeRec {
   int32_t slot;  // -1 none, else Slot enum
   int32_t meta_level;
   uint32_t has_meta_level;
+  uint32_t market_group, has_market_group;
 };
 struct ModRec {
   int32_t func, domain, op;
@@ -67,7 +68,7 @@ struct NameIdx {
 enum Section : uint32_t {
   S_STR, S_ATTRS, S_ATTR_IDX, S_TYPES, S_TYPE_IDX, S_TATTRS, S_TEFFS, S_EFFECTS, S_EFF_IDX, S_MODS, S_GROUPS,
   S_GROUP_IDX, S_DBUFFS, S_U32POOL, S_MUTAS, S_MUTA_ATTRS, S_ATTR_NAMES, S_EFF_NAMES, S_TYPE_NAMES, S_SKILLS,
-  S_MODES, S_ZH, S_COUNT
+  S_MODES, S_ZH, S_CATS, S_COUNT
 };
 
 struct SecEnt {
@@ -86,7 +87,7 @@ struct Header {
   SecEnt sec[S_COUNT];
 };
 
-constexpr uint32_t CACHE_VERSION = 4;
+constexpr uint32_t CACHE_VERSION = 5;
 
 class Dataset {
  public:
@@ -102,6 +103,7 @@ class Dataset {
   std::span<const TypeRec> types;
   std::span<const EffRec> effects;
   std::span<const GroupRec> groups;
+  std::span<const GroupRec> cats;  // categories (id, -, name)
   std::span<const DbuffRec> dbuffs;
   std::span<const MutaRec> mutas;
   std::span<const uint32_t> skills;  // published skill ids, sorted
@@ -128,6 +130,7 @@ class Dataset {
     return i < 0 ? nullptr : &groups[i];
   }
   const DbuffRec* dbuff(uint32_t id) const;
+  std::string_view category_name(uint32_t id) const;
   const MutaRec* muta(uint32_t id) const;
   // mutated output type for base + mutaplasmid (0 if no mapping)
   uint32_t muta_output(uint32_t muta_id, uint32_t base) const;

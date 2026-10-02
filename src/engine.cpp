@@ -708,11 +708,16 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
         if (!e) continue;
         if (e->mod_cnt == 0) return true;  // hand-written / special effect
         for (const ModRec& m : ds.effect_mods(*e)) {
+          // Only modifiers register_all would actually push to an item other than the skill itself can matter:
+          // a skill's own attributes are read only by its own modifiers (sources are always the owning item).
+          if (m.func < 0 || m.func > 4 || m.op == 9) continue;
+          if (m.domain == 0 || m.domain == 3 || m.domain >= 5) continue;  // self / other (none for skills) / target
+          if (m.domain == 4 && !is_structure) continue;
           bool hit;
           switch (m.func) {
             case 2: {
               const GroupRec* g = ds.group(m.extra);
-              hit = in(groups, m.extra) || !g || g->category == 16;
+              hit = in(groups, m.extra) || !g || (m.domain == 2 && g->category == 16);
               break;
             }
             case 3:

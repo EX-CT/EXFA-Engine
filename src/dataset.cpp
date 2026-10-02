@@ -293,6 +293,18 @@ bool Dataset::build_image(const std::vector<uint8_t>& src, std::vector<uint8_t>&
   std::sort(groups.begin(), groups.end(), [](auto& x, auto& y) { return x.id < y.id; });
   std::vector<int32_t> group_idx(max_group + 1, -1);
   for (size_t i = 0; i < groups.size(); i++) group_idx[groups[i].id] = (int32_t)i;
+  std::vector<GroupRec> cats;
+  {
+    simdjson::dom::object co;
+    if (!root["categories"].get_object().get(co))
+      for (auto [k, v] : co) {
+        GroupRec c{};
+        c.id = parse_key(k);
+        add_str(get_str(v["name"]), c.name_off, c.name_len);
+        cats.push_back(c);
+      }
+    std::sort(cats.begin(), cats.end(), [](auto& x, auto& y) { return x.id < y.id; });
+  }
 
   // types
   std::vector<TypeRec> types;
@@ -319,6 +331,9 @@ bool Dataset::build_image(const std::vector<uint8_t>& src, std::vector<uint8_t>&
       simdjson::dom::element ml;
       t.has_meta_level = v["meta_level"].get(ml) == simdjson::SUCCESS && !ml.is_null() && ml.is_number();
       t.meta_level = t.has_meta_level ? (int32_t)num(ml) : 0;
+      simdjson::dom::element mg;
+      t.has_market_group = v["market_group"].get(mg) == simdjson::SUCCESS && !mg.is_null() && mg.is_number();
+      t.market_group = t.has_market_group ? opt_u32(mg) : 0;
       t.attr_off = (uint32_t)tattrs.size();
       simdjson::dom::object ao;
       if (!v["attrs"].get_object().get(ao))
@@ -478,6 +493,7 @@ bool Dataset::build_image(const std::vector<uint8_t>& src, std::vector<uint8_t>&
   b.put(S_EFF_IDX, eff_idx);
   b.put(S_MODS, mods);
   b.put(S_GROUPS, groups);
+  b.put(S_CATS, cats);
   b.put(S_GROUP_IDX, group_idx);
   b.put(S_DBUFFS, dbuffs);
   b.put(S_U32POOL, pool);
@@ -525,6 +541,7 @@ bool Dataset::attach(const uint8_t* base, size_t size, std::string& err) {
   eff_idx_ = sec<int32_t>(base, h, S_EFF_IDX);
   mods_ = sec<ModRec>(base, h, S_MODS);
   groups = sec<GroupRec>(base, h, S_GROUPS);
+  cats = sec<GroupRec>(base, h, S_CATS);
   group_idx_ = sec<int32_t>(base, h, S_GROUP_IDX);
   dbuffs = sec<DbuffRec>(base, h, S_DBUFFS);
   u32pool_ = sec<uint32_t>(base, h, S_U32POOL);
@@ -676,5 +693,12 @@ uint32_t Dataset::muta_output(uint32_t muta_id, uint32_t base) const {
     i += 2 + n;
   }
   return 0;
+}
+}  // namespace evej
+
+namespace evej {
+std::string_view Dataset::category_name(uint32_t id) const {
+  auto it = std::lower_bound(cats.begin(), cats.end(), id, [](const GroupRec& d, uint32_t v) { return d.id < v; });
+  return it != cats.end() && it->id == id ? group_name(*it) : std::string_view{};
 }
 }  // namespace evej
