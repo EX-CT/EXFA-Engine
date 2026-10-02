@@ -48,8 +48,8 @@ fn main() {
         "calc" => {
             let s = read_input(args.get(1));
             let res = eve_dogma_f::calc_json(&s);
-            writeln!(out, "{res}").unwrap();
-            out.flush().unwrap();
+            writeln!(out, "{res}").or_pipe();
+            out.flush().or_pipe();
             if res.starts_with("{\"error\"") {
                 std::process::exit(2);
             }
@@ -70,7 +70,7 @@ fn main() {
                         r.character.skills.default_level = l.parse().ok();
                     }
                     let v = if do_calc { serde_json::to_value(eve_dogma_f::calc(&r)).unwrap() } else { serde_json::to_value(&r).unwrap() };
-                    writeln!(out, "{}", serde_json::to_string_pretty(&v).unwrap()).unwrap();
+                    writeln!(out, "{}", serde_json::to_string_pretty(&v).unwrap()).or_pipe();
                 }
                 Err(e) => {
                     eprintln!("error: {e}");
@@ -85,8 +85,8 @@ fn main() {
                 if line.trim().is_empty() {
                     continue;
                 }
-                writeln!(out, "{}", serde_json::to_string(&eve_dogma_f::rpc(&line)).unwrap()).unwrap();
-                out.flush().unwrap();
+                writeln!(out, "{}", serde_json::to_string(&eve_dogma_f::rpc(&line)).unwrap()).or_pipe();
+                out.flush().or_pipe();
             }
         }
         "search" => {
@@ -100,13 +100,13 @@ fn main() {
                 }
             }
             let r = eve_dogma_f::search_kinds(&q.join(" "), limit, kinds.as_deref());
-            writeln!(out, "{}", serde_json::to_string_pretty(&r).unwrap()).unwrap();
+            writeln!(out, "{}", serde_json::to_string_pretty(&r).unwrap()).or_pipe();
         }
         "type" => {
-            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma_f::type_info(&args[1..].join(" "))).unwrap()).unwrap();
+            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma_f::type_info(&args[1..].join(" "))).unwrap()).or_pipe();
         }
         "meta" => {
-            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma_f::meta()).unwrap()).unwrap();
+            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma_f::meta()).unwrap()).or_pipe();
         }
         "bench" => {
             let n: usize = take_flag(&mut args, "-n").and_then(|v| v.parse().ok()).unwrap_or(1000);
@@ -133,7 +133,7 @@ fn main() {
             }
             let us = |x: f64| x / n as f64 * 1e6;
             writeln!(out, "{}", serde_json::json!({"iterations": n, "total_s": el, "per_calc_us": el / n as f64 * 1e6,
-                "build_us": us(tb), "stats_us": us(ts), "serialize_us": us(tj)})).unwrap();
+                "build_us": us(tb), "stats_us": us(ts), "serialize_us": us(tj)})).or_pipe();
         }
         _ => {
             eprintln!("{USAGE}");
@@ -159,8 +159,8 @@ fn batch(out: &mut impl Write) {
             if line.trim().is_empty() {
                 continue;
             }
-            writeln!(out, "{}", eve_dogma_f::calc_json(&line)).unwrap();
-            out.flush().unwrap();
+            writeln!(out, "{}", eve_dogma_f::calc_json(&line)).or_pipe();
+            out.flush().or_pipe();
         }
         return;
     }
@@ -199,23 +199,39 @@ fn batch(out: &mut impl Write) {
     while let Ok((seq, r)) = res_rx.recv() {
         pending.insert(seq, r);
         while let Some(r) = pending.remove(&next) {
-            out.write_all(r.as_bytes()).unwrap();
-            out.write_all(b"\n").unwrap();
+            out.write_all(r.as_bytes()).or_pipe();
+            out.write_all(b"\n").or_pipe();
             next += 1;
         }
         // drain whatever else is ready before flushing
         while let Ok((seq, r)) = res_rx.try_recv() {
             pending.insert(seq, r);
             while let Some(r) = pending.remove(&next) {
-                out.write_all(r.as_bytes()).unwrap();
-                out.write_all(b"\n").unwrap();
+                out.write_all(r.as_bytes()).or_pipe();
+                out.write_all(b"\n").or_pipe();
                 next += 1;
             }
         }
-        out.flush().unwrap();
+        out.flush().or_pipe();
     }
     reader.join().ok();
     for w in workers {
         w.join().ok();
+    }
+}
+
+/// Output errors: a closed reader (EPIPE, e.g. `| head`) ends the process quietly with status 0; anything else is fatal.
+trait OrPipe {
+    fn or_pipe(self);
+}
+impl OrPipe for std::io::Result<()> {
+    fn or_pipe(self) {
+        if let Err(e) = self {
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                std::process::exit(0);
+            }
+            eprintln!("error: write failed: {e}");
+            std::process::exit(1);
+        }
     }
 }
