@@ -18,8 +18,8 @@
 
 | perf | value |
 |---|---|
-| one process per case, median ms (cold start + calc) | 3.7 |
-| batch throughput (corpus x5) fits/s | 8888 |
-| latency one fit (exct_rifter) ms/calc | 0.060 |
-| startup + one calc ms | 9.6 |
+| one process per case, median ms (cold start + calc) | 4.8 |
+| batch throughput (corpus x5) fits/s | 20067 |
+| latency one fit (exct_rifter) ms/calc | 0.034 |
+| startup + one calc ms | 4.2 |
 | deterministic | True |

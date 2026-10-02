@@ -34,7 +34,8 @@ FitRequest JSON --simdjson ondemand/DOM--> FitRequest --build--> Fit (items + at
   sources. Each fit has a local open-addressing hash table `(item, attr) → LAttr` that holds the base value,
   the memoised value, a dirty flag and the head of an intrusive linked list of modifiers (all in one arena).
   Slots carry a generation stamp, so reusing a worker's fit for the next request bumps the generation instead
-  of clearing the table (-2.5 % instructions per rifter calc).
+  of clearing the table (-2.5 % instructions per rifter calc). Skill pruning uses an inverted relevance index
+  (group → skills, required skill → skills) built once, so each fit marks its relevant skills in one pass.
 * Values are computed on demand, with a cycle guard, Pyfa's operator order (PreAssign … PostAssign) and stacking
   penalties. An attribute the fit never touches falls back to the type's raw value without being materialised.
 * The same feature set as the reference: projected modules, drones and whole fits (frozen into base values),
