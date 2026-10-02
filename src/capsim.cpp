@@ -93,6 +93,21 @@ struct Heap {
     v[i] = last;
     return true;
   }
+  // the top's slot was updated in place: restore the heap by one classic sift-down from the root
+  // (Rust's BinaryHeap PeekMut drop), which is what eve-dogma-rs does since 1db626a
+  void replace_top(uint32_t id) {
+    HE h{slots[id].t, id};
+    size_t i = 0, n = v.size();
+    while (true) {
+      size_t l = 2 * i + 1, r = l + 1, m;
+      if (l >= n) break;
+      m = (r < n && less(v[r], v[l])) ? r : l;
+      if (!less(v[m], h)) break;
+      v[i] = v[m];
+      i = m;
+    }
+    v[i] = h;
+  }
   std::vector<Ev> into_vec() const {
     std::vector<Ev> o;
     o.reserve(v.size() + 1);
@@ -209,11 +224,23 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
   // live events never exceed the initial count (awaiting injectors release their slot), so slots never
   // reallocate and the reference below stays valid
   heap.slots.reserve(heap.slots.size() + 1);
-  uint32_t cur;
-  while (heap.pop_id(cur)) {
+  // The pop order depends only on the set of entries (the order is total: seq is unique), so the current event
+  // stays in the heap and is updated in place unless something else must be pushed first or it leaves (as the
+  // reference does; this also fixes the heap layout that the avg-drain sum below iterates).
+  while (!heap.v.empty()) {
+    const uint32_t cur = heap.v[0].id;
+    bool in_heap = true;
+    auto take = [&]() {
+      if (in_heap) {
+        uint32_t x;
+        heap.pop_id(x);
+        in_heap = false;
+      }
+    };
     Ev& ev = heap.slots[cur];
     const double t_now = ev.t;
     if (t_now >= t_max_ms) {
+      take();
       last_ev = ev;
       has_last = true;
       break;
@@ -228,6 +255,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
       if (t_now == t_wrap) {
         Key k = key(awaiting);
         if (cap >= cap_wrap && k == awaiting_wrap) {
+          take();
           last_ev = ev;
           has_last = true;
           break;
@@ -240,11 +268,13 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
     t_last = t_now;
     iterations++;
     if (iterations > 5000000) {
+      take();
       last_ev = ev;
       has_last = true;
       break;
     }
     if (ev.inj && cap - ev.cap_need > cap_max) {
+      take();
       awaiting.push_back(ev);
       heap.free_.push_back(cur);
       continue;
@@ -261,6 +291,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
           for (size_t i = 1; i < awaiting.size(); i++)
             if (-awaiting[i].cap_need >= -awaiting[pick].cap_need) pick = (long)i;
         }
+        take();
         Ev inj = awaiting[pick];
         awaiting.erase(awaiting.begin() + pick);
         cap = std::min(cap - inj.cap_need, cap_max);
@@ -270,6 +301,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
     cap = std::min(cap - ev.cap_need, cap_max);
     if (cap < cap_lowest) {
       if (cap < 0.0) {
+        take();
         ran_out = true;
         last_ev = ev;
         has_last = true;
@@ -283,6 +315,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
       for (size_t i = 0; i < awaiting.size(); i++)
         if (-awaiting[i].cap_need <= need && (pick < 0 || -awaiting[i].cap_need >= -awaiting[pick].cap_need)) pick = (long)i;
       if (pick < 0) break;
+      take();
       Ev inj = awaiting[pick];
       awaiting.erase(awaiting.begin() + pick);
       cap = std::min(cap - inj.cap_need, cap_max);
@@ -295,7 +328,8 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
       ev.t += ev.reload;
     }
     ev.seq = seq++;
-    heap.push_id(cur);
+    if (in_heap) heap.replace_top(cur);
+    else heap.push_id(cur);
   }
   std::vector<Ev> all = heap.into_vec();
   if (has_last) all.push_back(last_ev);
