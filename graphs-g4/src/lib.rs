@@ -6,6 +6,7 @@ pub mod capsim;
 pub mod data;
 pub mod eft;
 pub mod formats;
+pub mod graphs;
 pub mod engine;
 pub mod j;
 pub mod request;
@@ -276,6 +277,8 @@ pub fn rpc(line: &str) -> Value {
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },
         "format_export" => format_export(&p),
+        "graph" => graphs::graph(&p),
+        "graph_specs" => graphs::specs_json(),
         "format_import" => format_import(&p),
         "search" => {
             let kinds: Option<Vec<String>> = match p.get("kinds") {

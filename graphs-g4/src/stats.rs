@@ -8,6 +8,11 @@ use crate::request::{FitRequest, Resists, Slot, Spool, SpoolType, State};
 use crate::j::{Key, PushKv, J};
 use crate::jv;
 
+thread_local! {
+    /// capacitor drains of the last `compute_stats` on this thread (graphs: capacitor simulation history)
+    pub static LAST_DRAINS: std::cell::RefCell<Vec<crate::capsim::Drain>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 pub fn range_factor(optimal: f64, falloff: f64, distance: Option<f64>, restricted: bool) -> f64 {
     let Some(dist) = distance else { return 1.0 };
     if falloff > 0.0 {
@@ -113,7 +118,7 @@ impl Fit {
 
     /// Missile range like Pyfa: acceleration phase, flight-time bonus from ship radius, whole-second
     /// interpolation, FoF limit, centre-to-surface correction.
-    fn missile_range(&self, c: usize) -> f64 {
+    pub(crate) fn missile_range(&self, c: usize) -> f64 {
         let v = self.get(c, a::maxVelocity);
         if v == 0.0 {
             return 0.0;
@@ -141,7 +146,7 @@ impl Fit {
         lo * (1.0 - chance) + hi * chance
     }
 
-    fn raw_cycle_ms(&self, i: usize) -> f64 {
+    pub(crate) fn raw_cycle_ms(&self, i: usize) -> f64 {
         let mut v: f64 = self.get(i, a::speed).max(self.get(i, a::duration));
         for x in [
             a::durationHighisGood,
@@ -155,14 +160,14 @@ impl Fit {
         v
     }
 
-    fn num_charges(&self, i: usize) -> u32 {
+    pub(crate) fn num_charges(&self, i: usize) -> u32 {
         let Some(c) = self.items[i].charge else { return 0 };
         let vol = self.get(c, a::volume);
         let cap = self.base(i, a::capacity);
         if vol <= 0.0 { 0 } else { float_unerr(cap / vol).floor() as u32 }
     }
 
-    fn num_shots(&self, i: usize) -> u32 {
+    pub(crate) fn num_shots(&self, i: usize) -> u32 {
         let Some(c) = self.items[i].charge else { return 0 };
         let n = self.num_charges(i);
         if n > 0 && self.has(i, a::chargeRate) {
@@ -258,7 +263,7 @@ impl Fit {
             .collect()
     }
 
-    fn avg_cycle_ms(&self, i: usize, factor_reload: bool) -> f64 {
+    pub(crate) fn avg_cycle_ms(&self, i: usize, factor_reload: bool) -> f64 {
         let active = self.raw_cycle_ms(i);
         if active == 0.0 {
             return 0.0;
@@ -658,6 +663,7 @@ impl Fit {
             if per_s > 0.0 { cap_used += per_s } else { cap_added -= per_s }
             drains.push(Drain { duration: x.cycle_ms.trunc(), cap_need: need, clip_size: 0, reload_ms: 0.0, is_injector: false, disable_stagger: false });
         }
+        LAST_DRAINS.with(|c| *c.borrow_mut() = drains.clone());
         let mut capj = jv!({"capacity": cap, "recharge_time_s": rr / 1000.0, "peak_recharge_gj_s": peak,
             "use_gj_s": cap_used, "injected_gj_s": cap_added, "delta_gj_s": peak + cap_added - cap_used});
         if drains.is_empty() {

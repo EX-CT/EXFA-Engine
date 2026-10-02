@@ -54,7 +54,20 @@ fn main() {
                 std::process::exit(2);
             }
         }
-        "batch" => batch(&mut out),
+        "batch" => batch(&mut out, eve_dogma_f::calc_json),
+        "graph-batch" => batch(&mut out, eve_dogma_f::graphs::graph_json),
+        "graph-specs" => {
+            writeln!(out, "{}", eve_dogma_f::graphs::SPEC_JSON.trim()).or_pipe();
+        }
+        "graph" => {
+            let s = read_input(args.get(1));
+            let res = eve_dogma_f::graphs::graph_json(&s);
+            writeln!(out, "{res}").or_pipe();
+            out.flush().or_pipe();
+            if res.starts_with("{\"error\"") {
+                std::process::exit(2);
+            }
+        }
         "eft" => {
             let skills = args.iter().position(|a| a == "--skills").map(|p| {
                 let v = args.get(p + 1).cloned().unwrap_or_default();
@@ -151,7 +164,7 @@ fn threads() -> usize {
 
 /// JSONL batch: requests are independent and the engine is pure, so N workers compute in parallel while the
 /// output keeps input order. Output is flushed whenever it has caught up with the input (interactive use works).
-fn batch(out: &mut impl Write) {
+fn batch(out: &mut impl Write, f: fn(&str) -> String) {
     let n = if cfg!(target_arch = "wasm32") { 1 } else { threads() };
     if n <= 1 {
         for line in std::io::stdin().lock().lines() {
@@ -159,7 +172,7 @@ fn batch(out: &mut impl Write) {
             if line.trim().is_empty() {
                 continue;
             }
-            writeln!(out, "{}", eve_dogma_f::calc_json(&line)).or_pipe();
+            writeln!(out, "{}", f(&line)).or_pipe();
             out.flush().or_pipe();
         }
         return;
@@ -175,7 +188,7 @@ fn batch(out: &mut impl Write) {
         workers.push(std::thread::spawn(move || loop {
             let job = rx.lock().unwrap().recv();
             let Ok((seq, line)) = job else { break };
-            if tx.send((seq, eve_dogma_f::calc_json(&line))).is_err() {
+            if tx.send((seq, f(&line))).is_err() {
                 break;
             }
         }));

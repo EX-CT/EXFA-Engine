@@ -1,0 +1,191 @@
+{
+ "spec_version": 1,
+ "contract": "CONTRACT-GRAPHS.md revision 0.1",
+ "notes": "Declarative graph catalogue (approach G4). Each graph lists its x axes (unit, validity limiter), y series (unit, one formula per x axis) and params (defaults). Formulas are expressions over: x, p.<param>, s.<setting>, ship.<attribute> (modified ship attribute), stat.<path> (round-1 stats output), def names, and kernels (hand-written functions for the parts that are not closed-form).",
+ "constants": {
+  "AU": 149597870700
+ },
+ "graphs": {
+  "lock_time": {
+   "title": "Lock Time",
+   "pyfa": "fitLockTime",
+   "axes": {
+    "tgt_sig_m": {
+     "unit": "m",
+     "valid": "x >= 1"
+    }
+   },
+   "series": {
+    "time_s": {
+     "unit": "s",
+     "by_axis": {
+      "tgt_sig_m": "ship.scanResolution > 0 ? min(40000 / ship.scanResolution / asinh(x) ^ 2, 1800) : ship.scanSpeed / 1000"
+     }
+    }
+   }
+  },
+  "mobility": {
+   "title": "Mobility",
+   "pyfa": "fitMobility",
+   "axes": {
+    "time_s": {
+     "unit": "s",
+     "valid": "x >= 0"
+    }
+   },
+   "params": {
+    "tgt_mass_kg": 1300000000.0,
+    "tgt_inertia": 0.015
+   },
+   "defs": {
+    "v": "stat.navigation.max_velocity",
+    "m": "ship.mass",
+    "k": "ship.agility * ship.mass / 1e6",
+    "speed": "v * (1 - exp(-x / k))",
+    "bump": "2 * speed * (m / 1e6) / (m / 1e6 + p.tgt_mass_kg / 1e6)"
+   },
+   "series": {
+    "speed_mps": {
+     "unit": "m/s",
+     "by_axis": {
+      "time_s": "speed"
+     }
+    },
+    "distance_m": {
+     "unit": "m",
+     "by_axis": {
+      "time_s": "v * x + v * k * exp(-x / k) - v * k"
+     }
+    },
+    "momentum_kg_mps": {
+     "unit": "kg*m/s",
+     "by_axis": {
+      "time_s": "speed * m"
+     }
+    },
+    "bump_speed_mps": {
+     "unit": "m/s",
+     "by_axis": {
+      "time_s": "bump"
+     }
+    },
+    "bump_distance_m": {
+     "unit": "m",
+     "by_axis": {
+      "time_s": "bump * p.tgt_mass_kg / 1e6 * p.tgt_inertia"
+     }
+    }
+   }
+  },
+  "warp_time": {
+   "title": "Warp Time",
+   "pyfa": "fitWarpTime",
+   "axes": {
+    "distance_m": {
+     "unit": "m",
+     "valid": "x >= 0 && x <= stat.navigation.max_warp_distance_au * AU"
+    }
+   },
+   "defs": {
+    "ka": "stat.navigation.warp_speed_au_s",
+    "kd": "min(ka / 3, 2)",
+    "drop": "min(subwarp_speed() / 2, 100)",
+    "vmax": "ka * AU",
+    "dmin": "AU + vmax / kd",
+    "vtop": "dmin > x ? x * ka * kd / (ka + kd) : vmax",
+    "cruise": "dmin > x ? 0 : (x - dmin) / vmax"
+   },
+   "series": {
+    "time_s": {
+     "unit": "s",
+     "by_axis": {
+      "distance_m": "x == 0 ? 0 : cruise + ln(vtop / ka) / ka + ln(vtop / drop) / kd"
+     }
+    }
+   }
+  },
+  "capacitor": {
+   "title": "Capacitor",
+   "pyfa": "fitCapacitor",
+   "axes": {
+    "time_s": {
+     "unit": "s",
+     "valid": "x >= 0 && x <= 3600"
+    },
+    "cap_pct": {
+     "unit": "%",
+     "valid": "x >= 0 && x <= 100"
+    }
+   },
+   "params": {
+    "cap_start_pct": 100,
+    "use_capsim": 1
+   },
+   "defs": {
+    "C": "ship.capacitorCapacity",
+    "tau": "ship.rechargeRate / 1000",
+    "c0": "p.cap_start_pct * C / 100",
+    "regen_cap": "C * (1 + exp(-5 * x / tau) * (sqrt(c0 / C) - 1)) ^ 2",
+    "pct_cap": "x * C / 100"
+   },
+   "series": {
+    "cap_gj": {
+     "unit": "GJ",
+     "by_axis": {
+      "time_s": "p.use_capsim ? capsim_cap(x, c0) : regen_cap",
+      "cap_pct": "pct_cap"
+     }
+    },
+    "cap_regen_gj_s": {
+     "unit": "GJ/s",
+     "by_axis": {
+      "time_s": "10 * C / tau * (sqrt(regen_cap / C) - regen_cap / C)",
+      "cap_pct": "10 * C / tau * (sqrt(pct_cap / C) - pct_cap / C)"
+     }
+    }
+   }
+  },
+  "shield_regen": {
+   "title": "Shield Regeneration",
+   "pyfa": "fitShieldRegen",
+   "axes": {
+    "time_s": {
+     "unit": "s",
+     "valid": "x >= 0"
+    },
+    "shield_pct": {
+     "unit": "%",
+     "valid": "x >= 0 && x <= 100"
+    }
+   },
+   "params": {
+    "shield_start_pct": 0,
+    "effective": 0
+   },
+   "defs": {
+    "S": "ship.shieldCapacity",
+    "tau": "ship.shieldRechargeRate / 1000",
+    "s0": "p.shield_start_pct * S / 100",
+    "eff": "p.effective ? shield_ehp_mult() : 1",
+    "sh_t": "S * (1 + exp(-5 * x / tau) * (sqrt(s0 / S) - 1)) ^ 2",
+    "sh_p": "x * S / 100"
+   },
+   "series": {
+    "shield_hp": {
+     "unit": "HP",
+     "by_axis": {
+      "time_s": "eff * sh_t",
+      "shield_pct": "eff * sh_p"
+     }
+    },
+    "shield_regen_hp_s": {
+     "unit": "HP/s",
+     "by_axis": {
+      "time_s": "eff * 10 * S / tau * (sqrt(sh_t / S) - sh_t / S)",
+      "shield_pct": "eff * 10 * S / tau * (sqrt(sh_p / S) - sh_p / S)"
+     }
+    }
+   }
+  }
+ }
+}
