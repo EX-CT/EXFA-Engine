@@ -1377,10 +1377,17 @@ void Fit::register_projected(uint32_t i) {
       push(K.scanResolution, K.scanResolutionBonus, 6);
       if (starts("remoteSensorBoost"))
         for (int k = 0; k < 4; k++) push(K.scanStrengthG[k], K.scanStrengthPercent[k], 6);
-    } else if (name == "shipModuleTrackingDisruptor" || name == "shipModuleGuidanceDisruptor") {
-      // Pyfa Effect6424 / Effect6423 (via eve-dogma-rs): penalise the target's gunnery modules / missile charges.
-      if (target_offense_ok) {
-        const bool td = name == "shipModuleTrackingDisruptor";
+    } else if (name == "shipModuleTrackingDisruptor" || name == "shipModuleGuidanceDisruptor" ||
+               name == "shipModuleRemoteTrackingComputer") {
+      // Pyfa Effect6424 / Effect6423 / shipModuleRemoteTrackingComputer (via eve-dogma-rs): modify the target's
+      // gunnery modules (TD, remote tracking computer) / missile charges (GD).
+      bool allowed = target_offense_ok;
+      if (name == "shipModuleRemoteTrackingComputer") {
+        const uint32_t da = ds.attr_id("disallowAssistance");
+        allowed = !(da && has(ship, da)) || base(ship, da) == 0.0;
+      }
+      if (allowed) {
+        const bool td = name != "shipModuleGuidanceDisruptor";
         static const char* TDP[][2] = {{"trackingSpeedBonus", "trackingSpeed"}, {"maxRangeBonus", "maxRange"}, {"falloffBonus", "falloff"}};
         static const char* GDP[][2] = {{"aoeCloudSizeBonus", "aoeCloudSize"}, {"aoeVelocityBonus", "aoeVelocity"},
                                        {"missileVelocityBonus", "maxVelocity"}, {"explosionDelayBonus", "explosionDelay"}};
@@ -1418,7 +1425,7 @@ void Fit::register_projected(uint32_t i) {
         static const char* DAMAGE_EFFECTS[] = {"projectileFired", "targetAttack", "useMissiles", "barrage", "targetDisintegratorAttack",
                                                "missileLaunchingForEntity", "fighterAbilityAttackM", "fighterAbilityMissiles",
                                                "superWeaponAmarr", "superWeaponCaldari", "superWeaponGallente", "superWeaponMinmatar",
-                                               "mining", "miningLaser", "miningClouds", "dotMissileLaunching"};
+                                               "mining", "miningLaser", "miningClouds", "dotMissileLaunching", "ChainLightning"};
         bool dmg = false;
         for (auto d : DAMAGE_EFFECTS)
           if (name == d) dmg = true;

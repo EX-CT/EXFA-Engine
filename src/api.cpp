@@ -72,10 +72,26 @@ void type_json(const Dataset& ds, std::string_view key, JW& w) {
     return;
   }
   std::vector<std::pair<std::string, double>> at;
+  // type-level mass/capacity/volume/radius are authoritative and always present (eve-dogma-rs merges them into the
+  // type's attributes at load: a non-zero field overrides the attribute, a missing attribute takes the field)
+  const uint32_t fid[4] = {4, 38, 161, 162};
+  const double fval[4] = {t->mass, t->capacity, t->volume, t->radius};
+  bool seen[4] = {false, false, false, false};
+  auto aname = [&](uint32_t id) {
+    const AttrRec* ar = ds.attr(id);
+    return ar ? std::string(ds.attr_name(*ar)) : std::to_string(id);
+  };
   for (auto& a : ds.type_attrs(*t)) {
-    const AttrRec* ar = ds.attr(a.id);
-    at.push_back({ar ? std::string(ds.attr_name(*ar)) : std::to_string(a.id), a.v});
+    double v = a.v;
+    for (int k = 0; k < 4; k++)
+      if (a.id == fid[k]) {
+        seen[k] = true;
+        if (fval[k] != 0.0) v = fval[k];
+      }
+    at.push_back({aname(a.id), v});
   }
+  for (int k = 0; k < 4; k++)
+    if (!seen[k]) at.push_back({aname(fid[k]), fval[k]});
   std::stable_sort(at.begin(), at.end(), [](auto& a, auto& b) { return a.first < b.first; });
   w.obj().key("attributes").obj();
   for (size_t i = 0; i < at.size(); i++)
