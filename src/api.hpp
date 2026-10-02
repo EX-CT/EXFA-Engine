@@ -1,0 +1,28 @@
+#pragma once
+#include <string>
+#include <string_view>
+
+#include "dataset.hpp"
+#include "engine.hpp"
+#include "jsonw.hpp"
+
+namespace simdjson::dom { class parser; class element; }
+
+namespace evej {
+// Per-thread reusable state (parser + output buffer).
+struct Worker {
+  explicit Worker(const Dataset& ds, const Ids& ids);
+  ~Worker();
+  const Dataset& ds;
+  const Ids& ids;
+  simdjson::dom::parser* parser;
+  JW out;
+  // FitRequest JSON text -> FitStats JSON (in out.s). Returns false if the response is an error object.
+  bool calc_json(std::string_view request);
+  bool calc_element(const simdjson::dom::element& e, JW& w);
+};
+void write_error(JW& w, const char* code, std::string_view message, std::string_view path);
+void meta_json(const Dataset& ds, JW& w, double load_ms = -1);
+void type_json(const Dataset& ds, std::string_view key, JW& w);
+void search_json(const Dataset& ds, std::string_view q, size_t limit, JW& w);
+}  // namespace evej
