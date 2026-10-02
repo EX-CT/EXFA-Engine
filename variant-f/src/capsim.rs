@@ -1,6 +1,5 @@
 //! Event-driven capacitor simulator. Behaviour-compatible with Pyfa eos/capSim.py; taken from eve-dogma-rs (LGPL-3.0-or-later).
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Drain {
@@ -54,15 +53,97 @@ impl Ord for Ev {
     fn cmp(&self, o: &Self) -> Ordering {
         // min-heap with Python-list ordering like Pyfa's heapq of
         // [t, duration, capNeed, shot, clipSize, reloadTime, isInjector], then insertion order
-        let f = |a: f64, b: f64| b.partial_cmp(&a).unwrap_or(Ordering::Equal);
+        // lazy chain: almost every comparison is decided by `t`
+        #[inline(always)]
+        fn f(a: f64, b: f64) -> Ordering {
+            b.partial_cmp(&a).unwrap_or(Ordering::Equal)
+        }
         f(self.t, o.t)
-            .then(f(self.duration, o.duration))
-            .then(f(self.cap_need, o.cap_need))
-            .then(o.shot.cmp(&self.shot))
-            .then(o.clip.cmp(&self.clip))
-            .then(f(self.reload, o.reload))
-            .then(o.inj.cmp(&self.inj))
-            .then(o.seq.cmp(&self.seq))
+            .then_with(|| f(self.duration, o.duration))
+            .then_with(|| f(self.cap_need, o.cap_need))
+            .then_with(|| o.shot.cmp(&self.shot))
+            .then_with(|| o.clip.cmp(&self.clip))
+            .then_with(|| f(self.reload, o.reload))
+            .then_with(|| o.inj.cmp(&self.inj))
+            .then_with(|| o.seq.cmp(&self.seq))
+    }
+}
+
+/// Min-heap of events ordered like Pyfa's heapq (see `Ord for Ev`). Entries are (t, slab index) so sifting
+/// moves 16 bytes; the full lexicographic comparison only runs on equal times.
+struct EvHeap {
+    h: Vec<(f64, u32)>,
+    slab: Vec<Ev>,
+    free: Vec<u32>,
+}
+
+impl EvHeap {
+    fn with_capacity(n: usize) -> Self {
+        EvHeap { h: Vec::with_capacity(n), slab: Vec::with_capacity(n), free: Vec::with_capacity(n) }
+    }
+    #[inline(always)]
+    fn less(&self, a: (f64, u32), b: (f64, u32)) -> bool {
+        if a.0 < b.0 {
+            true
+        } else if a.0 > b.0 {
+            false
+        } else {
+            // `Ord for Ev` is reversed (max-heap form): "greater" = earlier
+            self.slab[a.1 as usize].cmp(&self.slab[b.1 as usize]) == Ordering::Greater
+        }
+    }
+    fn push(&mut self, ev: Ev) {
+        let idx = match self.free.pop() {
+            Some(i) => {
+                self.slab[i as usize] = ev;
+                i
+            }
+            None => {
+                self.slab.push(ev);
+                (self.slab.len() - 1) as u32
+            }
+        };
+        let item = (ev.t, idx);
+        let mut pos = self.h.len();
+        self.h.push(item);
+        while pos > 0 {
+            let parent = (pos - 1) / 2;
+            if self.less(item, self.h[parent]) {
+                self.h[pos] = self.h[parent];
+                pos = parent;
+            } else {
+                break;
+            }
+        }
+        self.h[pos] = item;
+    }
+    fn pop(&mut self) -> Option<Ev> {
+        let top = *self.h.first()?;
+        let last = self.h.pop().unwrap();
+        let n = self.h.len();
+        if n > 0 {
+            let mut pos = 0;
+            loop {
+                let l = 2 * pos + 1;
+                if l >= n {
+                    break;
+                }
+                let r = l + 1;
+                let c = if r < n && self.less(self.h[r], self.h[l]) { r } else { l };
+                if self.less(self.h[c], last) {
+                    self.h[pos] = self.h[c];
+                    pos = c;
+                } else {
+                    break;
+                }
+            }
+            self.h[pos] = last;
+        }
+        self.free.push(top.1);
+        Some(self.slab[top.1 as usize])
+    }
+    fn into_vec(self) -> Vec<Ev> {
+        self.h.iter().map(|&(_, i)| self.slab[i as usize]).collect()
     }
 }
 
@@ -72,7 +153,7 @@ fn gcd(a: u64, b: u64) -> u64 {
 
 pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f64, reload: bool, stagger: bool, t_max_ms: f64) -> CapResult {
     let tau = recharge_ms / 5.0;
-    let mut heap = BinaryHeap::with_capacity(64);
+    let mut heap = EvHeap::with_capacity(64);
     let mut seq = 0u64;
     let mut period: u64 = 1;
     let mut disable_period = false;
@@ -145,6 +226,7 @@ pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f
         k
     };
     let mut last_ev: Option<Ev> = None;
+    let mut exp_memo = [(u64::MAX, 0.0f64); 2];
     while let Some(mut ev) = heap.pop() {
         let t_now = ev.t;
         if t_now >= t_max_ms {
@@ -153,7 +235,20 @@ pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f
         }
         if t_now > t_last && cap_max > 0.0 && tau > 0.0 {
             let x = (cap / cap_max).max(0.0).sqrt();
-            cap = (1.0 + (x - 1.0) * ((t_last - t_now) / tau).exp()).powi(2) * cap_max;
+            // the same few event spacings recur all the time: memoise exp() (bit-identical results)
+            let arg = (t_last - t_now) / tau;
+            let e = if arg.to_bits() == exp_memo[0].0 {
+                exp_memo[0].1
+            } else if arg.to_bits() == exp_memo[1].0 {
+                exp_memo.swap(0, 1);
+                exp_memo[0].1
+            } else {
+                let e = arg.exp();
+                exp_memo[1] = exp_memo[0];
+                exp_memo[0] = (arg.to_bits(), e);
+                e
+            };
+            cap = (1.0 + (x - 1.0) * e).powi(2) * cap_max;
         }
         if t_now != t_last {
             if cap < cap_lowest_pre {
