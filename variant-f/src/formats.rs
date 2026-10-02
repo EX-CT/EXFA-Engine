@@ -5,6 +5,7 @@ use crate::data as d;
 use crate::eft;
 use crate::engine::infer_slot;
 use crate::request::*;
+use serde_json::Value;
 
 const CAT_CHARGE: u32 = 8;
 
@@ -1371,4 +1372,249 @@ pub fn items_import(text: &str) -> Option<(&'static str, Vec<(u32, u32, Option<M
         return None;
     };
     Some((kind, items.into_iter().map(|(t, n, _)| (t, n, None)).collect()))
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Ship stats clipboard text (Pyfa "Copy stats"): written from the observed output format (no Pyfa code).
+
+/// Round to `prec` significant digits (never into the integer part), like Pyfa's display rounding.
+fn round_sig(v: f64, prec: i32) -> f64 {
+    if v.trunc() == v {
+        return v;
+    }
+    let digits = (prec - v.abs().log10().floor() as i32 - 1).max(0) as usize;
+    format!("{:.*}", digits, v).parse().unwrap_or(v)
+}
+
+fn num_text(v: f64) -> String {
+    if v.trunc() == v && v.abs() < 1e16 {
+        format!("{}", v as i64)
+    } else {
+        format!("{}", v)
+    }
+}
+
+/// Short human amount: 3 significant digits with k/M/G suffix up to 10^`highest`.
+pub fn amount_text(val: f64, prec: i32, highest: i32) -> String {
+    if val == f64::INFINITY {
+        return "\u{221e}".into();
+    }
+    let (mut m, mut suffix) = (val, "");
+    let sfx = |k: i32| match k {
+        3 => "k",
+        6 => "M",
+        _ => "G",
+    };
+    if val.abs() > 1.0 && highest >= 3 {
+        for key in [9, 6, 3] {
+            if val.abs() >= 10f64.powi(key) && key <= highest {
+                m = val / 10f64.powi(key);
+                suffix = sfx(key);
+                if key != 9 && key + 3 <= highest && round_sig(m, prec) >= 1000.0 {
+                    m /= 1000.0;
+                    suffix = sfx(key + 3);
+                }
+                break;
+            }
+        }
+    }
+    format!("{}{}", num_text(round_sig(m, prec)), suffix)
+}
+
+fn g(v: &Value, path: &[&str]) -> f64 {
+    let mut x = v;
+    for p in path {
+        x = &x[*p];
+    }
+    x.as_f64().unwrap_or(0.0)
+}
+
+const LAYERS: [&str; 3] = ["shield", "armor", "hull"];
+const DTYPES: [&str; 4] = ["em", "thermal", "kinetic", "explosive"];
+
+/// Remote repair output per layer (HP/s) of active remote repairers and logistics drones.
+fn remote_reps(req: &FitRequest, st: &Value) -> [f64; 3] {
+    let mut rr = [0.0; 3];
+    let attrs = &st["attributes"];
+    let rows = st["modules"].as_array().cloned().unwrap_or_default();
+    for (mi, m) in req.modules.iter().enumerate() {
+        let Some(row) = rows.iter().find(|r| r["module_index"].as_u64() == Some(mi as u64)) else { continue };
+        if !matches!(row["state"].as_str(), Some("active") | Some("overheated")) {
+            continue;
+        }
+        let Some(a) = attrs["modules"].as_array().and_then(|v| v.iter().find(|r| r["module_index"].as_u64() == Some(mi as u64))) else { continue };
+        let a = &a["attributes"];
+        let at = |n: &str| a[n].as_f64().unwrap_or(0.0);
+        let cycle = row["cycle_time_ms"].as_f64().unwrap_or(0.0);
+        if cycle <= 0.0 {
+            continue;
+        }
+        let grp = ix(m.type_id).map(|i| d::ty(i).group).unwrap_or(0);
+        let spool = 1.0; // no spool-up (Pyfa's default for the stats copy)
+        let (layer, amount) = match grp {
+            41 | 1697 => (0, at("shieldBonus")),
+            325 | 2018 => (1, at("armorDamageAmount")),
+            1698 => (1, at("armorDamageAmount") * if m.charge_type_id.is_some() { a["chargedArmorDamageMultiplier"].as_f64().unwrap_or(1.0) } else { 1.0 }),
+            585 => (2, at("structureDamageAmount")),
+            _ => continue,
+        };
+        rr[layer] += amount * spool / (cycle / 1000.0);
+    }
+    for (di, dr) in req.drones.iter().enumerate() {
+        let n = dr.active.unwrap_or(0).min(dr.quantity) as f64;
+        if n <= 0.0 {
+            continue;
+        }
+        let Some(a) = attrs["drones"].as_array().and_then(|v| v.iter().find(|r| r["drone_index"].as_u64() == Some(di as u64))) else { continue };
+        let a = &a["attributes"];
+        let at = |k: &str| a[k].as_f64().unwrap_or(0.0);
+        let cycle = at("duration");
+        if cycle <= 0.0 {
+            continue;
+        }
+        rr[0] += at("shieldBonus") * n / (cycle / 1000.0);
+        rr[1] += at("armorDamageAmount") * n / (cycle / 1000.0);
+        rr[2] += at("structureDamageAmount") * n / (cycle / 1000.0);
+    }
+    rr
+}
+
+/// `st` = calc output of `req` with `include_attributes: "all"`.
+pub fn shipstats_export(req: &FitRequest, name: &str, st: &Value) -> String {
+    let ship_name = ix(req.ship.type_id).map(d::type_name).unwrap_or("");
+    let mut sections: Vec<String> = Vec::new();
+    // firepower
+    let tot = &st["offense"]["total"];
+    let fp = [
+        g(tot, &["dps", "total"]),
+        g(tot, &["weapon_dps"]),
+        g(tot, &["drone_dps"]) + g(tot, &["fighter_dps"]),
+        g(tot, &["volley", "total"]),
+    ];
+    if fp.iter().sum::<f64>() != 0.0 {
+        let s: Vec<String> = fp.iter().map(|v| amount_text(*v, 3, 0)).collect();
+        sections.push(format!("DPS: {} (Weapon: {}, Drone: {}, Volley: {})\n", s[0], s[1], s[2], s[3]));
+    }
+    // tank
+    let def = &st["defense"];
+    let mut ehp: Vec<f64> = LAYERS.iter().map(|l| g(def, &["ehp", l])).collect();
+    ehp.push(ehp.iter().sum());
+    let vs: Vec<f64> = DTYPES.iter().map(|t| LAYERS.iter().map(|l| g(def, &["hp", l]) / g(def, &["resonance", l, t])).sum()).collect();
+    let mut t = format!(
+        "EHP: {} (Em: {}, Th: {}, Kin: {}, Exp: {})\n",
+        amount_text(ehp[3], 3, 9),
+        amount_text(vs[0], 3, 9),
+        amount_text(vs[1], 3, 9),
+        amount_text(vs[2], 3, 9),
+        amount_text(vs[3], 3, 9)
+    );
+    for (i, l) in LAYERS.iter().enumerate() {
+        let r: Vec<String> = DTYPES.iter().map(|d| format!("{:.0}%", (1.0 - g(def, &["resonance", l, d])) * 100.0)).collect();
+        let cap = ["Shield", "Armor", "Hull"][i];
+        t += &format!("{}: {} (Em: {}, Th: {}, Kin: {}, Exp: {})\n", cap, amount_text(ehp[i], 3, 9), r[0], r[1], r[2], r[3]);
+    }
+    sections.push(t);
+    // repairs
+    let tank = &def["tank"];
+    let key = ["shield_repair", "armor_repair", "hull_repair"];
+    let mut selfr: Vec<f64> = key.iter().map(|k| g(tank, &["effective", k])).collect();
+    let mut sust: Vec<f64> = key.iter().map(|k| g(tank, &["sustained_effective", k])).collect();
+    let mut remote: Vec<f64> = remote_reps(req, st).to_vec();
+    let mut regen = vec![g(tank, &["sustained_effective", "passive_shield"]), 0.0, 0.0];
+    let mult: f64 = req
+        .modules
+        .iter()
+        .filter_map(|m| base_attr(m.type_id, d::attr_by_name("shieldRechargeRateMultiplier").unwrap_or(u16::MAX)))
+        .product();
+    if mult >= 0.9 {
+        regen[0] = 0.0;
+    }
+    let mut total: Vec<f64> = (0..3).map(|i| selfr[i] + remote[i] + regen[i]).collect();
+    for v in [&mut selfr, &mut sust, &mut remote, &mut regen, &mut total] {
+        let s = v.iter().sum();
+        v.push(s);
+    }
+    let mut rt = String::new();
+    if total.iter().sum::<f64>() > 0.0 {
+        let (ts, tr, tg) = (selfr[3], remote[3], regen[3]);
+        let mut single: Option<(&Vec<f64>, &str)> = None;
+        if tr == 0.0 && tg == 0.0 {
+            single = Some((&selfr, "Self"));
+        }
+        if ts == 0.0 && tg == 0.0 {
+            single = Some((&remote, "Remote"));
+        }
+        if ts == 0.0 && tr == 0.0 {
+            single = Some((&regen, "Regen"));
+        }
+        let single = single.filter(|(v, _)| v[..3].iter().filter(|x| **x > 0.0).count() == 1);
+        if let Some((v, kind)) = single {
+            let i = v[..3].iter().position(|x| *x > 0.0).unwrap();
+            if kind == "Regen" {
+                rt += &format!("Shield regeneration: {} EHP/s", amount_text(v[i], 3, 9));
+            } else {
+                rt += &format!("{} {} repair: {} EHP/s", kind, LAYERS[i], amount_text(v[i], 3, 9));
+            }
+            if kind == "Self" && sust[i] != v[i] {
+                rt += &format!(" (Sustained: {} EHP/s)", amount_text(sust[i], 3, 9));
+            }
+            rt += "\n";
+        } else {
+            let fmt = |v: &Vec<f64>, blank0: bool| -> Vec<String> {
+                v.iter().map(|x| if blank0 && *x == 0.0 { String::new() } else { amount_text(*x, 3, 9) }).collect()
+            };
+            let cols_all = [
+                (fmt(&total, false), "TOTAL"),
+                (fmt(&selfr, false), "SELF"),
+                (fmt(&sust, false), "SUST"),
+                (fmt(&remote, false), "REMOTE"),
+                (fmt(&regen, true), "REGEN"),
+            ];
+            let show = [ts > 0.0, sust != selfr, tr > 0.0, tg > 0.0];
+            let n_show = show.iter().filter(|x| **x).count();
+            let mut header = "REPS    ".to_string();
+            let mut lines: Vec<String> = ["Shield", "Armor", "Hull", "Total"].iter().map(|l| format!("{:<8}", l)).collect();
+            for (ci, (vals, nm)) in cols_all.iter().enumerate() {
+                let on = if ci == 0 { n_show > 1 } else { show[ci - 1] };
+                if on {
+                    header += &format!("{:>7} ", nm);
+                    for (li, l) in lines.iter_mut().enumerate() {
+                        *l += &format!("{:>7} ", vals[li]);
+                    }
+                }
+            }
+            rt += &header;
+            rt += "\n";
+            for (li, l) in lines.iter().enumerate() {
+                if total[li] + selfr[li] + sust[li] + remote[li] + regen[li] > 0.0 {
+                    rt += l;
+                    rt += "\n";
+                }
+            }
+        }
+    }
+    if !rt.is_empty() {
+        sections.push(rt);
+    }
+    // misc
+    let cap = &st["capacitor"];
+    let mut m = format!("Speed: {} m/s\n", amount_text(g(st, &["navigation", "max_velocity"]), 3, 0));
+    m += &format!("Signature: {} m\n", amount_text(g(st, &["navigation", "signature_radius"]), 3, 9));
+    m += &format!("Capacitor: {} GJ", amount_text(g(cap, &["capacity"]), 3, 9));
+    if cap["stable"].as_bool().unwrap_or(true) {
+        m += &format!(" (Stable at {:.0}%)", g(cap, &["stable_percent"]));
+    } else {
+        let s = g(cap, &["depletes_in_s"]);
+        if s <= 60.0 {
+            m += &format!(" (Lasts {}s)", s.trunc() as i64);
+        } else {
+            m += &format!(" (Lasts {}m{}s)", (s / 60.0).floor() as i64, (s % 60.0).trunc() as i64);
+        }
+    }
+    m += "\n";
+    m += &format!("Targeting range: {} km\n", amount_text(g(st, &["targeting", "max_range_m"]) / 1000.0, 3, 0));
+    m += &format!("Scan resolution: {:.0} mm\n", g(st, &["targeting", "scan_resolution"]));
+    m += &format!("Sensor strength: {}\n", amount_text(g(st, &["targeting", "sensor_strength"]), 3, 0));
+    sections.push(m);
+    format!("{} ({})\n\n{}", name, ship_name, sections.join("\n"))
 }

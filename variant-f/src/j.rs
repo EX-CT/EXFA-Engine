@@ -189,6 +189,22 @@ impl J {
         }
     }
 
+    /// Full-precision (unrounded) conversion, for consumers that format numbers themselves (stats text export).
+    pub fn to_value_raw(&self) -> serde_json::Value {
+        use serde_json::Value as V;
+        match self {
+            J::Null => V::Null,
+            J::Bool(b) => V::Bool(*b),
+            J::U(u) => V::from(*u),
+            J::I(i) => V::from(*i),
+            J::F(f) => serde_json::Number::from_f64(*f).map(V::Number).unwrap_or(V::Null),
+            J::S(s) => V::String((*s).to_string()),
+            J::Str(s) => V::String(s.clone()),
+            J::A(a) => V::Array(a.iter().map(|x| x.to_value_raw()).collect()),
+            J::O(o) => V::Object(o.iter().map(|(k, v)| (k.to_string(), v.to_value_raw())).collect()),
+        }
+    }
+
     pub fn to_json_string(&self) -> String {
         let mut s = String::with_capacity(8192);
         self.write(&mut s);

@@ -177,6 +177,20 @@ fn format_export(p: &Value) -> Value {
             implants: opt(p, "implants", true),
             boosters: opt(p, "boosters", true),
         }),
+        "shipstats" => {
+            let mut r2 = r.clone();
+            r2.options.include_attributes = Some("all".into());
+            // Pyfa's stats copy uses its default spool-up (none), not the request's spool settings
+            r2.options.default_spool = Some(request::Spool { kind: request::SpoolType::SpoolScale, amount: 0.0 });
+            for m in r2.modules.iter_mut() {
+                m.spool = None;
+            }
+            let st: Value = calc(&r2).to_value_raw();
+            if st.get("error").is_some() {
+                return st;
+            }
+            formats::shipstats_export(&r, name, &st)
+        }
         f => return json!({"error": {"code": "UNSUPPORTED_FORMAT", "message": f}}),
     };
     json!({"text": text})
