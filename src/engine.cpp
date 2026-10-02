@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <mutex>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <optional>
 #include <string>
@@ -332,6 +333,18 @@ double Fit::base(uint32_t item, uint32_t attr) const {
   return ds.attr_default(attr);
 }
 
+// Python round(v, 2): correctly rounded on the exact binary value (ties to even), as eve-dogma-rs's
+// format!("{v:.2}").parse() (since aa46025)
+static double py_round2(double v) {
+  if (!std::isfinite(v)) return v;
+  char buf[400];
+  auto r = std::to_chars(buf, buf + sizeof buf, v, std::chars_format::fixed, 2);
+  if (r.ec != std::errc()) return v;
+  double o = v;
+  std::from_chars(buf, r.ptr, o);
+  return o;
+}
+
 double Fit::caps(uint32_t item, const AttrRec* info, double val) {
   if (!info) return val;
   if (info->min_attr) {
@@ -342,7 +355,7 @@ double Fit::caps(uint32_t item, const AttrRec* info, double val) {
     double m = get(item, info->max_attr);
     val = std::min(val, m);
   }
-  if (info->round2) val = std::round(val * 100.0) / 100.0;
+  if (info->round2) val = py_round2(val);
   return val;
 }
 
@@ -1204,6 +1217,9 @@ void Fit::register_all(const FitRequest& req, bool no_boosters) {
         bool used = ab ? std::find(ab->begin(), ab->end(), eid) != ab->end() : te.is_default != 0;
         if (!used) continue;
       }
+      // Pyfa 'active' handlers for SDE effects without modifiers (some are target-category in the SDE)
+      if (e->mod_cnt == 0 && kind == Kind::Module && state >= State::Active && local_special(i, ds.effect_name(*e), src_cat))
+        continue;
       if (!state_ok(e->category, state)) continue;
       // ---- special effects (no modifierInfo in the SDE)
       if (kind == Kind::Fighter && ds.effect_mods(*e).empty()) {
@@ -1378,7 +1394,7 @@ void Fit::register_projected(uint32_t i) {
       if (starts("remoteSensorBoost"))
         for (int k = 0; k < 4; k++) push(K.scanStrengthG[k], K.scanStrengthPercent[k], 6);
     } else if (name == "shipModuleTrackingDisruptor" || name == "shipModuleGuidanceDisruptor" ||
-               name == "shipModuleRemoteTrackingComputer") {
+               name == "shipModuleRemoteTrackingComputer" || name == "npcEntityWeaponDisruptor") {
       // Pyfa Effect6424 / Effect6423 / shipModuleRemoteTrackingComputer (via eve-dogma-rs): modify the target's
       // gunnery modules (TD, remote tracking computer) / missile charges (GD).
       bool allowed = target_offense_ok;
@@ -1392,8 +1408,11 @@ void Fit::register_projected(uint32_t i) {
         static const char* GDP[][2] = {{"aoeCloudSizeBonus", "aoeCloudSize"}, {"aoeVelocityBonus", "aoeVelocity"},
                                        {"missileVelocityBonus", "maxVelocity"}, {"explosionDelayBonus", "explosionDelay"}};
         const uint32_t sk = ds.type_by_name(td ? "Gunnery" : "Missile Launcher Operation");
-        const double tf = range_factor_local(pbase(i, "maxRange"), pbase(i, "falloffEffectiveness"), items[i].has_distance,
-                                             items[i].distance, true);
+        // TD drones (Pyfa Effect6694): full strength inside maxRange, nothing beyond
+        const double tf = name == "npcEntityWeaponDisruptor"
+                              ? (pbase(i, "maxRange") < (items[i].has_distance ? items[i].distance : 0.0) ? 0.0 : 1.0)
+                              : range_factor_local(pbase(i, "maxRange"), pbase(i, "falloffEffectiveness"),
+                                                   items[i].has_distance, items[i].distance, true);
         uint32_t src_a[4], tgt_a[4];
         const int np = td ? 3 : 4;
         for (int k = 0; k < np; k++) {
@@ -1425,7 +1444,7 @@ void Fit::register_projected(uint32_t i) {
         static const char* DAMAGE_EFFECTS[] = {"projectileFired", "targetAttack", "useMissiles", "barrage", "targetDisintegratorAttack",
                                                "missileLaunchingForEntity", "fighterAbilityAttackM", "fighterAbilityMissiles",
                                                "superWeaponAmarr", "superWeaponCaldari", "superWeaponGallente", "superWeaponMinmatar",
-                                               "mining", "miningLaser", "miningClouds", "dotMissileLaunching", "ChainLightning"};
+                                               "mining", "miningLaser", "miningClouds", "dotMissileLaunching", "ChainLightning", "salvageDroneEffect"};
         bool dmg = false;
         for (auto d : DAMAGE_EFFECTS)
           if (name == d) dmg = true;
@@ -1433,6 +1452,52 @@ void Fit::register_projected(uint32_t i) {
       }
     }
   }
+}
+
+// Local module effects that have no modifierInfo in the SDE but a hand-written Pyfa handler (via eve-dogma-rs,
+// LGPL). Returns true when the effect was handled. Source category 6 marks a boost Pyfa applies without stacking
+// penalty.
+bool Fit::local_special(uint32_t i, std::string_view name, uint32_t src_cat) {
+  auto a = [&](std::string_view n) { return ds.attr_id(n); };
+  if (name == "superWeaponAmarr" || name == "superWeaponCaldari" || name == "superWeaponGallente" ||
+      name == "superWeaponMinmatar" || name == "doomsdaySlash" || name == "doomsdayBeamDOT" || name == "doomsdayConeDOT" ||
+      name == "doomsdayHOG" || name == "debuffLance") {
+    push_mod(ship, a("maxVelocity"), 6, attr_src(i, a("speedFactor")), src_cat);
+    push_mod(ship, a("warpScrambleStatus"), 2, attr_src(i, a("siegeModeWarpStatus")), src_cat);
+  } else if (name == "emergencyHullEnergizer") {
+    static const char* T[4][2] = {{"emDamageResonance", "hullEmDamageResonance"},
+                                  {"thermalDamageResonance", "hullThermalDamageResonance"},
+                                  {"kineticDamageResonance", "hullKineticDamageResonance"},
+                                  {"explosiveDamageResonance", "hullExplosiveDamageResonance"}};
+    for (auto& t : T) push_mod(ship, a(t[0]), 4, attr_src(i, a(t[1])), src_cat);
+  } else if (name == "entosisLink") {
+    push_mod(ship, a("disallowAssistance"), 7, attr_src(i, a("disallowAssistance")), 6);
+    static const char* S[4] = {"Gravimetric", "Magnetometric", "Radar", "Ladar"};
+    for (auto s : S)
+      push_mod(ship, a(std::string("scan") + s + "Strength"), 6, attr_src(i, a(std::string("scan") + s + "StrengthPercent")), src_cat);
+  } else if (name == "microJumpPortalDrive" || name == "microJumpPortalDriveCapital") {
+    push_mod(ship, a("signatureRadius"), 6, attr_src(i, a("signatureRadiusBonusPercent")), src_cat);
+  } else if (name == "warpDisruptSphere") {
+    push_mod(ship, a("disallowAssistance"), 7, const_src(1.0), 6);
+    if (items[i].charge < 0) {
+      push_mod(ship, 4, 6, attr_src(i, a("massBonusPercentage")), 6);
+      push_mod(ship, a("signatureRadius"), 6, attr_src(i, a("signatureRadiusBonus")), 6);
+      std::vector<uint32_t> props;
+      for (uint32_t t = 0; t < items.size(); t++) {
+        const Item& it = items[t];
+        if (it.kind != Kind::Module || it.loc != Loc::Ship) continue;
+        const GroupRec* g = ds.group(it.group);
+        if (g && ds.group_name(*g) == "Propulsion Module") props.push_back(t);
+      }
+      for (uint32_t t : props) {
+        push_mod(t, a("speedBoostFactor"), 6, attr_src(i, a("speedBoostFactorBonus")), 6);
+        push_mod(t, a("speedFactor"), 6, attr_src(i, a("speedFactorBonus")), 6);
+      }
+    }
+  } else {
+    return false;
+  }
+  return true;
 }
 
 // Pyfa's 'projected' handlers for remote reps, cap transfers and neuts/nos (eos/effects.py, LGPL; via eve-dogma-rs).

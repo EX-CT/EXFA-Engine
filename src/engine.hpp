@@ -151,6 +151,7 @@ class Fit {
   void register_all(const FitRequest& req, bool no_boosters);
   void register_projected(uint32_t i);
   bool proj_special_for(uint32_t i, std::string_view name, uint32_t resist, std::vector<ProjSpecial>& out);
+  bool local_special(uint32_t i, std::string_view name, uint32_t src_cat);
   void register_buffs(const FitRequest& req, bool no_boosters);
   void apply_buff(uint32_t id, const Src& src, uint32_t source_item);
   void apply_rah(const FitRequest& req);

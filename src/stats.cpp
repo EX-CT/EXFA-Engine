@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <charconv>
 #include <cstdio>
 #include <optional>
 
@@ -33,6 +34,35 @@ static inline double float_unerr(double v) { return std::round(v * 1e9) / 1e9; }
 struct SpoolRes {
   double v, cycles, time;
 };
+// Rust's f64::powi (LLVM __powidf2: square-and-multiply, reciprocal for negative exponents)
+static double powi_rs(double a, int b) {
+  const bool recip = b < 0;
+  double r = 1.0;
+  for (;;) {
+    if (b & 1) r *= a;
+    b /= 2;
+    if (b == 0) break;
+    a *= a;
+  }
+  return recip ? 1.0 / r : r;
+}
+// Pyfa eos.utils.float.floatUnerr: round away float noise keeping 7 significant digits (as eve-dogma-rs)
+static double float_unerr7(double v) {
+  if (v == 0.0 || !std::isfinite(v)) return v;
+  const double c = std::ceil(std::log10(std::fabs(v)));
+  const int rf = 7 - (int)c;
+  if (rf >= 0) {
+    char buf[400];
+    auto r = std::to_chars(buf, buf + sizeof buf, v, std::chars_format::fixed, rf);
+    if (r.ec != std::errc()) return v;
+    double o = v;
+    std::from_chars(buf, r.ptr, o);
+    return o;
+  }
+  const double p = powi_rs(10.0, -rf);
+  return std::round(v / p) * p;
+}
+
 static SpoolRes spoolup(double max, double step, double cycle_s, Spool sp) {
   if (max == 0.0 || step == 0.0) return {0, 0, 0};
   double cycles = 0;
@@ -472,6 +502,8 @@ void Calc::run(JW& w) {
   JW wo;  // weapons array
   wo.arr();
   Dmg w_vol, w_dps;
+  const uint32_t a_dd = ds.attr_id("doomsdayDamageDuration"), a_dsub = ds.attr_id("doomsdayDamageCycleTime");
+  const uint32_t e_slash = ds.effect_id("doomsdaySlash");
   for (uint32_t i : modules) {
     if (!active(i)) continue;
     const char* kind = weapon_kind(i);
@@ -484,7 +516,12 @@ void Calc::run(JW& w) {
     double sstep = g(i, K.damageMultiplierBonusPerCycle);
     double spv = spoolup(smax, sstep, raw / 1000.0, sp).v;
     Dmg vol_spooled = base.scale(1.0 + spv);
-    Dmg dps = cyc > 0.0 ? vol_spooled.scale(1000.0 / cyc) : Dmg{};
+    // doomsdays / lances deal their volley every doomsdayDamageCycleTime during doomsdayDamageDuration (Pyfa
+    // getVolleyParameters subcycles; the Reaper slash hits once); volley = one tick
+    const double dd = g(i, a_dd), dsub = g(i, a_dsub);
+    const double subcycles =
+        (dd != 0.0 && dsub != 0.0 && !has_eff(i, e_slash)) ? std::max(std::floor(float_unerr7(dd / dsub)), 0.0) : 1.0;
+    Dmg dps = cyc > 0.0 ? vol_spooled.scale(subcycles * 1000.0 / cyc) : Dmg{};
     w_vol.add(vol_spooled);
     w_dps.add(dps);
     double opt = g(i, K.maxRange);
