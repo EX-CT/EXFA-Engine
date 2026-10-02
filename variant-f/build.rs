@@ -347,6 +347,7 @@ fn main() {
         (eid("cloneJumpAccepting"), "f.sp_lance(i, p);"),
         (eid("cynosuralGeneration"), "f.sp_cyno(i);"),
         (eid("OffensiveDefensiveReduction"), "f.sp_incursion(i);"),
+        (eid("freighterAgilityBonus2O2"), "f.sp_freighter_agility(i);"),
         (eid("microJumpPortalDriveCapital"), "f.sp_mjfg(i, p);"),
         (eid("debuffLance"), "f.sp_lance(i, p);"),
         (eid("warpDisruptSphere"), "f.sp_wdfg(i);"),

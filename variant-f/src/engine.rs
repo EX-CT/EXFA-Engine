@@ -156,6 +156,8 @@ pub struct ExtDrain {
     pub amount: f64,
     pub resist: u16,
     pub sig_res: f64,
+    /// Pyfa handler runs 'late' (nosferatu): sees the target's full signature radius incl. MWD bloom
+    pub late: bool,
     pub assistance: bool,
 }
 
@@ -652,6 +654,12 @@ impl Fit {
             }
         }
         v
+    }
+    /// ORE freighter agility bonus: Pyfa boosts agility with stackingPenalties=True (its handlers for the two Bowhead
+    /// effects are swapped; the net effect equals the SDE except for the penalty)
+    pub fn sp_freighter_agility(&mut self, i: usize) {
+        let ship = self.ship;
+        self.push(ship, a::agility, 6, true, Src::Attr { item: i as u32, attr: a::freighterBonusO2 });
     }
     /// cyno: unpenalised speed boost only (Pyfa cynosuralGeneration)
     pub fn sp_cyno(&mut self, i: usize) {
@@ -1447,6 +1455,35 @@ impl Fit {
     /// modules later in the fit have applied their modifiers (e.g. a Tengu defensive subsystem listed after the
     /// hardener does not boost overloadHardeningBonus yet). Value of (i, attr) ignoring modifiers whose source is
     /// a module after `i`.
+    /// ship signatureRadius without the MWD bloom: Pyfa's MWD handler runs 'late', after the 'normal'-runtime
+    /// projected neutralisers read the target's signature radius
+    pub fn sig_before_late(&self) -> f64 {
+        let (i, attr) = (self.ship, a::signatureRadius);
+        let Some(s) = self.slot_of(i, attr).map(|s| s as usize) else { return self.get(i, attr) };
+        let slot = &self.slots[s];
+        let mut vals: Vec<(i8, bool, f64)> = Vec::new();
+        let mut present = 0u16;
+        let mut skipped = false;
+        let mut cur = slot.head;
+        for _ in 0..slot.n {
+            let (m, next) = &self.mods[cur as usize];
+            cur = *next;
+            if let Src::Attr { item, attr: sa } = m.src {
+                if sa == a::signatureRadiusBonus && self.props.contains(&item) {
+                    skipped = true;
+                    continue;
+                }
+            }
+            vals.push((m.op, m.pen, self.src_value(&m.src)));
+            present |= 1 << ((m.op + 1) as u16 & 15);
+        }
+        if !skipped {
+            return self.get(i, attr);
+        }
+        let hig = d::attr_flags(attr) & d::AF_HIGH_IS_GOOD != 0 || d::attr_flags(attr) & 1 == 0;
+        let val = combine(slot.base, hig, &vals, present);
+        self.post(i, attr, val)
+    }
     fn eval_before(&self, i: usize, attr: u16) -> f64 {
         let Some(s) = self.slot_of(i, attr).map(|s| s as usize) else { return self.get(i, attr) };
         let slot = &self.slots[s];
@@ -1699,16 +1736,16 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
             }
             e::energyNeutralizerFalloff | e::structureEnergyNeutralizerFalloff => {
                 let amount = g(a::energyNeutralizerAmount) * rf(a::maxRange, a::falloffEffectiveness);
-                one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: false }));
+                one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: false, late: false }));
             }
             e::energyNosferatuFalloff => {
                 let amount = g(a::powerTransferAmount) * rf(a::maxRange, a::falloffEffectiveness);
-                one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: false }));
+                one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: false, late: true }));
             }
             e::shipModuleRemoteCapacitorTransmitter => {
                 if !cutoff(a::maxRange) {
                     let amount = -g(a::powerTransferAmount);
-                    one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: true }));
+                    one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: true, late: false }));
                 }
             }
             e::remoteECMFalloff | e::structureModuleEffectECM => one.push(ecm(ECM_MOD, rf(a::maxRange, a::falloffEffectiveness))),
@@ -1726,7 +1763,7 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                     amount,
                     resist,
                     sig_res: 0.0,
-                    assistance: false,
+                    assistance: false, late: false,
                 }));
             }
             e::fighterAbilityStasisWebifier => {
@@ -1761,7 +1798,7 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                 }
             }
             e::doomsdayAOENeut => {
-                one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount: g(a::energyNeutralizerAmount), resist, sig_res: 0.0, assistance: false }));
+                one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount: g(a::energyNeutralizerAmount), resist, sig_res: 0.0, assistance: false, late: false }));
             }
             e::doomsdayAOEECM => one.push(ecm(ECM_MOD, 1.0)),
             e::npcEntityWeaponDisruptor => {
@@ -1815,7 +1852,7 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                         amount,
                         resist,
                         sig_res: g(a::energyNeutralizerSignatureResolution),
-                        assistance: false,
+                        assistance: false, late: false,
                     }));
                 }
             }

@@ -83,7 +83,7 @@ const DMG: [u16; 4] = [a::emDamage, a::thermalDamage, a::kineticDamage, a::explo
 
 
 fn sig_radius_now(f: &Fit) -> f64 {
-    f.get(f.ship, a::signatureRadius)
+    f.sig_before_late()
 }
 
 /// Pyfa's remote-repair diminishing returns for one layer (cycle time truncated to whole seconds, as Pyfa does).
@@ -648,7 +648,8 @@ impl Fit {
             }
             let mut need = x.amount * self.resist(x.resist);
             if x.sig_res != 0.0 {
-                need *= (sig_radius_now(self) / x.sig_res).min(1.0);
+                let sig = if x.late { self.get(ship, a::signatureRadius) } else { sig_radius_now(self) };
+                need *= (sig / x.sig_res).min(1.0);
             }
             if need == 0.0 || x.cycle_ms <= 0.0 {
                 continue;

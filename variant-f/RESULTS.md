@@ -23,11 +23,14 @@ Bench progression (all 100 %): 1.2: 226 → 1.3: 249 → 1.4: 289 → 1.5: 295 �
   illegal in game: duplicate siege modules, duplicate structure rigs (maxGroupFitted), and one 0.05 cpu difference on a
   dropped-module Tengu.
 * **Sweep.** Every published module (active, overheated and offline) and every implant is fitted on an empty
-  Hyperion: 4 811 fits, all matching Pyfa. Drones (154) and charges (1 002, each in a matching launcher or turret) also
-  all match. The sweep found the lance/superweapon/cyno/jump-portal handlers, capital
+  Hyperion: 4 811 fits, all matching Pyfa. Drones (154), charges (1 002, each in a matching launcher or turret), boosters
+  (453), fighters (94 on an Aeon), and every projectable module projected onto an Ishtar at 5 km and 40 km (1 155 each)
+  also all match. Every ship hull with a generic 10-module fit gives 421/423. The 2 exceptions (Paladin, Golem agility)
+  are a data-version difference: Pyfa's eve.db (client build 3532181) has 10× their agility compared with SDE 3569502. The sweep found the lance/superweapon/cyno/jump-portal handlers, capital
   MJFG, sensor-array warp status, and Pyfa's handler-type rules (no-class effects never activate, 'offline' handlers
-  apply in every state), breacher pod damage (Pyfa `pure` damage, strongest applies), and the EWAR drone
-  cycle time (speed before duration).
+  apply in every state), breacher pod damage (Pyfa `pure` damage, strongest applies), the EWAR drone
+  cycle time (speed before duration), the target signature that projected neutralisers see (before the 'late' MWD
+  bloom; nosferatu run late and see it), and the penalised Bowhead agility bonus.
 
 ## Engine cost
 Single thread, measured with valgrind instruction counts as a stable metric:
