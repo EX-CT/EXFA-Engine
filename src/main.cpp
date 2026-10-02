@@ -5,6 +5,9 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -125,73 +128,154 @@ static bool stdin_ready() {
 }
 
 // Batch: read what is available, compute in parallel, emit in order; flush whenever input pauses.
-static int run_batch(const Dataset& ds, const Ids& ids, int threads) {
-  std::vector<std::unique_ptr<Worker>> workers;
-  for (int i = 0; i < threads; i++) workers.push_back(std::make_unique<Worker>(ds, ids));
+static bool is_blank(std::string_view l) {
+  for (char c : l)
+    if (!isspace((unsigned char)c)) return false;
+  return true;
+}
+
+// Single-threaded batch: process lines as they arrive, flush whenever input pauses.
+static int run_batch_serial(const Dataset& ds, const Ids& ids) {
+  Worker wk(ds, ids);
   std::string pending;
   std::vector<char> buf(1 << 20);
   bool eof = false;
-  std::vector<std::string_view> lines;
-  std::vector<std::string> outs;
   while (!eof) {
-    // read at least once (blocking), then keep reading while more data is immediately available
-    do {
-      ssize_t n = read(0, buf.data(), buf.size());
-      if (n <= 0) {
-        eof = true;
-        break;
+    ssize_t n = read(0, buf.data(), buf.size());
+    if (n <= 0) eof = true;
+    else pending.append(buf.data(), (size_t)n);
+    size_t start = 0;
+    for (size_t i = 0; i <= pending.size(); i++) {
+      bool end = i == pending.size();
+      if (end && !eof) break;
+      if (end || pending[i] == '\n') {
+        std::string_view l(pending.data() + start, i - start);
+        start = i + 1;
+        if (is_blank(l)) continue;
+        wk.calc_json(l);
+        wk.out.s.push_back('\n');
+        write_out(wk.out.s);
       }
-      pending.append(buf.data(), (size_t)n);
-    } while (stdin_ready() && pending.size() < (64u << 20));
-    // split complete lines
-    lines.clear();
-    size_t start = 0, consumed = 0;
-    for (size_t i = 0; i < pending.size(); i++)
-      if (pending[i] == '\n') {
-        lines.emplace_back(pending.data() + start, i - start);
-        start = consumed = i + 1;
-      }
-    if (eof && start < pending.size()) {
-      lines.emplace_back(pending.data() + start, pending.size() - start);
-      consumed = pending.size();
     }
-    // drop blank lines
-    std::vector<std::string_view> work;
-    work.reserve(lines.size());
-    for (auto l : lines) {
-      bool blank = true;
-      for (char c : l)
-        if (!isspace((unsigned char)c)) blank = false;
-      if (!blank) work.push_back(l);
-    }
-    outs.assign(work.size(), std::string());
-    int nt = (int)std::min<size_t>((size_t)threads, work.size());
-    if (nt <= 1) {
-      for (size_t i = 0; i < work.size(); i++) {
-        workers[0]->calc_json(work[i]);
-        outs[i].swap(workers[0]->out.s);
-      }
-    } else {
-      std::atomic<size_t> next{0};
-      auto job = [&](int w) {
-        Worker& wk = *workers[w];
-        for (size_t i; (i = next.fetch_add(1, std::memory_order_relaxed)) < work.size();) {
-          wk.calc_json(work[i]);
-          outs[i].swap(wk.out.s);
-        }
-      };
-      std::vector<std::thread> th;
-      for (int w = 1; w < nt; w++) th.emplace_back(job, w);
-      job(0);
-      for (auto& t : th) t.join();
-    }
-    for (auto& o : outs) {
-      o.push_back('\n');
-      write_out(o);
-    }
-    pending.erase(0, consumed);
+    pending.erase(0, std::min(start, pending.size()));
     if (!stdin_ready()) fflush(stdout);
   }
+  fflush(stdout);
+  return 0;
+}
+
+// Parallel batch: a reader (this thread) streams lines into a job queue, N workers compute, a writer thread emits
+// results strictly in input order. stdout is flushed whenever the writer has caught up with the finished results,
+// so request/response pipelines never stall, while bulk input streams through without per-chunk barriers.
+static int run_batch(const Dataset& ds, const Ids& ids, int threads) {
+  if (threads <= 1) return run_batch_serial(ds, ids);
+  struct Job {
+    size_t seq;
+    std::string line;
+  };
+  std::mutex m;
+  std::condition_variable cv_job, cv_res;
+  std::deque<Job> jobs;
+  std::deque<std::string> res;
+  std::deque<char> ready;
+  size_t res_base = 0, next_seq = 0;
+  bool in_done = false;
+  std::vector<std::thread> pool;
+  for (int t = 0; t < threads; t++)
+    pool.emplace_back([&] {
+      Worker wk(ds, ids);
+      std::unique_lock<std::mutex> lk(m);
+      while (true) {
+        cv_job.wait(lk, [&] { return !jobs.empty() || in_done; });
+        if (jobs.empty()) break;
+        Job j = std::move(jobs.front());
+        jobs.pop_front();
+        lk.unlock();
+        wk.calc_json(j.line);
+        std::string o;
+        o.reserve(wk.out.s.size() + 1);
+        o.append(wk.out.s).push_back('\n');
+        lk.lock();
+        size_t k = j.seq - res_base;
+        res[k] = std::move(o);
+        ready[k] = 1;
+        if (k == 0) cv_res.notify_one();
+      }
+    });
+  std::thread writer([&] {
+    std::unique_lock<std::mutex> lk(m);
+    while (true) {
+      cv_res.wait(lk, [&] { return (!ready.empty() && ready.front()) || (in_done && res.empty()); });
+      if (res.empty()) break;
+      std::vector<std::string> batch;
+      while (!ready.empty() && ready.front()) {
+        batch.push_back(std::move(res.front()));
+        res.pop_front();
+        ready.pop_front();
+        res_base++;
+      }
+      bool caught_up = ready.empty() || !ready.front();
+      lk.unlock();
+      for (auto& o : batch) write_out(o);
+      if (caught_up) fflush(stdout);
+      lk.lock();
+    }
+  });
+  Worker inline_wk(ds, ids);
+  std::string pending;
+  std::vector<char> buf(1 << 20);
+  bool eof = false;
+  while (!eof) {
+    ssize_t n = read(0, buf.data(), buf.size());
+    if (n <= 0) eof = true;
+    else pending.append(buf.data(), (size_t)n);
+    std::vector<Job> fresh;
+    size_t start = 0;
+    for (size_t i = 0; i <= pending.size(); i++) {
+      bool end = i == pending.size();
+      if (end && !eof) break;
+      if (end || pending[i] == '\n') {
+        std::string_view l(pending.data() + start, i - start);
+        start = i + 1;
+        if (!is_blank(l)) fresh.push_back(Job{0, std::string(l)});
+      }
+    }
+    pending.erase(0, std::min(start, pending.size()));
+    if (fresh.size() == 1) {
+      // lone request with nothing in flight (interactive use): answer inline, no thread hand-offs
+      bool idle;
+      {
+        std::lock_guard<std::mutex> g(m);
+        idle = res.empty();
+      }
+      if (idle) {
+        inline_wk.calc_json(fresh[0].line);
+        inline_wk.out.s.push_back('\n');
+        write_out(inline_wk.out.s);
+        fflush(stdout);
+        continue;
+      }
+    }
+    if (!fresh.empty()) {
+      std::lock_guard<std::mutex> g(m);
+      for (auto& j : fresh) {
+        j.seq = next_seq++;
+        res.emplace_back();
+        ready.push_back(0);
+        jobs.push_back(std::move(j));
+      }
+    }
+    if (fresh.size() == 1) cv_job.notify_one();
+    else if (!fresh.empty()) cv_job.notify_all();
+  }
+  {
+    std::lock_guard<std::mutex> g(m);
+    in_done = true;
+  }
+  cv_job.notify_all();
+  for (auto& t : pool) t.join();
+  cv_res.notify_all();
+  writer.join();
   fflush(stdout);
   return 0;
 }
