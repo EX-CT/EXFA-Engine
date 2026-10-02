@@ -1,0 +1,4 @@
+# eve-dogma-bench manifest (variant F). The dataset is compiled in at build time.
+build: EVE_DOGMA_DATASET={dataset} cargo build --release
+cmd: ./target/release/eve-dogma-f calc
+batch_cmd: ./target/release/eve-dogma-f batch
