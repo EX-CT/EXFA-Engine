@@ -1178,7 +1178,7 @@ impl Fit {
                 let lp = &cycles[start..];
                 if !lp.is_empty() {
                     for k in 0..4 {
-                        res[k] = ((lp.iter().map(|v| v[k]).sum::<f64>() / lp.len() as f64) * 1000.0).round() / 1000.0;
+                        res[k] = crate::stats::py_round(lp.iter().map(|v| v[k]).sum::<f64>() / lp.len() as f64, 3);
                     }
                 }
             }
@@ -1226,7 +1226,7 @@ impl Fit {
             val = val.min(self.get(i, mx));
         }
         if d::ATTR_FLAGS[ix] & d::AF_ROUND2 != 0 {
-            val = (val * 100.0).round() / 100.0;
+            val = crate::stats::py_round(val, 2);
         }
         val
     }
