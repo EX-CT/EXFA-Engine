@@ -61,11 +61,22 @@ struct Heap {
     }
     v[i] = h;
   }
-  bool pop(Ev& out) {
+  void push_id(uint32_t id) {
+    HE h{slots[id].t, id};
+    size_t i = v.size();
+    v.push_back(h);
+    while (i > 0) {
+      size_t p = (i - 1) / 2;
+      if (!less(h, v[p])) break;
+      v[i] = v[p];
+      i = p;
+    }
+    v[i] = h;
+  }
+  // pop the minimum; its slot stays allocated (caller re-pushes it with push_id or releases it)
+  bool pop_id(uint32_t& top) {
     if (v.empty()) return false;
-    uint32_t top = v[0].id;
-    out = slots[top];
-    free_.push_back(top);
+    top = v[0].id;
     HE last = v.back();
     v.pop_back();
     size_t n = v.size();
@@ -195,8 +206,12 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
     inj.seq = seq++;
     heap.push(inj);
   };
-  Ev ev;
-  while (heap.pop(ev)) {
+  // live events never exceed the initial count (awaiting injectors release their slot), so slots never
+  // reallocate and the reference below stays valid
+  heap.slots.reserve(heap.slots.size() + 1);
+  uint32_t cur;
+  while (heap.pop_id(cur)) {
+    Ev& ev = heap.slots[cur];
     const double t_now = ev.t;
     if (t_now >= t_max_ms) {
       last_ev = ev;
@@ -231,6 +246,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
     }
     if (ev.inj && cap - ev.cap_need > cap_max) {
       awaiting.push_back(ev);
+      heap.free_.push_back(cur);
       continue;
     }
     if (ev.cap_need > cap && cap < cap_max) {
@@ -272,7 +288,14 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
       cap = std::min(cap - inj.cap_need, cap_max);
       refire(inj, t_now);
     }
-    refire(ev, t_now);
+    ev.t = t_now + ev.duration;
+    ev.shot += 1;
+    if (ev.clip > 0 && ev.shot % ev.clip == 0) {
+      ev.shot = 0;
+      ev.t += ev.reload;
+    }
+    ev.seq = seq++;
+    heap.push_id(cur);
   }
   std::vector<Ev> all = heap.into_vec();
   if (has_last) all.push_back(last_ev);
