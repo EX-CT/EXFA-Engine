@@ -148,17 +148,16 @@ static int run_batch_serial(const Dataset& ds, const Ids& ids) {
     if (n <= 0) eof = true;
     else pending.append(buf.data(), (size_t)n);
     size_t start = 0;
-    for (size_t i = 0; i <= pending.size(); i++) {
-      bool end = i == pending.size();
-      if (end && !eof) break;
-      if (end || pending[i] == '\n') {
-        std::string_view l(pending.data() + start, i - start);
-        start = i + 1;
-        if (is_blank(l)) continue;
-        wk.calc_json(l);
-        wk.out.s.push_back('\n');
-        write_out(wk.out.s);
-      }
+    while (start <= pending.size()) {
+      const void* nl = memchr(pending.data() + start, '\n', pending.size() - start);
+      size_t i = nl ? (size_t)((const char*)nl - pending.data()) : pending.size();
+      if (!nl && !eof) break;
+      std::string_view l(pending.data() + start, i - start);
+      start = i + 1;
+      if (is_blank(l)) continue;
+      wk.calc_json(l);
+      wk.out.s.push_back('\n');
+      write_out(wk.out.s);
     }
     pending.erase(0, std::min(start, pending.size()));
     if (!stdin_ready()) fflush(stdout);
@@ -234,14 +233,13 @@ static int run_batch(const Dataset& ds, const Ids& ids, int threads) {
     else pending.append(buf.data(), (size_t)n);
     std::vector<Job> fresh;
     size_t start = 0;
-    for (size_t i = 0; i <= pending.size(); i++) {
-      bool end = i == pending.size();
-      if (end && !eof) break;
-      if (end || pending[i] == '\n') {
-        std::string_view l(pending.data() + start, i - start);
-        start = i + 1;
-        if (!is_blank(l)) fresh.push_back(Job{0, std::string(l)});
-      }
+    while (start <= pending.size()) {
+      const void* nl = memchr(pending.data() + start, '\n', pending.size() - start);
+      size_t i = nl ? (size_t)((const char*)nl - pending.data()) : pending.size();
+      if (!nl && !eof) break;
+      std::string_view l(pending.data() + start, i - start);
+      start = i + 1;
+      if (!is_blank(l)) fresh.push_back(Job{0, std::string(l)});
     }
     pending.erase(0, std::min(start, pending.size()));
     if (fresh.size() == 1) {
