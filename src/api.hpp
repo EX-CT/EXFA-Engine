@@ -24,6 +24,9 @@ struct Worker {
   bool calc_json(std::string_view request);
   bool calc_element(const simdjson::dom::element& e, JW& w);
 };
+// One serve-stdio line {"id","method","params"} -> response object in w (methods: calc, eft_parse, eft_export,
+// meta, search, type; anything else -> UNKNOWN_METHOD).
+void rpc_line(Worker& wk, std::string_view line, JW& w);
 void write_error(JW& w, const char* code, std::string_view message, std::string_view path);
 void meta_json(const Dataset& ds, JW& w, double load_ms = -1);
 void type_json(const Dataset& ds, std::string_view key, JW& w);

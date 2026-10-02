@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <simdjson.h>
 
+#include "eft.hpp"
 #include "request.hpp"
 #include "stats.hpp"
 
@@ -227,6 +228,95 @@ void search_json(const Dataset& ds, std::string_view q, size_t limit, JW& w, con
     w.ki("type_id", t.id).end_obj();
   }
   w.end_arr();
+}
+
+// One JSON-RPC-style line {"id","method","params"} -> response object (serve-stdio, WASM).
+void rpc_line(Worker& wk, std::string_view line, JW& w) {
+  w.clear();
+  simdjson::dom::element root;
+  std::string fixed;
+  if (serde_fix_numbers(line, fixed)) line = fixed;  // serde_json's float rounding (see serdenum.hpp)
+  if (wk.parser->parse(line.data(), line.size()).get(root)) {
+    w.obj().key("error").obj().ks("code", "BAD_JSON").ks("message", "invalid JSON").end_obj().knull("id").end_obj();
+    return;
+  }
+  simdjson::dom::element id, params;
+  bool has_id = root["id"].get(id) == simdjson::SUCCESS;
+  bool has_p = root["params"].get(params) == simdjson::SUCCESS;
+  std::string_view method = "calc";
+  simdjson::dom::element m;
+  if (root["method"].get(m) == simdjson::SUCCESS) {
+    std::string_view s;
+    if (m.get_string().get(s) == simdjson::SUCCESS) method = s;
+  }
+  w.obj().key("id");
+  if (has_id) w.raw(simdjson::minify(id));
+  else w.null();
+  w.key("result");
+  auto pstr = [&](const char* k) -> std::string_view {
+    std::string_view s;
+    if (has_p && params[k].get_string().get(s) == simdjson::SUCCESS) return s;
+    return {};
+  };
+  if (method == "calc") {
+    if (!has_p) write_error(w, "BAD_REQUEST", "missing params", "");
+    else wk.calc_element(params, w);
+  } else if (method == "eft_parse") {
+    FitRequest r;
+    std::string e = eft_parse(wk.ds, pstr("text"), r);
+    if (!e.empty()) w.obj().key("error").obj().ks("code", "EFT_PARSE").ks("message", e).end_obj().end_obj();
+    else fit_request_json(r, w);
+  } else if (method == "eft_export") {
+    simdjson::dom::element f;
+    FitRequest r;
+    std::string e;
+    if (!has_p || params["fit"].get(f) != simdjson::SUCCESS || f.is_null()) e = "invalid type: null, expected struct FitRequest";
+    else e = parse_request(f, r);
+    if (!e.empty()) {
+      w.obj().key("error").obj().ks("code", "BAD_REQUEST").ks("message", e).end_obj().end_obj();
+    } else {
+      std::string_view nm = "EXCT fit";
+      std::string_view x;
+      if (params["name"].get_string().get(x) == simdjson::SUCCESS) nm = x;
+      if (!wk.fit) wk.fit = std::make_unique<Fit>(wk.ds, wk.ids);
+      else wk.fit->reset();
+      EngineError ferr{};
+      bool built = wk.fit->build(r, ferr);
+      std::string text = eft_export(wk.ds, r, nm, built ? wk.fit.get() : nullptr);
+      w.obj().ks("text", text).end_obj();
+    }
+  } else if (method == "meta") {
+    meta_json(wk.ds, w);
+  } else if (method == "search") {
+    uint64_t lim = 20;
+    if (has_p) {
+      uint64_t l;
+      if (params["limit"].get_uint64().get(l) == simdjson::SUCCESS) lim = l;
+    }
+    std::vector<std::string> kinds;
+    bool has_kinds = false;
+    simdjson::dom::array ka;
+    if (has_p && params["kinds"].get_array().get(ka) == simdjson::SUCCESS) {
+      has_kinds = true;
+      for (auto x : ka) {
+        std::string_view ks;
+        if (x.get_string().get(ks) == simdjson::SUCCESS) kinds.emplace_back(ks);
+      }
+    }
+    search_json(wk.ds, pstr("query"), lim, w, has_kinds ? &kinds : nullptr);
+  } else if (method == "type") {
+    std::string key;
+    simdjson::dom::element x;
+    if (has_p && params["id"].get(x) == simdjson::SUCCESS) {
+      std::string_view s;
+      if (x.get_string().get(s) == simdjson::SUCCESS) key = s;
+      else key = simdjson::minify(x);
+    }
+    type_json(wk.ds, key, w);
+  } else {
+    w.obj().key("error").obj().ks("code", "UNKNOWN_METHOD").ks("message", method).end_obj().end_obj();
+  }
+  w.end_obj();
 }
 
 }  // namespace evej
