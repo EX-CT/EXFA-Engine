@@ -670,8 +670,64 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
     }
     std::vector<std::pair<uint32_t, uint8_t>> kept;
     kept.reserve(lv.size());
+    // perf (as eve-dogma-rs): a skill whose modifiers can reach nothing in this fit is not instantiated
+    static const bool no_prune = getenv("EVEJ_NO_PRUNE") != nullptr;
+    std::vector<uint32_t>& need = prune_need_;
+    std::vector<uint32_t>& groups = prune_groups_;
+    need.clear();
+    groups.clear();
+    auto add = [&](uint32_t tid) {
+      const TypeRec* t = ds.type(tid);
+      if (!t) return;
+      groups.push_back(t->group);
+      for (uint32_t k = 0; k < t->n_req; k++) need.push_back(t->req_skills[k]);
+    };
+    add(req.ship_type_id);
+    if (req.mode_type_id) add(*req.mode_type_id);
+    for (auto& m : req.modules) {
+      add(m.type_id);
+      if (m.charge_type_id) add(*m.charge_type_id);
+      if (m.mutation) add(m.mutation->base_type_id);
+    }
+    for (auto& d : req.drones) {
+      add(d.type_id);
+      if (d.mutation) add(d.mutation->base_type_id);
+    }
+    for (auto& f : req.fighters) add(f.type_id);
+    for (uint32_t i : req.implants) add(i);
+    for (auto& b : req.boosters) add(b.type_id);
+    for (auto& c : req.cargo) add(c.type_id);
+    std::sort(need.begin(), need.end());
+    std::sort(groups.begin(), groups.end());
+    auto in = [](const std::vector<uint32_t>& v, uint32_t x) { return std::binary_search(v.begin(), v.end(), x); };
+    auto relevant = [&](uint32_t sk, const TypeRec& t) {
+      if (in(need, sk)) return true;
+      for (const TEff& te : ds.type_effects(t)) {
+        if (te.id == 132) continue;  // skillEffect
+        const EffRec* e = ds.effect(te.id);
+        if (!e) continue;
+        if (e->mod_cnt == 0) return true;  // hand-written / special effect
+        for (const ModRec& m : ds.effect_mods(*e)) {
+          bool hit;
+          switch (m.func) {
+            case 2: {
+              const GroupRec* g = ds.group(m.extra);
+              hit = in(groups, m.extra) || !g || g->category == 16;
+              break;
+            }
+            case 3:
+            case 4: hit = in(need, m.extra == 0 ? sk : m.extra); break;
+            default: hit = true;
+          }
+          if (hit) return true;
+        }
+      }
+      return false;
+    };
     for (auto& [sk, l] : lv) {
-      if (!ds.type(sk)) continue;
+      const TypeRec* st = ds.type(sk);
+      if (!st) continue;
+      if (!no_prune && !relevant(sk, *st)) continue;
       int32_t idx = new_item(sk, Kind::Skill, Loc::Char, "/character/skills", -1, err);
       if (idx < 0) return false;
       set_base(idx, ATTR_SKILL_LEVEL, (double)std::min<uint8_t>(l, 5));
