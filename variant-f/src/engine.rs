@@ -144,6 +144,9 @@ pub struct Fit {
     pub ext_drains: Vec<ExtDrain>,
     /// incoming ECM jammers
     pub ext_ecm: Vec<ExtEcm>,
+    /// active AB/MWD modules (Pyfa runs them in module order: each reads ship mass after its own and earlier
+    /// prop modules' massAddition, not later ones)
+    pub props: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -495,6 +498,7 @@ impl Fit {
     // effects without modifierInfo (compiled to these calls by build.rs)
     pub fn sp_prop(&mut self, i: usize, mwd: bool, p: bool) {
         let ship = self.ship;
+        self.props.push(i as u32);
         self.push(ship, a::mass, 2, p && !d::attr_stackable(a::mass), Src::Attr { item: i as u32, attr: a::massAddition });
         self.push(ship, a::maxVelocity, 4, p && !d::attr_stackable(a::maxVelocity), Src::Prop { module: i as u32 });
         if mwd {
@@ -627,6 +631,7 @@ impl Fit {
             rr: Vec::new(),
             ext_drains: Vec::new(),
             ext_ecm: Vec::new(),
+            props: Vec::new(),
         };
         let ship = fit.new_item(req.ship.type_id, Kind::Ship, Loc::Ship, "/ship/type_id")?;
         fit.ship = ship;
@@ -1228,7 +1233,12 @@ impl Fit {
             Src::Attr { item, attr } => self.get(item as usize, attr),
             Src::Const(v) => v,
             Src::Prop { module } => {
-                let m = self.get(self.ship, a::mass);
+                let mut m = self.get(self.ship, a::mass);
+                for &j in &self.props {
+                    if j > module {
+                        m -= self.get(j as usize, a::massAddition);
+                    }
+                }
                 if m == 0.0 {
                     1.0
                 } else {
@@ -1271,7 +1281,27 @@ impl Fit {
                 vals[k] = (m.op, m.pen, self.src_value(&m.src));
                 present |= 1 << ((m.op + 1) as u16 & 15);
             }
+            // Pyfa folds every non-penalised post multiplier (postMul / postDiv / postPercent) into one product
+            // and applies it once before the penalised ones (val * (m1 * m2)), which matters for float-exact
+            // results that are later truncated (e.g. cap-sim cycle times).
+            let mut post_mult = 1.0f64;
+            let mut post_any = false;
+            for &(o, pen, v) in vals.iter() {
+                if !pen && (4..=6).contains(&o) {
+                    post_mult *= match o {
+                        4 => v,
+                        5 => {
+                            if v == 0.0 { 1.0 } else { 1.0 / v }
+                        }
+                        _ => 1.0 + v / 100.0,
+                    };
+                    post_any = true;
+                }
+            }
             for op in -1i8..=7 {
+                if op == 4 && post_any {
+                    val *= post_mult;
+                }
                 if present & (1 << (op + 1)) == 0 {
                     continue;
                 }
@@ -1311,7 +1341,7 @@ impl Fit {
                                 } else if m < 1.0 {
                                     if nn < 32 { neg[nn] = m; nn += 1 } else { neg_v.push(m) }
                                 }
-                            } else {
+                            } else if op < 4 {
                                 val *= m;
                             }
                         }
