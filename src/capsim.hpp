@@ -15,6 +15,8 @@ struct CapResult {
   double stable_low, stable_high, t_s, eve_stable;
   uint64_t iterations;
 };
+// testing hook: force the general (3-key) event layout instead of the compact one
+extern bool g_capsim_force_general;
 CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>& drains, double start_frac, bool reload,
                    bool stagger, double t_max_ms);
 }  // namespace evej

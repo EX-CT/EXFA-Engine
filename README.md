@@ -16,6 +16,21 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release   # -DEVEJ_NATIVE=ON for
 ninja -C build
 ```
 
+## Test
+
+```bash
+EVE_DOGMA_DATASET=/path/to/dataset.json.gz ctest --test-dir build --output-on-failure
+```
+
+123 CTest tests (`-DEVEJ_TESTS=OFF` to skip building them): 7 unit tests (`test/unit_test.cpp`: number formatting
+fast path vs generic path, serde_json number semantics, Rust u32 parsing, capsim compact vs general event layout,
+capsim and range-factor basics) and 116 golden regression tests (`test/golden/`): 100 structured random fits
+(`tools/randfit_ref.py 41`), 15 malformed/edge requests through `calc`, and one 60-line `serve-stdio` session
+(calc, eft_export, eft_parse round trip, search, type, unknown method). When recorded, every stored output was checked
+byte-identical to eve-dogma-rs (engine name aside), except the BAD_REQUEST message wording of 4 malformed requests
+(see "Known contract differences"; codes and paths match). Wider parity checks against the reference
+live in `tools/` (compare_ref.py, fuzz_ref.py, randfit_ref.py).
+
 ## Run
 
 ```bash
@@ -72,6 +87,8 @@ These are accepted by the coordinator. None of them affect calc outputs.
 
 ## License
 
+SPDX-License-Identifier: LGPL-3.0-or-later. Full texts: [LICENSE](LICENSE) (LGPL-3.0) and
+[LICENSE.GPL-3.0](LICENSE.GPL-3.0) (GPL-3.0, which the LGPL-3.0 incorporates by reference).
 The engine is a port of eve-dogma-rs's algorithms, which are LGPL-3.0-or-later. Variant J is therefore
 distributed under **LGPL-3.0-or-later** as well (see DESIGN.md, "Provenance"). No Pyfa (GPL) code is included.
 Pyfa served only as a black-box test oracle, through the bench. EVE Online data © CCP hf.

@@ -1,0 +1,1 @@
+{"error":{"code":"BAD_REQUEST","message":"unknown variant `bogus`, expected one of `offline`, `online`, `active`, `overheated`","path":""}}

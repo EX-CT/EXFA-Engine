@@ -43,3 +43,25 @@ if(EVEJ_LTO)
     set_property(TARGET evej eve-dogma-j PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
   endif()
 endif()
+
+# Own test suite (ctest --test-dir build): unit tests + golden regression outputs (byte-identical to eve-dogma-rs).
+# The golden tests need the dataset: EVE_DOGMA_DATASET=/path/dataset.json.gz ctest --test-dir build
+option(EVEJ_TESTS "build and register the test suite" ON)
+if(EVEJ_TESTS)
+  enable_testing()
+  add_executable(evej-unit test/unit_test.cpp)
+  target_link_libraries(evej-unit PRIVATE evej)
+  foreach(t num_fast_path num_format serde_numbers parse_u32 capsim_layouts capsim_basic range_factor)
+    add_test(NAME unit.${t} COMMAND evej-unit ${t})
+  endforeach()
+  file(GLOB golden_reqs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/golden/*.req.json)
+  foreach(req ${golden_reqs})
+    get_filename_component(n ${req} NAME)
+    string(REPLACE ".req.json" "" n ${n})
+    add_test(NAME golden.${n} COMMAND ${CMAKE_COMMAND} -DBIN=$<TARGET_FILE:eve-dogma-j> -DMODE=calc -DIN=${req}
+             -DEXP=${CMAKE_CURRENT_SOURCE_DIR}/test/golden/${n}.out.json -P ${CMAKE_CURRENT_SOURCE_DIR}/test/golden.cmake)
+  endforeach()
+  add_test(NAME golden.rpc_session COMMAND ${CMAKE_COMMAND} -DBIN=$<TARGET_FILE:eve-dogma-j> -DMODE=serve-stdio
+           -DIN=${CMAKE_CURRENT_SOURCE_DIR}/test/golden/rpc_session.rpc.jsonl
+           -DEXP=${CMAKE_CURRENT_SOURCE_DIR}/test/golden/rpc_session.out.jsonl -P ${CMAKE_CURRENT_SOURCE_DIR}/test/golden.cmake)
+endif()
