@@ -1,4 +1,4 @@
-// Minimal streaming JSON writer. Number formatting matches serde_json (ryu shortest, "1.0", "1e-7").
+// Minimal streaming JSON writer. Number formatting matches serde_json 1.0.151 (zmij shortest: "1.0", "1e-7", "1e+16").
 // Callers emit object keys in sorted (BTreeMap) order so output is byte-comparable with eve-dogma-rs.
 #pragma once
 #include <charconv>
@@ -149,6 +149,7 @@ class JW {
         s.append(digits + 1, nd - 1);
       }
       s.push_back('e');
+      if (kk - 1 > 0) s.push_back('+');  // serde_json 1.0.151 formats with zmij: "1e+16", "1e-7"
       char eb[8];
       auto er = std::to_chars(eb, eb + 8, kk - 1);
       s.append(eb, er.ptr);
