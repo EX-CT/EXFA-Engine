@@ -33,11 +33,16 @@ FitRequest JSON --simdjson ondemand/DOM--> FitRequest --build--> Fit (items + at
   modules, charges, drones, fighters, implants, boosters, subsystems, the mode, environment and projected
   sources. Each fit has a local open-addressing hash table `(item, attr) → LAttr` that holds the base value,
   the memoised value, a dirty flag and the head of an intrusive linked list of modifiers (all in one arena).
+  Slots carry a generation stamp, so reusing a worker's fit for the next request bumps the generation instead
+  of clearing the table (-2.5 % instructions per rifter calc).
 * Values are computed on demand, with a cycle guard, Pyfa's operator order (PreAssign … PostAssign) and stacking
   penalties. An attribute the fit never touches falls back to the type's raw value without being materialised.
 * The same feature set as the reference: projected modules, drones and whole fits (frozen into base values),
   fleet bursts, booster fits (strongest |value| per buff id), environment effects, the Reactive Armor
-  Hardener simulation, damage patterns, reload, incoming remote reps, neuts, nos and cap transfers.
+  Hardener simulation, damage patterns, reload, incoming remote reps, neuts, nos and cap transfers, projected
+  tracking/guidance disruptors (Pyfa Effect6424/6423: the target's Gunnery modules / Missile Launcher Operation
+  charges, with range factor and resistance), and the contract 1.4.2 semantics (projected `amount`, fleet-buff
+  precedence, use/injected/delta GJ/s).
 * All floating-point arithmetic follows the reference expression order, including Rust's
   `Iterator::sum` starting from −0.0 and `min_by`/`max_by` tie-breaking. This keeps outputs byte-identical.
 
@@ -96,9 +101,9 @@ rules, plus the same stagger and clip semantics.
 
 ## Trade-offs
 * Byte-for-byte reference fidelity was chosen over independent re-derivation from Pyfa. Every value matches
-  Pyfa wherever the reference does (all 13 812 bench values today). The cost is that J inherits any
+  Pyfa wherever the reference does (all 18 978 bench 1.5.0 values today). The cost is that J inherits any
   divergence the reference has, and that new reference features must be ported (done up to eve-dogma-rs
-  6ff616d, contract revision 1.4.1).
+  e552cb9, contract revision 1.4.2).
 * The binary cache costs about 110 ms once per dataset and ~20 MB of disk. It can be disabled.
 * The lazy evaluator only computes what the stats need. A full attribute dump (`type`) goes through the same
   path.
