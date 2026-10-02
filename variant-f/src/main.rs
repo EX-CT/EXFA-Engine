@@ -53,15 +53,7 @@ fn main() {
                 std::process::exit(2);
             }
         }
-        "batch" => {
-            for line in std::io::stdin().lock().lines() {
-                let line = line.unwrap();
-                if line.trim().is_empty() {
-                    continue;
-                }
-                writeln!(out, "{}", eve_dogma_f::calc_json(&line)).unwrap();
-            }
-        }
+        "batch" => batch(&mut out),
         "serve-stdio" => {
             eprintln!("eve-dogma-f serve-stdio ready (sde {})", eve_dogma_f::data::SDE_BUILD);
             for line in std::io::stdin().lock().lines() {
@@ -113,5 +105,83 @@ fn main() {
             eprintln!("{USAGE}");
             std::process::exit(if cmd.is_empty() || cmd == "help" || cmd == "--help" { 0 } else { 2 });
         }
+    }
+}
+
+fn threads() -> usize {
+    if let Some(n) = std::env::var("EVE_DOGMA_THREADS").ok().and_then(|v| v.parse::<usize>().ok()) {
+        return n.max(1);
+    }
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(16)
+}
+
+/// JSONL batch: requests are independent and the engine is pure, so N workers compute in parallel while the
+/// output keeps input order. Output is flushed whenever it has caught up with the input (interactive use works).
+fn batch(out: &mut impl Write) {
+    let n = if cfg!(target_arch = "wasm32") { 1 } else { threads() };
+    if n <= 1 {
+        for line in std::io::stdin().lock().lines() {
+            let line = line.unwrap();
+            if line.trim().is_empty() {
+                continue;
+            }
+            writeln!(out, "{}", eve_dogma_f::calc_json(&line)).unwrap();
+            out.flush().unwrap();
+        }
+        return;
+    }
+    use std::sync::{mpsc, Arc, Mutex};
+    let (job_tx, job_rx) = mpsc::channel::<(u64, String)>();
+    let job_rx = Arc::new(Mutex::new(job_rx));
+    let (res_tx, res_rx) = mpsc::channel::<(u64, String)>();
+    let mut workers = Vec::new();
+    for _ in 0..n {
+        let rx = Arc::clone(&job_rx);
+        let tx = res_tx.clone();
+        workers.push(std::thread::spawn(move || loop {
+            let job = rx.lock().unwrap().recv();
+            let Ok((seq, line)) = job else { break };
+            if tx.send((seq, eve_dogma_f::calc_json(&line))).is_err() {
+                break;
+            }
+        }));
+    }
+    drop(res_tx);
+    let reader = std::thread::spawn(move || {
+        let mut seq = 0u64;
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if line.trim().is_empty() {
+                continue;
+            }
+            if job_tx.send((seq, line)).is_err() {
+                break;
+            }
+            seq += 1;
+        }
+    });
+    let mut pending: std::collections::BTreeMap<u64, String> = std::collections::BTreeMap::new();
+    let mut next = 0u64;
+    while let Ok((seq, r)) = res_rx.recv() {
+        pending.insert(seq, r);
+        while let Some(r) = pending.remove(&next) {
+            out.write_all(r.as_bytes()).unwrap();
+            out.write_all(b"\n").unwrap();
+            next += 1;
+        }
+        // drain whatever else is ready before flushing
+        while let Ok((seq, r)) = res_rx.try_recv() {
+            pending.insert(seq, r);
+            while let Some(r) = pending.remove(&next) {
+                out.write_all(r.as_bytes()).unwrap();
+                out.write_all(b"\n").unwrap();
+                next += 1;
+            }
+        }
+        out.flush().unwrap();
+    }
+    reader.join().ok();
+    for w in workers {
+        w.join().ok();
     }
 }
