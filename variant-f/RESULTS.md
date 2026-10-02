@@ -34,7 +34,7 @@ Bench progression (all 100 %): 1.2: 226 → 1.3: 249 → 1.4: 289 → 1.5: 295 �
 
 ## Engine cost
 Single thread, measured with valgrind instruction counts as a stable metric:
-* Rifter: ≈ 0.95 M instructions per calc in batch. Single process: ≈ 1.3 ms, vs `/bin/true` at 0.45 ms.
+* Rifter: ≈ 0.97 M instructions per calc in `batch` (re-measured at 7f39e9f; the `bench` subcommand measures 1.57 M per iteration, unchanged since bench 1.4.1). Single process: ≈ 1.3 ms, vs `/bin/true` at 0.45 ms.
 * The heaviest cases are capacitor simulations with many staggered modules (Vexor/neut cases, 20–30 k sim events,
   ≈ 0.8 ms).
 
