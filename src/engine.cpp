@@ -811,10 +811,14 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
       std::string sn = lower(ds.type_name(*items[ship].t));
       uint32_t best = 0;
       bool found = false;
-      for (uint32_t m : ds.modes) {
-        const TypeRec* mt = ds.type(m);
-        if (!mt) continue;
-        std::string mn = lower(ds.type_name(*mt));
+      // lowercased mode names, once per process (the dataset is immutable)
+      static std::vector<std::pair<uint32_t, std::string>> lmodes;
+      static std::once_flag lm_once;
+      std::call_once(lm_once, [&] {
+        for (uint32_t m : ds.modes)
+          if (const TypeRec* mt = ds.type(m)) lmodes.push_back({m, lower(ds.type_name(*mt))});
+      });
+      for (const auto& [m, mn] : lmodes) {
         if (mn.compare(0, sn.size(), sn) == 0 && (!found || m < best)) {
           best = m;
           found = true;
