@@ -50,10 +50,31 @@ pub fn apply_local(f: &mut Fit, ei: u16, i: usize, p: bool) {
 * The bench build (`bench.yaml`) links glibc statically (`+crt-static`, ≈ 0.4 ms faster process start), falling back
   to the default build if that fails.
 
+### Pyfa parity layer
+The bench oracle is Pyfa. Where Pyfa's hand-written effect handlers (`eos/effects.py`) or fit code differ from the SDE
+modifier data, the generator and engine reproduce Pyfa's behaviour:
+* **Specials without modifierInfo** become generated calls (`sp_*`): prop modules, MJD/MJFG, slot/hardpoint modifiers,
+  lances / doomsdays / reapers / jump portals / clone bays (ship speed boost + warp scramble status), the HIC bubble
+  (WDFG), entosis link, cyno, emergency hull energizer, and incursion system effects.
+* **Handler types.** `pyfa_cat` remaps effect categories where Pyfa's handler `type` differs. Entosis and superweapons
+  are active. 'offline' handlers apply in every state. Effects without a Pyfa class (`online`, `barrage`, ...) never
+  make a module activatable. `PYFA_NO_HANDLER` lists modifier-carrying effects that Pyfa ignores.
+* **Penalty groups.** Op 8 marks penalised PostMul of 8 hand-written effects that Pyfa stacks in the "default" group
+  together with PostPercent boosts. `AF_OVERLOAD` + `eval_before` reproduce Pyfa's module-order dependence for
+  overload bonuses. Non-penalised post multipliers are folded into one product (float parity).
+* **Python rounding.** `py_round` gives correctly-rounded, ties-to-even `round(x, n)` for the RAH average, cpu/pg,
+  floatUnerr, and the capsim wrap.
+* **Fleet buffs.** Warfare buffs from bursts, booster fits, and weather/AoE-cloud beacons go into one pool, strongest
+  |value| per id. Weather buffs are unpenalised and buffs 79/90/93–99 also reach drones, as in
+  `Fit.__runCommandBoosts`.
+* **Doomsday DPS** uses Pyfa's subcycles (`doomsdayDamageDuration / doomsdayDamageCycleTime`).
+* **Projections.** Projected TD/GD/RTC/Standup WD use Pyfa's per-skill item filters. Burst projectors run at full
+  strength. NPC TD drones apply inside maxRange only.
+
 ## Trade-offs
 * **Rebuild per dataset.** A new SDE needs a recompile (native release ≈ 35 s, wasm32-wasip1 ≈ 24 s, wasm32-unknown-unknown
   release-small ≈ 12 s). `--dataset` is accepted and ignored. `meta` reports the sha256 of the compiled-in dataset.
-* **Binary size vs. startup.** The binary is 3.8 MB native (3.4 MB wasip1, 2.9 MB unknown-unknown size-opt), but there
+* **Binary size vs. startup.** The binary is 4.75 MB native (4.2 MB wasip1, 3.65 MB unknown-unknown size-opt), but there
   is no JSON load at all. Cold start + one calc is about 2–3 ms native. The reference engine needs hundreds of ms to
   load its dataset.
 * The generated source is large (5.4 MB). Fat LTO + codegen-units=1 keep the output compact but make builds slower.
@@ -72,5 +93,9 @@ The lab repo's branches share no history, so `variant-f` is an **orphan branch**
 LGPL-3.0-or-later. `src/request.rs` and `src/capsim.rs` are copies of eve-dogma-rs (LGPL-3.0-or-later). `src/engine.rs`
 and `src/stats.rs` are derived from eve-dogma-rs's engine/stats semantics (RAH, capsim usage, stat formulas), and their file
 headers say so. The code generator (`build.rs`), the folded-skill scheme, the projection system and the data layout are new.
-Pyfa (GPL) was only read for behaviour (missile range formula, remote-rep diminishing, sensor-booster attributes). No
-Pyfa code was copied.
+Pyfa (GPL-3.0) was read for behaviour only and no Pyfa code was copied. That covers the missile range formula,
+remote-rep diminishing, sensor-booster attributes, and everything in "Pyfa parity layer" above. Some small tables are
+facts taken from reading Pyfa handlers: effect-name lists (`PYFA_DEFAULT_GROUP_MUL`, `PYFA_NO_HANDLER`, `pyfa_cat`), the
+weather buff scopes, the fighter refuel cycle model, and the EFT drone ordering. They are re-expressed as data in
+LGPL code. The Pyfa oracle and the fuzz/sweep tools were used as black-box test oracles and are not part of
+`variant-f/`.

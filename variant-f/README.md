@@ -16,8 +16,8 @@ cargo build --release
 ./target/release/eve-dogma-f calc < request.json > response.json
 ./target/release/eve-dogma-f batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
 # EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)
-./target/release/eve-dogma-f serve-stdio                                   # JSONL RPC: calc | search | type | meta
-./target/release/eve-dogma-f meta | search QUERY | type ID|NAME | bench FILE -n N
+./target/release/eve-dogma-f serve-stdio                                   # JSONL RPC: calc | search | type | meta | eft_parse | eft_export
+./target/release/eve-dogma-f meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
 ```
 
 ### WASM
@@ -26,16 +26,18 @@ cargo build --release
 rustup target add wasm32-wasip1 wasm32-unknown-unknown
 cargo build --release --target wasm32-wasip1                 # CLI as WASI module
 wasmtime run target/wasm32-wasip1/release/eve-dogma-f.wasm calc < request.json
-cargo build --lib --profile release-small --target wasm32-unknown-unknown   # 2.9 MB, C-ABI exports
+cargo build --lib --profile release-small --target wasm32-unknown-unknown   # 3.65 MB (0.82 MB gzip), C-ABI exports
 node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogma_f.wasm < request.json
 ```
 
 ### Bench
 
-`bench.yaml` is the eve-dogma-bench manifest. Bench 1.4.0: **289/289 cases, 18 591/18 591 values** (see RESULTS.md, `bench/`).
+`bench.yaml` is the eve-dogma-bench manifest. Bench 1.8.0: **326/326 cases, 21 051/21 051 values, EFT export 326/326**,
+0.064 ms/fit, 10 500 fits/s batch, 4 ms cold (see RESULTS.md, `bench/`).
 
 Branch note: `variant-f` is an orphan branch (the lab branches share no history) and holds only `variant-f/`.
 
 `--dataset PATH` is accepted (ignored) so command lines written for the reference engine keep working.
 
-License: LGPL-3.0-or-later (engine semantics derived from eve-dogma-rs, see DESIGN.md "Provenance").
+License: LGPL-3.0-or-later (engine semantics derived from eve-dogma-rs; behaviour tables that mirror Pyfa (GPL-3.0)
+handlers are described in DESIGN.md "Provenance").
