@@ -1777,6 +1777,16 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                     one.push(ProjAction::ModItems { skill: SKILL_GUNNERY, charge: false, attr: tgt, v: g(src), factor: f, resist, assist: true });
                 }
             }
+            e::structureModuleEffectWeaponDisruption => {
+                // Standup Weapon Disruptor: missile charges and turrets at once (Pyfa Effect6686)
+                let f = rf(a::maxRange, a::falloffEffectiveness);
+                for (src, tgt) in [(a::aoeCloudSizeBonus, a::aoeCloudSize), (a::aoeVelocityBonus, a::aoeVelocity), (a::missileVelocityBonus, a::maxVelocity), (a::explosionDelayBonus, a::explosionDelay)] {
+                    one.push(ProjAction::ModItems { skill: SKILL_MISSILE_LAUNCHER_OPERATION, charge: true, attr: tgt, v: g(src), factor: f, resist, assist: false });
+                }
+                for (src, tgt) in [(a::trackingSpeedBonus, a::trackingSpeed), (a::maxRangeBonus, a::maxRange), (a::falloffBonus, a::falloff)] {
+                    one.push(ProjAction::ModItems { skill: SKILL_GUNNERY, charge: false, attr: tgt, v: g(src), factor: f, resist, assist: false });
+                }
+            }
             e::shipModuleTrackingDisruptor | e::shipModuleGuidanceDisruptor => {
                 let f = rf(a::maxRange, a::falloffEffectiveness);
                 let (skill, charge, pairs): (u32, bool, &[(u16, u16)]) = if eid == e::shipModuleTrackingDisruptor {
