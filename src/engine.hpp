@@ -41,6 +41,10 @@ struct Ids {
       canFitShipGroup[20], canFitShipType[11], maxGroupFitted, maxTypeFitted, maxGroupOnline, maxGroupActive,
       chargeGroup[5], chargeSize, requiredSkill[6], requiredSkillLevel[6];
   uint32_t n_cfg = 0, n_cft = 0;
+  // canFitShip* ids span [cf_lo, cf_hi]; cf_kind[id - cf_lo]: 1 group attr, 2 type attr, 0 neither
+  uint32_t cf_lo = 0, cf_hi = 0;
+  uint8_t cf_kind[2048];  // valid when cf_ok (the range fits)
+  bool cf_ok = false;
   uint32_t e_turret, e_launcher, e_empwave, e_chain, e_shieldBoosting, e_fueledShieldBoosting, e_armorRepair,
       e_fueledArmorRepair, e_structureRepair, e_nos, e_fam, e_fmi;
   uint32_t g_cap_booster_group_ok;  // unused placeholder

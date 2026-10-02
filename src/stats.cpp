@@ -324,26 +324,40 @@ struct Calc {
       const Item& it = f.items[i];
       const int32_t idx = it.req_index;
       const TypeRec& mt = *it.t;
-      std::string name(ds.type_name(mt));
-      if (it.slot == Slot::None) push("NOT_FITTABLE", name + " is not a fittable module", idx);
+      const std::string_view name = ds.type_name(mt);
+      if (it.slot == Slot::None) push("NOT_FITTABLE", std::string(name) + " is not a fittable module", idx);
       bool any = false, ok = false;
       double x;
-      for (uint32_t k = 0; k < K.n_cfg; k++)
-        if (ds.type_attr(mt, K.canFitShipGroup[k], x) && (uint32_t)x != 0) {
+      // one scan over the type's (id-sorted) attributes in the canFitShip* id range instead of 31 lookups
+      if (K.cf_ok) {
+        auto ta = ds.type_attrs(mt);
+        auto p = std::lower_bound(ta.begin(), ta.end(), K.cf_lo, [](const TAttr& t, uint32_t id) { return t.id < id; });
+        for (; p != ta.end() && p->id <= K.cf_hi; ++p) {
+          const uint8_t kd = K.cf_kind[p->id - K.cf_lo];
+          if (!kd) continue;
+          const uint32_t xv = (uint32_t)p->v;
+          if (xv == 0) continue;
           any = true;
-          if ((uint32_t)x == st.group) ok = true;
+          if (((kd & 1) && xv == st.group) || ((kd & 2) && xv == st.id)) ok = true;
         }
-      for (uint32_t k = 0; k < K.n_cft; k++)
-        if (ds.type_attr(mt, K.canFitShipType[k], x) && (uint32_t)x != 0) {
-          any = true;
-          if ((uint32_t)x == st.id) ok = true;
-        }
-      if (any && !ok) push("SHIP_RESTRICTION", name + " cannot be fitted to " + std::string(ds.type_name(st)), idx);
+      } else {
+        for (uint32_t k = 0; k < K.n_cfg; k++)
+          if (ds.type_attr(mt, K.canFitShipGroup[k], x) && (uint32_t)x != 0) {
+            any = true;
+            if ((uint32_t)x == st.group) ok = true;
+          }
+        for (uint32_t k = 0; k < K.n_cft; k++)
+          if (ds.type_attr(mt, K.canFitShipType[k], x) && (uint32_t)x != 0) {
+            any = true;
+            if ((uint32_t)x == st.id) ok = true;
+          }
+      }
+      if (any && !ok) push("SHIP_RESTRICTION", std::string(name) + " cannot be fitted to " + std::string(ds.type_name(st)), idx);
       if (it.slot == Slot::Rig) {
         double rs = 0;
         if (!ds.type_attr(mt, K.rigSize, rs)) rs = 0;
         double srs = g(ship, K.rigSize);
-        if (rs != 0.0 && rs != srs) push("RIG_SIZE", name + " rig size " + rust_display(rs) + " != ship rig size " + rust_display(srs), idx);
+        if (rs != 0.0 && rs != srs) push("RIG_SIZE", std::string(name) + " rig size " + rust_display(rs) + " != ship rig size " + rust_display(srs), idx);
       }
       bump(fitted_group, it.group);
       bump(fitted_type, it.type_id);
@@ -357,24 +371,24 @@ struct Calc {
       double lim;
       uint32_t n;
       if (check(K.maxGroupFitted, fitted_group, it.group, lim, n))
-        push("MAX_GROUP_FITTED", name + ": " + std::to_string(n) + " fitted of group, max " + rust_display(lim), idx);
+        push("MAX_GROUP_FITTED", std::string(name) + ": " + std::to_string(n) + " fitted of group, max " + rust_display(lim), idx);
       if (check(K.maxTypeFitted, fitted_type, it.type_id, lim, n))
-        push("MAX_TYPE_FITTED", name + ": " + std::to_string(n) + " fitted, max " + rust_display(lim), idx);
+        push("MAX_TYPE_FITTED", std::string(name) + ": " + std::to_string(n) + " fitted, max " + rust_display(lim), idx);
       if (check(K.maxGroupOnline, online_group, it.group, lim, n))
-        push("MAX_GROUP_ONLINE", name + ": " + std::to_string(n) + " online of group, max " + rust_display(lim), idx);
+        push("MAX_GROUP_ONLINE", std::string(name) + ": " + std::to_string(n) + " online of group, max " + rust_display(lim), idx);
       if (check(K.maxGroupActive, active_group, it.group, lim, n))
-        push("MAX_GROUP_ACTIVE", name + ": " + std::to_string(n) + " active of group, max " + rust_display(lim), idx);
+        push("MAX_GROUP_ACTIVE", std::string(name) + ": " + std::to_string(n) + " active of group, max " + rust_display(lim), idx);
       if (it.charge >= 0) {
         const TypeRec& ct = *f.items[it.charge].t;
-        std::string cname(ds.type_name(ct));
+        const std::string_view cname = ds.type_name(ct);
         bool cg_ok = false;
         for (uint32_t a : K.chargeGroup)
           if (a && ds.type_attr(mt, a, x) && (uint32_t)x != 0 && (uint32_t)x == ct.group) cg_ok = true;
-        if (!cg_ok) push("CHARGE_GROUP", cname + " cannot be loaded into " + name, idx);
+        if (!cg_ok) push("CHARGE_GROUP", std::string(cname) + " cannot be loaded into " + std::string(name), idx);
         double ms, cs;
         if (K.chargeSize && ds.type_attr(mt, K.chargeSize, ms) && ds.type_attr(ct, K.chargeSize, cs) && ms != cs)
-          push("CHARGE_SIZE", cname + " size " + rust_display(cs) + " != launcher size " + rust_display(ms), idx);
-        if (ct.volume > mt.capacity && mt.capacity > 0.0) push("CHARGE_CAPACITY", cname + " does not fit into " + name, idx);
+          push("CHARGE_SIZE", std::string(cname) + " size " + rust_display(cs) + " != launcher size " + rust_display(ms), idx);
+        if (ct.volume > mt.capacity && mt.capacity > 0.0) push("CHARGE_CAPACITY", std::string(cname) + " does not fit into " + std::string(name), idx);
       }
     }
     // skills

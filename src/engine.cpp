@@ -156,6 +156,17 @@ Ids::Ids(const Dataset& ds) {
     uint32_t x = a(("canFitShipType" + std::to_string(k)).c_str());
     if (x) canFitShipType[n_cft++] = x;
   }
+  if (n_cfg + n_cft) {
+    cf_lo = UINT32_MAX;
+    for (uint32_t k = 0; k < n_cfg; k++) cf_lo = std::min(cf_lo, canFitShipGroup[k]), cf_hi = std::max(cf_hi, canFitShipGroup[k]);
+    for (uint32_t k = 0; k < n_cft; k++) cf_lo = std::min(cf_lo, canFitShipType[k]), cf_hi = std::max(cf_hi, canFitShipType[k]);
+    cf_ok = cf_hi - cf_lo < sizeof cf_kind;
+    memset(cf_kind, 0, sizeof cf_kind);
+    if (cf_ok) {
+      for (uint32_t k = 0; k < n_cfg; k++) cf_kind[canFitShipGroup[k] - cf_lo] |= 1;
+      for (uint32_t k = 0; k < n_cft; k++) cf_kind[canFitShipType[k] - cf_lo] |= 2;
+    }
+  }
   maxGroupFitted = a("maxGroupFitted");
   maxTypeFitted = a("maxTypeFitted");
   maxGroupOnline = a("maxGroupOnline");
