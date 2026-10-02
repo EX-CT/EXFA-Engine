@@ -162,6 +162,8 @@ pub struct ExtDrain {
 /// One effect projected onto this fit, fully evaluated on the projecting side.
 const SKILL_GUNNERY: u32 = 3300;
 const SKILL_MISSILE_LAUNCHER_OPERATION: u32 = 3319;
+const SKILL_DRONES: u32 = 3436;
+const SMART_BOMB_GROUP: u32 = 72;
 const PROPULSION_MODULE_GROUP: u32 = 46;
 
 enum ProjAction {
@@ -553,6 +555,103 @@ impl Fit {
         ] {
             self.push(ship, t, 6, p && !d::attr_stackable(t), Src::Attr { item: i as u32, attr: s });
         }
+    }
+    /// incursion system effects (Pyfa OffensiveDefensiveReduction), all unpenalised PostPercent
+    pub fn sp_incursion(&mut self, i: usize) {
+        let ship = self.ship;
+        let src = |attr| Src::Attr { item: i as u32, attr };
+        let red = src(a::systemEffectDamageReduction);
+        let dmg = [a::emDamage, a::thermalDamage, a::kineticDamage, a::explosiveDamage];
+        for t in 0..self.items.len() {
+            let it = &self.items[t];
+            let charge_ml = it.kind == Kind::Charge && it.loc == Loc::Ship && it.req_skills.contains(&SKILL_MISSILE_LAUNCHER_OPERATION);
+            let smartbomb = it.kind == Kind::Module && it.group == SMART_BOMB_GROUP;
+            if charge_ml || smartbomb {
+                for &x in &dmg {
+                    self.push(t, x, 6, false, red);
+                }
+            }
+            let it = &self.items[t];
+            if it.kind == Kind::Drone || (it.kind == Kind::Module && it.req_skills.contains(&SKILL_GUNNERY)) {
+                self.push(t, a::damageMultiplier, 6, false, red);
+            }
+        }
+        for (r, b) in [
+            (a::armorEmDamageResonance, a::armorEmDamageResistanceBonus),
+            (a::armorThermalDamageResonance, a::armorThermalDamageResistanceBonus),
+            (a::armorKineticDamageResonance, a::armorKineticDamageResistanceBonus),
+            (a::armorExplosiveDamageResonance, a::armorExplosiveDamageResistanceBonus),
+            (a::shieldEmDamageResonance, a::shieldEmDamageResistanceBonus),
+            (a::shieldThermalDamageResonance, a::shieldThermalDamageResistanceBonus),
+            (a::shieldKineticDamageResonance, a::shieldKineticDamageResistanceBonus),
+            (a::shieldExplosiveDamageResonance, a::shieldExplosiveDamageResistanceBonus),
+        ] {
+            self.push(ship, r, 6, false, src(b));
+        }
+    }
+    /// apply one warfare buff like Pyfa's Fit.__runCommandBoosts: the dataset's dbuff modifiers, except for the
+    /// abyssal weather buffs (unpenalised) and the drone scope of buffs 79, 90, 93-99.
+    fn apply_buff(&mut self, id: u32, src: Src, s: usize) {
+        let ship = self.ship;
+        let hull_res = |k: u32| -> &'static [u16] {
+            match k {
+                90 => &[a::shieldEmDamageResonance, a::armorEmDamageResonance, a::emDamageResonance],
+                93 => &[a::shieldExplosiveDamageResonance, a::armorExplosiveDamageResonance, a::explosiveDamageResonance],
+                94 => &[a::shieldCapacity],
+                95 => &[a::shieldThermalDamageResonance, a::armorThermalDamageResonance, a::thermalDamageResonance],
+                96 => &[a::armorHP],
+                98 => &[a::maxVelocity],
+                99 => &[a::shieldKineticDamageResonance, a::armorKineticDamageResonance, a::kineticDamageResonance],
+                _ => &[],
+            }
+        };
+        let unpen = hull_res(id);
+        if !unpen.is_empty() {
+            let drones: Vec<usize> = (0..self.items.len()).filter(|&t| self.items[t].kind == Kind::Drone && self.items[t].req_skills.contains(&SKILL_DRONES)).collect();
+            for &attr in unpen {
+                self.push(ship, attr, 6, false, src);
+                for &t in &drones {
+                    self.push(t, attr, 6, false, src);
+                }
+            }
+            return;
+        }
+        d::apply_dbuff(self, id, src, s);
+        let drone_attrs: &[u16] = match id {
+            79 => &[a::signatureRadius],
+            97 => &[a::maxRange, a::falloff],
+            _ => &[],
+        };
+        for t in 0..self.items.len() {
+            if self.items[t].kind == Kind::Drone && self.items[t].req_skills.contains(&SKILL_DRONES) {
+                for &attr in drone_attrs {
+                    self.push(t, attr, 6, !d::attr_stackable(attr), src);
+                }
+            }
+        }
+    }
+    /// (buff id, value attr) of abyssal weather / AoE cloud beacons in the environment
+    fn beacon_buffs(&self) -> Vec<(u32, usize, u16)> {
+        let mut v = Vec::new();
+        for i in 0..self.items.len() {
+            if self.items[i].kind != Kind::Beacon {
+                continue;
+            }
+            let wx = self.items[i].effects().any(|(ei, _)| {
+                let n = d::eff_name(ei);
+                n.starts_with("weather_") || n.starts_with("aoe_beacon_")
+            });
+            if !wx {
+                continue;
+            }
+            for (ida, vala) in BUFF_PAIRS {
+                let id = if self.has(i, ida) { self.get(i, ida) as u32 } else { 0 };
+                if id != 0 {
+                    v.push((id, i, vala));
+                }
+            }
+        }
+        v
     }
     /// cyno: unpenalised speed boost only (Pyfa cynosuralGeneration)
     pub fn sp_cyno(&mut self, i: usize) {
@@ -1079,7 +1178,7 @@ impl Fit {
         agg.sort_by_key(|x| x.0);
         let ship = self.ship;
         for (id, value) in agg {
-            d::apply_dbuff(self, id, Src::Const(value), ship);
+            self.apply_buff(id, Src::Const(value), ship);
         }
         let explicit: Vec<u32> = req.fleet.buffs.iter().map(|b| b.buff_id).collect();
         if req.fleet.booster_fits.is_empty() {
@@ -1106,9 +1205,23 @@ impl Fit {
                     }
                 }
             }
+            for (id, i, vala) in self.beacon_buffs() {
+                if explicit.contains(&id) {
+                    continue;
+                }
+                let v = self.get(i, vala).abs();
+                match best.iter_mut().find(|x| x.0 == id) {
+                    Some(x) => {
+                        if x.3 < v {
+                            *x = (id, i, vala, v);
+                        }
+                    }
+                    None => best.push((id, i, vala, v)),
+                }
+            }
             self.clear_cache();
             for (id, i, vala, _) in best {
-                d::apply_dbuff(self, id, Src::Attr { item: i as u32, attr: vala }, i);
+                self.apply_buff(id, Src::Attr { item: i as u32, attr: vala }, i);
             }
             self.clear_cache();
             return;
@@ -1116,6 +1229,17 @@ impl Fit {
         // fleet boosters: like Pyfa, every buff id keeps the strongest value (by magnitude) over this fit's own
         // bursts and all booster fits' bursts, and is applied once.
         let mut best: Vec<(u32, f64)> = self.burst_values();
+        for (id, i, vala) in self.beacon_buffs() {
+            let v = self.get(i, vala);
+            match best.iter_mut().find(|x| x.0 == id) {
+                Some(x) => {
+                    if x.1.abs() < v.abs() {
+                        x.1 = v
+                    }
+                }
+                None => best.push((id, v)),
+            }
+        }
         self.clear_cache();
         for (k, bf) in req.fleet.booster_fits.iter().enumerate() {
             match Fit::build(bf) {
@@ -1137,7 +1261,7 @@ impl Fit {
         best.sort_by_key(|x| x.0);
         for (id, v) in best {
             if !explicit.contains(&id) {
-                d::apply_dbuff(self, id, Src::Const(v), ship);
+                self.apply_buff(id, Src::Const(v), ship);
             }
         }
     }

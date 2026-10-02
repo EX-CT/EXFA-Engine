@@ -346,6 +346,7 @@ fn main() {
         (eid("jumpPortalGenerationBO"), "f.sp_lance(i, p);"),
         (eid("cloneJumpAccepting"), "f.sp_lance(i, p);"),
         (eid("cynosuralGeneration"), "f.sp_cyno(i);"),
+        (eid("OffensiveDefensiveReduction"), "f.sp_incursion(i);"),
         (eid("microJumpPortalDriveCapital"), "f.sp_mjfg(i, p);"),
         (eid("debuffLance"), "f.sp_lance(i, p);"),
         (eid("warpDisruptSphere"), "f.sp_wdfg(i);"),
