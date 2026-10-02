@@ -252,7 +252,11 @@ impl Fit {
                 let base = d::type_attr(self.items[i].ty, attr).unwrap_or_else(|| d::attr_default(attr));
                 self.slots.push(Slot_ { base, head: NONE, n: 0, val: Cell::new(0.0), st: Cell::new(0) });
                 let s = self.slots.len() - 1;
-                self.items[i].dyn_attrs.insert(k, (attr, s as u32));
+                let da = &mut self.items[i].dyn_attrs;
+                if da.capacity() == 0 {
+                    da.reserve(if i < 2 { 160 } else { 24 });
+                }
+                da.insert(k, (attr, s as u32));
                 s
             }
         }

@@ -72,7 +72,7 @@ fn gcd(a: u64, b: u64) -> u64 {
 
 pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f64, reload: bool, stagger: bool, t_max_ms: f64) -> CapResult {
     let tau = recharge_ms / 5.0;
-    let mut heap = BinaryHeap::new();
+    let mut heap = BinaryHeap::with_capacity(64);
     let mut seq = 0u64;
     let mut period: u64 = 1;
     let mut disable_period = false;
@@ -136,7 +136,7 @@ pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f
     let mut t_wrap = period;
     let mut t_last = 0.0f64;
     let mut iterations = 0u64;
-    let mut awaiting: Vec<Ev> = Vec::new();
+    let mut awaiting: Vec<Ev> = Vec::with_capacity(64);
     let mut awaiting_wrap: Vec<(u64, u64)> = Vec::new();
     let mut ran_out = false;
     let key = |v: &Vec<Ev>| {
