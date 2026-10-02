@@ -59,7 +59,7 @@ struct Projected {
   std::string kind;
   std::optional<ModuleReq> module;
   std::optional<DroneReq> drone;
-  bool has_fit = false;
+  std::shared_ptr<FitRequest> fit;
   uint32_t amount = 1;
   std::optional<double> distance_m;
 };
@@ -87,7 +87,7 @@ struct FitRequest {
   std::vector<BoosterReq> boosters;
   std::vector<CargoReq> cargo;
   std::vector<Buff> buffs;
-  size_t booster_fits = 0;
+  std::vector<FitRequest> booster_fits;
   std::vector<Projected> projected;
   std::vector<uint32_t> env_effects;
   std::optional<std::string> system_security;

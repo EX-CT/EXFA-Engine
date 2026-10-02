@@ -14,11 +14,12 @@ ap.add_argument("--j", default=os.path.join(HERE, "..", "build", "eve-dogma-j"))
 ap.add_argument("--dataset", default="/workspace/exct-eve/data/dataset-3569502.json.gz")
 ap.add_argument("--show", type=int, default=30)
 ap.add_argument("--json-out")
-ap.add_argument("globs", nargs="*", default=["/workspace/exct-eve/eve-dogma-bench/cases/*.json",
-                                             "/workspace/exct-eve/eve-dogma-rs/tests/cases/*.json"])
+ap.add_argument("globs", nargs="*", default=["/workspace/exct-eve/eve-dogma-bench/cases/*.json"])
 a = ap.parse_args()
 
 files = sorted({f for g in a.globs for f in glob.glob(g)})
+# skip oracle-side case specs (EFT + patch), which are not FitRequests
+files = [f for f in files if '"eft"' not in open(f).read(200)]
 names, lines = [], []
 for f in files:
     try:

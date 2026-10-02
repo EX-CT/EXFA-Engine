@@ -411,7 +411,7 @@ void Calc::run(JW& w) {
   auto active = [&](uint32_t i) { return f.items[i].state >= State::Active; };
 
   // ---------------- resources
-  double cpu_used = 0, pg_used = 0, calib_used = 0, bw_used = 0, bay_used = 0, fbay_used = 0, cargo_used = 0;
+  double cpu_used = -0.0, pg_used = -0.0, calib_used = -0.0, bw_used = -0.0, bay_used = -0.0, fbay_used = -0.0, cargo_used = -0.0;
   for (uint32_t i : modules)
     if (online(i)) cpu_used += g(i, K.cpu);
   for (uint32_t i : modules)
@@ -484,14 +484,41 @@ void Calc::run(JW& w) {
     double fo = g(i, K.falloff);
     std::string_view k(kind);
     double tracking = 0, range_m = 0, exr = 0, exv = 0;
-    bool has_missile = false;
+    bool has_missile = false, has_range = true;
     if (k == "turret") tracking = g(i, K.trackingSpeed);
     else if (k == "missile") {
       if (f.items[i].charge >= 0) {
         uint32_t c = f.items[i].charge;
+        // Pyfa missileMaxRangeData: flight time + ship radius, acceleration phase, floor/ceil blend, FoF limit,
+        // centre-to-surface (eos/saveddata/module.py, LGPL; via eve-dogma-rs)
         double vel = g(c, K.maxVelocity);
-        double ft = g(c, K.explosionDelay) / 1000.0;
-        range_m = vel * ft;
+        has_range = false;
+        if (vel > 0.0) {
+          double radius = g(ship, K.radius);
+          double ft = g(c, K.explosionDelay) / 1000.0 + radius / vel;
+          ft = std::round(ft * 1e9) / 1e9;
+          double cm = g(c, K.mass);
+          double ca = g(c, K.agilityA);
+          double accel_cap = cm * ca / 1e6;
+          auto range_at = [&](double t) {
+            double acc = std::min(t, accel_cap);
+            return vel / 2.0 * acc + vel * (t - acc);
+          };
+          double lt = std::floor(ft), ht = std::ceil(ft);
+          double lr = range_at(lt), hr = range_at(ht);
+          if (has_eff(c, K.e_fof)) {
+            double lim = g(c, K.maxFOFTargetRange);
+            if (lim > 0.0) {
+              lr = std::min(lr, lim);
+              hr = std::min(hr, lim);
+            }
+          }
+          lr = std::max(lr - radius, 0.0);
+          hr = std::max(hr - radius, 0.0);
+          double hc = ft - lt;
+          range_m = lr * (1.0 - hc) + hr * hc;
+          has_range = true;
+        }
         exr = g(c, K.aoeCloudSize);
         exv = g(c, K.aoeVelocity);
         has_missile = true;
@@ -512,7 +539,7 @@ void Calc::run(JW& w) {
     idx_or_null(wo, it.req_index);
     wo.ks("name", tname(i));
     if (k == "turret") wo.kn("optimal_m", opt);
-    if (has_missile || k == "smartbomb") wo.kn("range_m", range_m);
+    if ((has_missile && has_range) || k == "smartbomb") wo.kn("range_m", range_m);
     if (spv > 0.0) wo.kn("spool_multiplier", 1.0 + spv);
     if (k == "turret") wo.kn("tracking", tracking);
     wo.ki("type_id", it.type_id);
@@ -632,6 +659,33 @@ void Calc::run(JW& w) {
     }
     if (has_eff(i, K.e_structureRepair)) hull_rep += g(i, K.structureDamageAmount) / dur;
   }
+  // incoming remote repairs (Pyfa __getAppliedRr diminishing-returns formula)
+  {
+    std::vector<std::pair<double, double>> lists[3];
+    for (auto& ps : f.proj_special) {
+      if (!ps.rep) continue;
+      double dur = g(ps.item, K.duration) / 1000.0;
+      if (dur > 0.0) {
+        double amt = g(ps.item, ps.amount);
+        lists[ps.layer].push_back({amt * ps.mult * ps.factor, dur});
+      }
+    }
+    auto applied = [](const std::vector<std::pair<double, double>>& l) {
+      double total = -0.0;
+      for (auto& [a, c] : l) total += a / std::trunc(c);
+      double sum = -0.0;
+      for (auto& [a, c] : l) {
+        double rrps = a / std::trunc(c);
+        double m = 7000.0 + rrps * 20.0;
+        double q = ((rrps + m) / (total + m)) - 1.0;
+        sum += (1.0 - q * q) * a / c;
+      }
+      return sum;
+    };
+    shield_rep += applied(lists[0]);
+    armor_rep += applied(lists[1]);
+    hull_rep += applied(lists[2]);
+  }
   double shield_rr_s = g(ship, K.shieldRechargeRate) / 1000.0;
   double passive = shield_rr_s > 0.0 ? 10.0 / shield_rr_s * 0.5 * 0.5 * hp_s : 0.0;
 
@@ -676,6 +730,19 @@ void Calc::run(JW& w) {
     wm.ks("state", state_name(it.state)).ki("type_id", it.type_id).end_obj();
   }
   wm.end_arr();
+  // incoming neuts / nos / cap transfers (Pyfa fit.addDrain): no stagger, after the fit's own modules
+  {
+    double sig_now = g(ship, K.signatureRadius);
+    for (auto& ps : f.proj_special) {
+      if (ps.rep) continue;
+      double need = g(ps.item, ps.amount) * ps.factor * ps.sign;
+      if (ps.resist != 0) need *= g(ship, ps.resist);
+      double sres = g(ps.item, K.energyNeutralizerSignatureResolution);
+      if (sres != 0.0) need *= std::min(sig_now / sres, 1.0);
+      double dur = g(ps.item, ps.duration);
+      if (need != 0.0 && dur > 0.0) drains.push_back(Drain{std::trunc(dur), need, 0, 0.0, false, false});
+    }
+  }
   bool cs_stable = true, cs_have_sim = false;
   double cs_percent = 100.0, cs_depletes = 0, cs_eve = 0;
   uint64_t cs_iter = 0;

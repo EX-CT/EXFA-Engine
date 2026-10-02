@@ -4,6 +4,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "dataset.hpp"
@@ -42,6 +43,11 @@ struct Ids {
   uint32_t e_turret, e_launcher, e_empwave, e_chain, e_shieldBoosting, e_fueledShieldBoosting, e_armorRepair,
       e_fueledArmorRepair, e_structureRepair, e_nos, e_fam, e_fmi;
   uint32_t g_cap_booster_group_ok;  // unused placeholder
+  // projected specials / missile range
+  uint32_t falloffEffectiveness, disallowAssistance, energyNeutralizerAmount, energyNeutralizerDuration,
+      energyNeutralizerRangeOptimal, energyNeutralizerSignatureResolution, radius, mass, agilityA, maxFOFTargetRange,
+      scanStrengthPercent[4], scanStrengthG[4];
+  uint32_t e_fof;
 };
 
 struct Src {
@@ -95,6 +101,14 @@ struct Item {
   }
 };
 
+// A projected effect that feeds tank or capacitor stats (Pyfa: fit._armorRr, addDrain).
+struct ProjSpecial {
+  bool rep;  // true: remote repair, false: capacitor drain/fill
+  uint8_t layer;
+  uint32_t item, amount, duration, resist;
+  double mult, factor, sign;
+};
+
 struct EngineError {
   const char* code;
   std::string message, path;
@@ -104,7 +118,7 @@ class Fit {
  public:
   Fit(const Dataset& ds, const Ids& ids) : ds(ds), K(ids) {}
   // Build the graph and register all modifiers. Returns false on error (err filled).
-  bool build(const FitRequest& req, EngineError& err);
+  bool build(const FitRequest& req, EngineError& err, bool no_projected = false, bool no_boosters = false);
 
   double get(uint32_t item, uint32_t attr);
   bool get_opt(uint32_t item, uint32_t attr, double& out);
@@ -120,14 +134,16 @@ class Fit {
   bool is_structure = false;
   std::vector<std::string> warnings;
   std::vector<std::pair<uint32_t, uint8_t>> skill_levels;  // (skill id, level) of skill items
+  std::vector<ProjSpecial> proj_special;
 
  private:
   int32_t new_item(uint32_t type_id, Kind kind, Loc loc, const char* path_fmt, long idx, EngineError& err);
   void apply_mutation(uint32_t idx, const Mutation& m);
   bool add_module(uint32_t i, const ModuleReq& m, EngineError& err);
-  void register_all(const FitRequest& req);
+  void register_all(const FitRequest& req, bool no_boosters);
   void register_projected(uint32_t i);
-  void register_buffs(const FitRequest& req);
+  bool proj_special_for(uint32_t i, std::string_view name, uint32_t resist, std::vector<ProjSpecial>& out);
+  void register_buffs(const FitRequest& req, bool no_boosters);
   void apply_buff(uint32_t id, const Src& src, uint32_t source_item);
   void apply_rah(const FitRequest& req);
   void push_mod(uint32_t target, uint32_t attr, int op, const Src& src, uint32_t source_cat);

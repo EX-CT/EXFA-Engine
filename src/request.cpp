@@ -155,10 +155,22 @@ void u32_list(const element& o, std::string_view k, std::vector<uint32_t>& out, 
   if (!present(o, k, e)) return;
   for (auto x : as_arr(e, what)) out.push_back(as_u32(x, what));
 }
+void parse_fit(const element& root, FitRequest& r, int depth);
 }  // namespace
 
 std::string parse_request(const element& root, FitRequest& r) {
   try {
+    parse_fit(root, r, 0);
+  } catch (const Err& e) {
+    return e.msg;
+  }
+  return {};
+}
+
+namespace {
+void parse_fit(const element& root, FitRequest& r, int depth) {
+  if (depth > 16) throw Err{"request nesting too deep"};
+  {
     as_obj(root, "request");
     element x, y;
     if (!present(root, "ship", x)) throw Err{"missing field `ship`"};
@@ -235,7 +247,11 @@ std::string parse_request(const element& root, FitRequest& r) {
           bf.value = as_f64(v, "buff value");
           r.buffs.push_back(bf);
         }
-      if (present(x, "booster_fits", y)) r.booster_fits = as_arr(y, "booster_fits").size();
+      if (present(x, "booster_fits", y))
+        for (auto bf : as_arr(y, "booster_fits")) {
+          r.booster_fits.emplace_back();
+          parse_fit(bf, r.booster_fits.back(), depth + 1);
+        }
     }
     if (present(root, "projected", x))
       for (auto p : as_arr(x, "projected")) {
@@ -246,7 +262,10 @@ std::string parse_request(const element& root, FitRequest& r) {
         pr.kind = std::string(as_str(k, "kind"));
         if (present(p, "module", k)) pr.module = parse_module(k);
         if (present(p, "drone", k)) pr.drone = parse_drone(k);
-        if (present(p, "fit", k)) pr.has_fit = true;
+        if (present(p, "fit", k)) {
+          pr.fit = std::make_shared<FitRequest>();
+          parse_fit(k, *pr.fit, depth + 1);
+        }
         pr.amount = opt_u32(p, "amount", "amount").value_or(1);
         pr.distance_m = opt_f64(p, "distance_m", "distance_m");
         r.projected.push_back(std::move(pr));
@@ -304,10 +323,8 @@ std::string parse_request(const element& root, FitRequest& r) {
         r.cs_max_time_s = opt_f64(y, "max_time_s", "cap_sim.max_time_s");
       }
     }
-  } catch (const Err& e) {
-    return e.msg;
   }
-  return {};
 }
+}  // namespace
 
 }  // namespace evej

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 #include <string>
 
 namespace evej {
@@ -176,6 +177,36 @@ Ids::Ids(const Dataset& ds) {
   e_fam = e("fighterAbilityAttackM");
   e_fmi = e("fighterAbilityMissiles");
   g_cap_booster_group_ok = 0;
+  falloffEffectiveness = a("falloffEffectiveness");
+  disallowAssistance = a("disallowAssistance");
+  energyNeutralizerAmount = a("energyNeutralizerAmount");
+  energyNeutralizerDuration = a("energyNeutralizerDuration");
+  energyNeutralizerRangeOptimal = a("energyNeutralizerRangeOptimal");
+  energyNeutralizerSignatureResolution = a("energyNeutralizerSignatureResolution");
+  radius = a("radius");
+  mass = a("mass");
+  agilityA = a("agility");
+  maxFOFTargetRange = a("maxFOFTargetRange");
+  const char* st[4] = {"Gravimetric", "Ladar", "Magnetometric", "Radar"};
+  for (int k = 0; k < 4; k++) {
+    scanStrengthG[k] = a((std::string("scan") + st[k] + "Strength").c_str());
+    scanStrengthPercent[k] = a((std::string("scan") + st[k] + "StrengthPercent").c_str());
+  }
+  e_fof = e("fofMissileLaunching");
+}
+
+static std::string rust_debug_str(std::string_view s) {
+  std::string o = "\"";
+  for (char c : s) {
+    if (c == '"' || c == '\\') o.push_back('\\');
+    o.push_back(c);
+  }
+  o.push_back('"');
+  return o;
+}
+static std::string debug_error(const EngineError& e) {
+  return "EngineError { code: " + rust_debug_str(e.code) + ", message: " + rust_debug_str(e.message) + ", path: " +
+         rust_debug_str(e.path) + " }";
 }
 
 // --------------------------------------------------------------------------- attribute table
@@ -388,7 +419,7 @@ double Fit::eval(uint32_t idx) {
     std::vector<Val> hbuf;
     Val* vals = sbuf;
     int n = 0, cap = 48;
-    uint8_t opmask = 0;  // bit (op+1)
+    uint16_t opmask = 0;  // bit (op+1)
     for (uint32_t m = head; m != UINT32_MAX; m = mods_[m].next) {
       int8_t op = mods_[m].op;
       uint8_t pen = mods_[m].pen;
@@ -401,7 +432,7 @@ double Fit::eval(uint32_t idx) {
         vals = hbuf.data();
       }
       vals[n++] = Val{op, pen, v};
-      if (op >= -1 && op <= 7) opmask |= (uint8_t)(1u << (op + 1));
+      if (op >= -1 && op <= 7) opmask |= (uint16_t)(1u << (op + 1));
     }
     const bool hig = info ? info->high_is_good : true;
     double pbuf[64], nbuf[64];
@@ -585,7 +616,7 @@ static bool parse_u32_rust(std::string_view s, uint32_t& out) {
   return true;
 }
 
-bool Fit::build(const FitRequest& req, EngineError& err) {
+bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool no_boosters) {
   items.reserve(640);
   la_.reserve(4096);
   mods_.reserve(4096);
@@ -724,7 +755,7 @@ bool Fit::build(const FitRequest& req, EngineError& err) {
     if (idx < 0) return false;
     items[idx].owned = false;
   }
-  for (size_t i = 0; i < req.projected.size(); i++) {
+  for (size_t i = 0; i < (no_projected ? 0 : req.projected.size()); i++) {
     const Projected& p = req.projected[i];
     if (p.kind == "module") {
       if (p.module) {
@@ -738,6 +769,53 @@ bool Fit::build(const FitRequest& req, EngineError& err) {
           it.has_distance = p.distance_m.has_value();
           it.distance = p.distance_m.value_or(0);
           it.req_index = (int32_t)i;
+          if (p.module->charge_type_id) {
+            int32_t c = new_item(*p.module->charge_type_id, Kind::Charge, Loc::Nowhere, "/projected/{}/module/charge_type_id", (long)i, err);
+            if (c < 0) return false;
+            items[c].parent = idx;
+            items[c].owned = false;
+            items[idx].charge = c;
+          }
+        }
+      }
+    } else if (p.kind == "fit") {
+      // whole projected fit: compute the source fit on its own, then project each active module / drone as a
+      // frozen item carrying the source-modified values
+      if (p.fit) {
+        Fit src(ds, K);
+        EngineError se{};
+        if (!src.build(*p.fit, se, true, false)) {
+          warnings.push_back("projected[" + std::to_string(i) + "] fit: " + debug_error(se));
+          continue;
+        }
+        struct Frozen {
+          uint32_t type_id, copies;
+          std::vector<std::pair<uint32_t, double>> vals;
+        };
+        std::vector<Frozen> frozen;
+        for (uint32_t si = 0; si < src.items.size(); si++) {
+          const Item& it = src.items[si];
+          uint32_t copies = 0;
+          if (it.kind == Kind::Module && it.state >= State::Active) copies = 1;
+          else if (it.kind == Kind::Drone) copies = it.active_count;
+          if (copies == 0) continue;
+          Frozen fz{it.type_id, copies, {}};
+          for (uint32_t a : src.attr_keys(si)) fz.vals.push_back({a, src.get(si, a)});
+          frozen.push_back(std::move(fz));
+        }
+        for (auto& fz : frozen) {
+          uint64_t n = (uint64_t)fz.copies * std::max<uint32_t>(p.amount, 1);
+          for (uint64_t k = 0; k < n; k++) {
+            int32_t idx = new_item(fz.type_id, Kind::Projected, Loc::Nowhere, "/projected/{}", (long)i, err);
+            if (idx < 0) return false;
+            Item& it = items[idx];
+            it.owned = false;
+            it.state = State::Active;
+            it.has_distance = p.distance_m.has_value();
+            it.distance = p.distance_m.value_or(0);
+            it.req_index = (int32_t)i;
+            for (auto& [a, v] : fz.vals) set_base(idx, a, v);
+          }
         }
       }
     } else if (p.kind == "drone") {
@@ -784,7 +862,7 @@ bool Fit::build(const FitRequest& req, EngineError& err) {
     if (it.owned && it.n_req) owned_.push_back(i);
     if ((it.owned || it.loc == Loc::Char) && it.kind != Kind::Skill && it.n_req) char_skill_tgt_.push_back(i);
   }
-  register_all(req);
+  register_all(req, no_boosters);
   apply_rah(req);
   return true;
 }
@@ -904,7 +982,7 @@ static inline Src const_src(double v) {
   return s;
 }
 
-void Fit::register_all(const FitRequest& req) {
+void Fit::register_all(const FitRequest& req, bool no_boosters) {
   const uint32_t n = (uint32_t)items.size();
   for (uint32_t i = 0; i < n; i++) {
     const Kind kind = items[i].kind;
@@ -980,7 +1058,7 @@ void Fit::register_all(const FitRequest& req) {
       }
     }
   }
-  register_buffs(req);
+  register_buffs(req, no_boosters);
 }
 
 static double range_factor_local(double optimal, double falloff, bool has_d, double d, bool restricted) {
@@ -1038,13 +1116,66 @@ void Fit::register_projected(uint32_t i) {
     } else if (starts("remoteSensorDamp") || name == "structureModuleEffectRemoteSensorDampener" || starts("remoteSensorBoost")) {
       push(K.maxTargetRange, K.maxTargetRangeBonus, 6);
       push(K.scanResolution, K.scanResolutionBonus, 6);
+      if (starts("remoteSensorBoost"))
+        for (int k = 0; k < 4; k++) push(K.scanStrengthG[k], K.scanStrengthPercent[k], 6);
     } else {
-      warnings.push_back("projected effect '" + std::string(name) + "' not modelled yet");
+      std::vector<ProjSpecial> ps;
+      if (proj_special_for(i, name, resist, ps)) {
+        proj_special.insert(proj_special.end(), ps.begin(), ps.end());
+      } else {
+        static const char* DAMAGE_EFFECTS[] = {"projectileFired", "targetAttack", "useMissiles", "barrage", "targetDisintegratorAttack",
+                                               "missileLaunchingForEntity", "fighterAbilityAttackM", "fighterAbilityMissiles",
+                                               "superWeaponAmarr", "superWeaponCaldari", "superWeaponGallente", "superWeaponMinmatar",
+                                               "mining", "miningLaser", "miningClouds", "dotMissileLaunching"};
+        bool dmg = false;
+        for (auto d : DAMAGE_EFFECTS)
+          if (name == d) dmg = true;
+        if (!dmg) warnings.push_back("projected effect '" + std::string(name) + "' not modelled yet");
+      }
     }
   }
 }
 
-void Fit::register_buffs(const FitRequest& req) {
+// Pyfa's 'projected' handlers for remote reps, cap transfers and neuts/nos (eos/effects.py, LGPL; via eve-dogma-rs).
+bool Fit::proj_special_for(uint32_t i, std::string_view name, uint32_t resist, std::vector<ProjSpecial>& out) {
+  const Item& it = items[i];
+  auto bse = [&](uint32_t a) { return a && has(i, a) ? base(i, a) : 0.0; };
+  std::optional<double> dist;
+  if (it.has_distance) dist = it.distance;
+  auto falloff_factor = [&]() {
+    double opt = bse(K.maxRange), fo = bse(K.falloffEffectiveness);
+    if (!dist) return 1.0;
+    return range_factor_local(opt, fo, true, *dist, true);
+  };
+  auto gate = [&](double opt) { return opt < dist.value_or(0.0) ? 0.0 : 1.0; };
+  bool no_assist = K.disallowAssistance && has(ship, K.disallowAssistance) && base(ship, K.disallowAssistance) != 0.0;
+  auto rep = [&](uint8_t layer, uint32_t amt, double mult, double factor) {
+    if (!no_assist) out.push_back(ProjSpecial{true, layer, i, amt, 0, 0, mult, factor, 0});
+  };
+  auto drain = [&](uint32_t amt, uint32_t dur, double factor, double sign) {
+    out.push_back(ProjSpecial{false, 0, i, amt, dur, resist, 1.0, factor, sign});
+  };
+  bool paste = it.charge >= 0 && ds.type_name(*items[it.charge].t) == "Nanite Repair Paste";
+  if (name == "shipModuleRemoteShieldBooster" || name == "shipModuleAncillaryRemoteShieldBooster") rep(0, K.shieldBonus, 1.0, falloff_factor());
+  else if (name == "shipModuleRemoteArmorRepairer" || name == "ShipModuleRemoteArmorMutadaptiveRepairer") rep(1, K.armorDamageAmount, 1.0, falloff_factor());
+  else if (name == "shipModuleAncillaryRemoteArmorRepairer") rep(1, K.armorDamageAmount, paste ? 3.0 : 1.0, falloff_factor());
+  else if (name == "shipModuleRemoteHullRepairer") rep(2, K.structureDamageAmount, 1.0, falloff_factor());
+  else if (name == "npcEntityRemoteShieldBooster") rep(0, K.shieldBonus, 1.0, gate(bse(K.maxRange)));
+  else if (name == "npcEntityRemoteArmorRepairer") rep(1, K.armorDamageAmount, 1.0, gate(bse(K.maxRange)));
+  else if (name == "npcEntityRemoteHullRepairer") rep(2, K.structureDamageAmount, 1.0, gate(bse(K.maxRange)));
+  else if (name == "shipModuleRemoteCapacitorTransmitter") {
+    if (!no_assist) drain(K.powerTransferAmount, K.duration, gate(bse(K.maxRange)), -1.0);
+  } else if (name == "energyNeutralizerFalloff") drain(K.energyNeutralizerAmount, K.duration, falloff_factor(), 1.0);
+  else if (name == "energyNosferatuFalloff") drain(K.powerTransferAmount, K.duration, falloff_factor(), 1.0);
+  else if (name == "structureEnergyNeutralizerFalloff") drain(K.energyNeutralizerAmount, K.duration, 1.0, 1.0);
+  else if (name == "entityEnergyNeutralizerFalloff")
+    drain(K.energyNeutralizerAmount, K.energyNeutralizerDuration, gate(bse(K.energyNeutralizerRangeOptimal)), 1.0);
+  else return false;
+  return true;
+}
+
+void Fit::register_buffs(const FitRequest& req, bool no_boosters) {
+  // explicit buffs aggregated per id by the collection's aggregate mode
   std::vector<std::pair<uint32_t, double>> agg;
   for (auto& b : req.buffs) {
     const DbuffRec* info = ds.dbuff(b.buff_id);
@@ -1056,22 +1187,72 @@ void Fit::register_buffs(const FitRequest& req) {
     if (it == agg.end()) agg.push_back({b.buff_id, b.value});
     else it->second = info->aggregate_min ? std::min(it->second, b.value) : std::max(it->second, b.value);
   }
-  std::sort(agg.begin(), agg.end(), [](auto& x, auto& y) { return x.first < y.first; });
-  for (auto& [id, v] : agg) apply_buff(id, const_src(v), ship);
+  auto in_agg = [&](uint32_t id) {
+    for (auto& p : agg)
+      if (p.first == id) return true;
+    return false;
+  };
+  // Pyfa keeps, per buff id, the strongest (|value|) source among own bursts and booster fits; explicit buffs override
+  struct Best {
+    uint32_t id;
+    double v;
+    Src src;
+  };
+  std::vector<Best> best;
+  auto offer = [&](uint32_t id, double v, const Src& src) {
+    for (auto& b : best)
+      if (b.id == id) {
+        if (!(std::fabs(b.v) >= std::fabs(v))) {
+          b.v = v;
+          b.src = src;
+        }
+        return;
+      }
+    best.push_back({id, v, src});
+  };
   const uint32_t n = (uint32_t)items.size();
   for (uint32_t i = 0; i < n; i++) {
     if (items[i].kind != Kind::Module || items[i].state < State::Active) continue;
     for (int k = 0; k < 4; k++) {
       uint32_t ida = K.warfareBuffID[k];
       uint32_t id = has(i, ida) ? (uint32_t)get(i, ida) : 0;
-      if (id == 0) continue;
-      bool explicit_ = false;
-      for (auto& b : req.buffs)
-        if (b.buff_id == id) explicit_ = true;
-      if (explicit_) continue;
-      apply_buff(id, attr_src(i, K.warfareBuffValue[k]), i);
+      if (id == 0 || in_agg(id)) continue;
+      double v = get(i, K.warfareBuffValue[k]);
+      offer(id, v, attr_src(i, K.warfareBuffValue[k]));
     }
   }
+  if (!no_boosters)
+    for (size_t bk = 0; bk < req.booster_fits.size(); bk++) {
+      Fit b(ds, K);
+      EngineError be{};
+      if (!b.build(req.booster_fits[bk], be, false, true)) {
+        warnings.push_back("fleet.booster_fits[" + std::to_string(bk) + "]: " + debug_error(be));
+        continue;
+      }
+      for (uint32_t i = 0; i < b.items.size(); i++) {
+        if (b.items[i].kind != Kind::Module || b.items[i].state < State::Active) continue;
+        for (int k = 0; k < 4; k++) {
+          uint32_t ida = K.warfareBuffID[k];
+          uint32_t id = b.has(i, ida) ? (uint32_t)b.get(i, ida) : 0;
+          if (id == 0 || in_agg(id)) continue;
+          double v = b.get(i, K.warfareBuffValue[k]);
+          offer(id, v, const_src(v));
+        }
+      }
+    }
+  for (auto& [id, v] : agg) {
+    bool found = false;
+    for (auto& b : best)
+      if (b.id == id) {
+        b.v = v;
+        b.src = const_src(v);
+        found = true;
+      }
+    if (!found) best.push_back({id, v, const_src(v)});
+  }
+  std::sort(best.begin(), best.end(), [](const Best& x, const Best& y) { return x.id < y.id; });
+  for (auto& b : best) apply_buff(b.id, b.src, b.src.k == Src::Attr ? b.src.a : ship);
+  clear_cache();
 }
 
 void Fit::apply_buff(uint32_t id, const Src& src, uint32_t) {

@@ -1,0 +1,4 @@
+# eve-dogma-bench manifest for Variant J (C++20). Run from this directory.
+build: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && ninja -C build && ./build/eve-dogma-j build-cache --dataset {dataset}
+cmd: ./build/eve-dogma-j calc --dataset {dataset}
+batch_cmd: ./build/eve-dogma-j batch --dataset {dataset}

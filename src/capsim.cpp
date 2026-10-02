@@ -221,7 +221,7 @@ CapResult simulate(double capacity, double recharge_ms, const std::vector<Drain>
   }
   std::vector<Ev> all = std::move(heap.v);
   if (has_last) all.push_back(last_ev);
-  double avg_drain = 0.0;
+  double avg_drain = -0.0;
   for (auto& e : all) avg_drain += e.cap_need / e.duration;
   double inner = -(2.0 * avg_drain * tau - cap_max) / cap_max;
   double eve_stable = 0.0;
