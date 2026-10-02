@@ -51,7 +51,7 @@ Bench 1.8.0 (326 cases), shared 8-core box (J measured 2026-10-03 06:18 CST at l
 | batch throughput | 11 554 fits/s | 1 429 fits/s |
 | cold start (one process per case, median) | 3 ms | 147 ms |
 | EFT export vs Pyfa (informational) | 326/326 | 326/326 |
-| byte-identical output to A (0e0b7ec) | 326/326 calc cases, all RPC methods | – |
+| byte-identical output to A (dcd72ec) | 326/326 calc cases, all RPC methods | – |
 
 Timings on this shared box swing by ±50 % with the load from other agents (the bench takes one run per metric).
 Best J run so far: 0.034 ms/fit, 20 067 fits/s, 2 ms cold (dca13b9, bench 1.5.0, load 8.7).

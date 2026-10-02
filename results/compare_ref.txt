@@ -1,3 +1,22 @@
-# reference: eve-dogma-rs 0e0b7ec (committed HEAD, built from git archive)
+# reference: eve-dogma-rs dcd72ec (committed HEAD, built from git archive), variant commit ade19cd
 cases: 326  byte-identical (engine name normalised): 326  within tolerance: 326
 leaf values: 99897  differing beyond tolerance: 0
+
+# full parity suite vs the same reference (variant code at ade19cd)
+== bench cases (tools/compare_ref.py)
+cases: 326  byte-identical (engine name normalised): 326  within tolerance: 326
+leaf values: 99897  differing beyond tolerance: 0
+== all RPC methods over the bench corpus
+rpc lines 930 930 diff 0
+== capacitor reload/stagger/factor_reload variants
+variants 2608 2608 diff 0
+== randomized fits + malformed requests (tools/fuzz_ref.py 7)
+same 1924 err-code-match 1075 diff 0
+== struct-as-JSON-array requests (tools/arrconv_ref.py)
+converted 652 arrays-in-input 635 ok A 652 diff 0
+== CLI eft
+cli 405 diff 0
+== ref tests/cases + tests/fits (skills 5 and 0, eft --calc)
+requests 793 793 793 diff 0
+eft fits diff 0
+== EVEJ_NO_PRUNE=1 / --threads 1: identical
