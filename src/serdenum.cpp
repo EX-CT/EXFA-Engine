@@ -147,24 +147,6 @@ inline bool numch(char c) { return (c >= '0' && c <= '9') || c == '.' || c == 'e
 bool serde_fix_numbers(std::string_view in, std::string& out) {
   const char* p = in.data();
   const size_t n = in.size();
-  // cheap pre-check: a hard number needs a run of >= 16 digits (dots ignored), an exponent, or "-0"
-  {
-    bool maybe = false;
-    int run = 0;
-    for (size_t i = 0; i < n && !maybe; i++) {
-      char c = p[i];
-      if (c >= '0' && c <= '9') {
-        if (++run >= 16) maybe = true;
-        else if (c == '0' && i > 0 && p[i - 1] == '-' && (i + 1 >= n || !(p[i + 1] >= '0' && p[i + 1] <= '9') && p[i + 1] != '.' && p[i + 1] != 'e' && p[i + 1] != 'E')) maybe = true;
-      } else if (c == '.') {
-      } else if ((c == 'e' || c == 'E') && run > 0) {
-        maybe = true;
-      } else {
-        run = 0;
-      }
-    }
-    if (!maybe) return false;
-  }
   std::string res;
   size_t copied = 0;
   bool changed = false;
