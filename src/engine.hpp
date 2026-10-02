@@ -104,10 +104,11 @@ struct Item {
 
 // A projected effect that feeds tank or capacitor stats (Pyfa: fit._armorRr, addDrain).
 struct ProjSpecial {
-  bool rep;  // true: remote repair, false: capacitor drain/fill
+  bool rep;  // true: remote repair, false: capacitor drain/fill (or ECM when ecm is set)
   uint8_t layer;
   uint32_t item, amount, duration, resist;
   double mult, factor, sign;
+  bool ecm = false, fighter = false;  // ECM jam source (Pyfa addProjectedEcm); fighter: fighterAbilityECM strengths
 };
 
 struct EngineError {
@@ -153,6 +154,8 @@ class Fit {
   template <class F>
   void for_targets(uint32_t src, int func, int domain, uint32_t extra, F&& f);
   State effective_state(uint32_t i) const;
+  const std::vector<uint32_t>* default_fighter_abilities(uint32_t idx);
+  double pbase(uint32_t i, std::string_view attr_name) const;
   void clear_cache();
 
   // fit-local attribute table: open addressing (item,attr) -> LAttr index

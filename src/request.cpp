@@ -156,6 +156,20 @@ void u32_list(const element& o, std::string_view k, std::vector<uint32_t>& out, 
   for (auto x : as_arr(e, what)) out.push_back(as_u32(x, what));
 }
 void parse_fit(const element& root, FitRequest& r, int depth);
+FighterReq parse_fighter(const element& m) {
+  as_obj(m, "fighter");
+  FighterReq f;
+  f.type_id = req_u32(m, "type_id", "type_id");
+  f.quantity = opt_u32(m, "quantity", "quantity");
+  f.active = opt_bool(m, "active", true, "active");
+  element ab;
+  if (present(m, "abilities", ab)) {
+    std::vector<uint32_t> v;
+    for (auto a : as_arr(ab, "abilities")) v.push_back(as_u32(a, "ability"));
+    f.abilities = std::move(v);
+  }
+  return f;
+}
 }  // namespace
 
 std::string parse_request(const element& root, FitRequest& r) {
@@ -204,20 +218,7 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
     if (present(root, "drones", x))
       for (auto m : as_arr(x, "drones")) r.drones.push_back(parse_drone(m));
     if (present(root, "fighters", x))
-      for (auto m : as_arr(x, "fighters")) {
-        as_obj(m, "fighter");
-        FighterReq f;
-        f.type_id = req_u32(m, "type_id", "type_id");
-        f.quantity = opt_u32(m, "quantity", "quantity");
-        f.active = opt_bool(m, "active", true, "active");
-        element ab;
-        if (present(m, "abilities", ab)) {
-          std::vector<uint32_t> v;
-          for (auto a : as_arr(ab, "abilities")) v.push_back(as_u32(a, "ability"));
-          f.abilities = std::move(v);
-        }
-        r.fighters.push_back(std::move(f));
-      }
+      for (auto m : as_arr(x, "fighters")) r.fighters.push_back(parse_fighter(m));
     u32_list(root, "implants", r.implants, "implants");
     if (present(root, "boosters", x))
       for (auto m : as_arr(x, "boosters")) {
@@ -262,6 +263,7 @@ void parse_fit(const element& root, FitRequest& r, int depth) {
         pr.kind = std::string(as_str(k, "kind"));
         if (present(p, "module", k)) pr.module = parse_module(k);
         if (present(p, "drone", k)) pr.drone = parse_drone(k);
+        if (present(p, "fighter", k)) pr.fighter = parse_fighter(k);
         if (present(p, "fit", k)) {
           pr.fit = std::make_shared<FitRequest>();
           parse_fit(k, *pr.fit, depth + 1);

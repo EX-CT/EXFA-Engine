@@ -737,30 +737,7 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
                          " capped to " + std::to_string(maxsq));
     it.active_count = f.active ? it.quantity : 0;
     it.state = f.active ? State::Active : State::Offline;
-    if (f.abilities) {
-      it.fighter_abilities = &*f.abilities;
-    } else {
-      std::vector<uint32_t> ids;
-      for (auto& e : it.effs) ids.push_back(e.id);
-      std::sort(ids.begin(), ids.end());
-      auto on = std::make_unique<std::vector<uint32_t>>();
-      bool std_seen = false;
-      for (uint32_t e : ids) {
-        const EffRec* er = ds.effect(e);
-        if (!er) continue;
-        std::string_view n = ds.effect_name(*er);
-        if (n.substr(0, 14) != "fighterAbility") continue;
-        if (n == "fighterAbilityAttackM") {
-          on->push_back(e);
-          std_seen = true;
-        } else if (!std_seen && n != "fighterAbilityMicroWarpDrive" && n != "fighterAbilityEvasiveManeuvers" &&
-                   n != "fighterAbilityMicroJumpDrive") {
-          on->push_back(e);
-        }
-      }
-      it.fighter_abilities = on.get();
-      list_store_.push_back(std::move(on));
-    }
+    it.fighter_abilities = f.abilities ? &*f.abilities : default_fighter_abilities(idx);
     it.req_index = (int32_t)i;
   }
   for (size_t i = 0; i < req.implants.size(); i++) {
@@ -804,6 +781,30 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
           }
         }
       }
+    } else if (p.kind == "fighter") {
+      if (p.fighter) {
+        uint32_t n = std::max<uint32_t>(p.amount, 1);
+        for (uint32_t k = 0; k < n; k++) {
+          int32_t idx = new_item(p.fighter->type_id, Kind::Projected, Loc::Nowhere, "/projected/{}", (long)i, err);
+          if (idx < 0) return false;
+          uint32_t sq = ds.attr_id("fighterSquadronMaxSize");
+          uint32_t maxsq = 1;
+          if (sq && has(idx, sq)) {
+            double b = base(idx, sq);
+            maxsq = b <= 0.0 ? 0u : (b >= 4294967295.0 ? 4294967295u : (uint32_t)b);
+          }
+          maxsq = std::max<uint32_t>(maxsq, 1);
+          Item& it = items[idx];
+          it.owned = false;
+          it.state = p.fighter->active ? State::Active : State::Offline;
+          it.quantity = std::clamp<uint32_t>(p.fighter->quantity.value_or(maxsq), 1, maxsq);
+          it.active_count = it.quantity;
+          it.has_distance = p.distance_m.has_value();
+          it.distance = p.distance_m.value_or(0);
+          it.req_index = (int32_t)i;
+          it.fighter_abilities = p.fighter->abilities ? &*p.fighter->abilities : default_fighter_abilities(idx);
+        }
+      }
     } else if (p.kind == "fit") {
       // whole projected fit: compute the source fit on its own, then project each active module / drone as a
       // frozen item carrying the source-modified values
@@ -817,6 +818,9 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
         struct Frozen {
           uint32_t type_id, copies;
           std::vector<std::pair<uint32_t, double>> vals;
+          Kind kind;
+          uint32_t qty;
+          const std::vector<uint32_t>* abil;
         };
         std::vector<Frozen> frozen;
         for (uint32_t si = 0; si < src.items.size(); si++) {
@@ -824,8 +828,15 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
           uint32_t copies = 0;
           if (it.kind == Kind::Module && it.state >= State::Active) copies = 1;
           else if (it.kind == Kind::Drone) copies = it.active_count;
+          else if (it.kind == Kind::Fighter && it.state >= State::Active) copies = 1;
           if (copies == 0) continue;
-          Frozen fz{it.type_id, copies, {}};
+          const std::vector<uint32_t>* abil = nullptr;
+          if (it.fighter_abilities) {  // copy: the source fit (and its lists) goes away
+            auto cp = std::make_unique<std::vector<uint32_t>>(*it.fighter_abilities);
+            abil = cp.get();
+            list_store_.push_back(std::move(cp));
+          }
+          Frozen fz{it.type_id, copies, {}, it.kind, it.quantity, abil};
           for (uint32_t a : src.attr_keys(si)) fz.vals.push_back({a, src.get(si, a)});
           frozen.push_back(std::move(fz));
         }
@@ -840,6 +851,11 @@ bool Fit::build(const FitRequest& req, EngineError& err, bool no_projected, bool
             it.has_distance = p.distance_m.has_value();
             it.distance = p.distance_m.value_or(0);
             it.req_index = (int32_t)i;
+            if (fz.kind == Kind::Fighter) {
+              it.quantity = fz.qty;
+              it.active_count = fz.qty;
+              it.fighter_abilities = fz.abil;
+            }
             for (auto& [a, v] : fz.vals) set_base(idx, a, v);
           }
         }
@@ -987,6 +1003,38 @@ void Fit::for_targets(uint32_t src, int func, int domain, uint32_t extra, F&& f)
   }
 }
 
+// Pyfa default: standard attack on; other abilities (except MWD/evasive/MJD) on only if they come before the
+// standard attack in effect order.
+const std::vector<uint32_t>* Fit::default_fighter_abilities(uint32_t idx) {
+  std::vector<uint32_t> ids;
+  for (auto& e : items[idx].effs) ids.push_back(e.id);
+  std::sort(ids.begin(), ids.end());
+  auto on = std::make_unique<std::vector<uint32_t>>();
+  bool std_seen = false;
+  for (uint32_t e : ids) {
+    const EffRec* er = ds.effect(e);
+    if (!er) continue;
+    std::string_view n = ds.effect_name(*er);
+    if (n.substr(0, 14) != "fighterAbility") continue;
+    if (n == "fighterAbilityAttackM") {
+      on->push_back(e);
+      std_seen = true;
+    } else if (!std_seen && n != "fighterAbilityMicroWarpDrive" && n != "fighterAbilityEvasiveManeuvers" &&
+               n != "fighterAbilityMicroJumpDrive") {
+      on->push_back(e);
+    }
+  }
+  const std::vector<uint32_t>* r = on.get();
+  list_store_.push_back(std::move(on));
+  return r;
+}
+
+// base value of an attribute present on the item (fit-local or type), else 0 (like attrs.get(..).base)
+double Fit::pbase(uint32_t i, std::string_view attr_name) const {
+  uint32_t a = ds.attr_id(attr_name);
+  return a && has(i, a) ? base(i, a) : 0.0;
+}
+
 State Fit::effective_state(uint32_t i) const {
   const Item& it = items[i];
   switch (it.kind) {
@@ -1122,10 +1170,15 @@ void Fit::register_projected(uint32_t i) {
   const uint32_t src_cat = items[i].category;
   const State state = items[i].state;
   const std::span<const TEff> effs = items[i].effs;
+  const std::vector<uint32_t>* abilities = items[i].fighter_abilities;
+  const double qty = (double)std::max<uint32_t>(items[i].quantity, 1);
   for (const TEff& te : effs) {
     const EffRec* e = ds.effect(te.id);
     if (!e) continue;
-    if (e->category != 2 && e->category != 3) continue;
+    std::string_view ename = ds.effect_name(*e);
+    const bool fab = ename.substr(0, 14) == "fighterAbility";
+    if (e->category != 2 && e->category != 3 && ename != "ECMBurstJammer") continue;
+    if (abilities && fab && std::find(abilities->begin(), abilities->end(), te.id) == abilities->end()) continue;
     if (state < State::Active) continue;
     double opt = 0, fo = 0;
     if (e->range_attr && find(i, e->range_attr) >= 0) opt = base(i, e->range_attr);
@@ -1134,9 +1187,21 @@ void Fit::register_projected(uint32_t i) {
     double factor = range_factor_local(opt, fo, items[i].has_distance, items[i].distance, true);
     uint32_t resist = e->resistance_attr;
     if (!e->resistance_attr) {
-      resist = 0;
-      if (K.remoteResistanceID && has(i, K.remoteResistanceID)) resist = (uint32_t)base(i, K.remoteResistanceID);
+      auto look = [&](uint32_t a) -> uint32_t {
+        if (!a || !has(i, a)) return 0;
+        double b = base(i, a);
+        return b <= 0.0 ? 0u : (b >= 4294967295.0 ? 4294967295u : (uint32_t)b);
+      };
+      if (fab) {
+        std::string en(ename);
+        resist = look(ds.attr_id(en + "ResistanceID"));
+        if (resist == 0) resist = look(ds.attr_id(en + "RemoteResistanceID"));
+      } else {
+        resist = look(K.remoteResistanceID);
+      }
     }
+    uint32_t dom = ds.attr_id("disallowOffensiveModifiers");
+    const bool target_offense_ok = !(dom && has(ship, dom)) || base(ship, dom) == 0.0;
     auto push = [&](uint32_t target_attr, uint32_t src_attr, int op) {
       Src s;
       s.k = Src::Proj;
@@ -1154,8 +1219,34 @@ void Fit::register_projected(uint32_t i) {
         if ((m.domain == 5 || m.domain == 6 || m.domain == 1) && m.func == 0) push(m.modified, m.modifying, m.op);
       continue;
     }
-    std::string_view name = ds.effect_name(*e);
+    std::string_view name = ename;
     auto starts = [&](std::string_view p) { return name.substr(0, p.size()) == p; };
+    auto push_f = [&](uint32_t target_attr, int op, uint32_t src_attr, double f) {
+      Src s;
+      s.k = Src::Proj;
+      s.a = i;
+      s.b = src_attr;
+      s.c = ship;
+      s.d = resist;
+      s.f = f;
+      s.mul = false;
+      push_mod(ship, target_attr, op, s, src_cat);
+    };
+    if (name == "fighterAbilityStasisWebifier") {
+      if (target_offense_ok) {
+        double f = range_factor_local(pbase(i, "fighterAbilityStasisWebifierOptimalRange"),
+                                      pbase(i, "fighterAbilityStasisWebifierFalloffRange"), items[i].has_distance,
+                                      items[i].distance, true) *
+                   qty;
+        push_f(K.maxVelocity, 6, ds.attr_id("fighterAbilityStasisWebifierSpeedPenalty"), f);
+      }
+      continue;
+    }
+    if (name == "fighterAbilityWarpDisruption") {
+      if (target_offense_ok && pbase(i, "fighterAbilityWarpDisruptionRange") >= (items[i].has_distance ? items[i].distance : 0.0))
+        push_f(K.warpScrambleStatus, 2, ds.attr_id("fighterAbilityWarpDisruptionPointStrength"), qty);
+      continue;
+    }
     if (starts("remoteWebifier") || name == "structureModuleEffectStasisWebifier") {
       push(K.maxVelocity, K.speedFactor, 6);
     } else if (starts("remoteTargetPaint") || name == "structureModuleEffectTargetPainter") {
@@ -1202,6 +1293,17 @@ bool Fit::proj_special_for(uint32_t i, std::string_view name, uint32_t resist, s
   auto drain = [&](uint32_t amt, uint32_t dur, double factor, double sign) {
     out.push_back(ProjSpecial{false, 0, i, amt, dur, resist, 1.0, factor, sign});
   };
+  uint32_t dom = ds.attr_id("disallowOffensiveModifiers");
+  const bool no_offense = dom && has(ship, dom) && base(ship, dom) != 0.0;
+  auto ecm = [&](bool fighter, double factor) {
+    if (!no_offense) {
+      ProjSpecial ps{false, 0, i, 0, 0, resist, 1.0, factor, 0.0};
+      ps.ecm = true;
+      ps.fighter = fighter;
+      out.push_back(ps);
+    }
+  };
+  const double fq = (double)std::max<uint32_t>(it.quantity, 1);
   bool paste = it.charge >= 0 && ds.type_name(*items[it.charge].t) == "Nanite Repair Paste";
   if (name == "shipModuleRemoteShieldBooster" || name == "shipModuleAncillaryRemoteShieldBooster") rep(0, K.shieldBonus, 1.0, falloff_factor());
   else if (name == "shipModuleRemoteArmorRepairer" || name == "ShipModuleRemoteArmorMutadaptiveRepairer") rep(1, K.armorDamageAmount, 1.0, falloff_factor());
@@ -1213,6 +1315,18 @@ bool Fit::proj_special_for(uint32_t i, std::string_view name, uint32_t resist, s
   else if (name == "shipModuleRemoteCapacitorTransmitter") {
     if (!no_assist) drain(K.powerTransferAmount, K.duration, gate(bse(K.maxRange)), -1.0);
   } else if (name == "energyNeutralizerFalloff") drain(K.energyNeutralizerAmount, K.duration, falloff_factor(), 1.0);
+  else if (name == "fighterAbilityEnergyNeutralizer") {
+    double f = range_factor_local(pbase(i, "fighterAbilityEnergyNeutralizerOptimalRange"),
+                                  pbase(i, "fighterAbilityEnergyNeutralizerFalloffRange"), it.has_distance, it.distance, true);
+    drain(ds.attr_id("fighterAbilityEnergyNeutralizerAmount"), ds.attr_id("fighterAbilityEnergyNeutralizerDuration"), f * fq, 1.0);
+  } else if (name == "remoteECMFalloff" || name == "structureModuleEffectECM") ecm(false, falloff_factor());
+  else if (name == "entityECMFalloff") ecm(false, gate(pbase(i, "ECMRangeOptimal")));
+  else if (name == "ECMBurstJammer") ecm(false, gate(pbase(i, "ecmBurstRange")));
+  else if (name == "fighterAbilityECM") {
+    double f = range_factor_local(pbase(i, "fighterAbilityECMRangeOptimal"), pbase(i, "fighterAbilityECMRangeFalloff"),
+                                  it.has_distance, it.distance, true);
+    ecm(true, f * fq);
+  }
   else if (name == "energyNosferatuFalloff") drain(K.powerTransferAmount, K.duration, falloff_factor(), 1.0);
   else if (name == "structureEnergyNeutralizerFalloff") drain(K.energyNeutralizerAmount, K.duration, 1.0, 1.0);
   else if (name == "entityEnergyNeutralizerFalloff")

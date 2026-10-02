@@ -60,6 +60,7 @@ struct Projected {
   std::optional<ModuleReq> module;
   std::optional<DroneReq> drone;
   std::shared_ptr<FitRequest> fit;
+  std::optional<FighterReq> fighter;
   uint32_t amount = 1;
   std::optional<double> distance_m;
 };

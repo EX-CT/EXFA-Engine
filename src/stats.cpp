@@ -574,7 +574,9 @@ void Calc::run(JW& w) {
     dps.json(wd);
     wd.key("drone_index");
     idx_or_null(wd, f.items[i].req_index);
-    wd.ks("name", tname(i)).ki("type_id", f.items[i].type_id).key("volley");
+    wd.kn("falloff_m", g(i, K.falloff)).kn("max_velocity", g(i, K.maxVelocity)).ks("name", tname(i));
+    wd.kn("optimal_m", g(i, K.maxRange)).kn("signature_radius", g(i, K.signatureRadius)).kn("tracking", g(i, K.trackingSpeed));
+    wd.ki("type_id", f.items[i].type_id).key("volley");
     v.json(wd);
     wd.end_obj();
   }
@@ -618,7 +620,8 @@ void Calc::run(JW& w) {
       fd.json(wf);
       wf.key("fighter_index");
       idx_or_null(wf, f.items[i].req_index);
-      wf.ks("name", tname(i)).kn("squadron_size", n).ki("type_id", f.items[i].type_id).key("volley");
+      wf.kn("max_velocity", g(i, K.maxVelocity)).ks("name", tname(i)).kn("signature_radius", g(i, K.signatureRadius));
+      wf.kn("squadron_size", n).ki("type_id", f.items[i].type_id).key("volley");
       fv.json(wf);
       wf.end_obj();
     }
@@ -735,7 +738,7 @@ void Calc::run(JW& w) {
   {
     double sig_now = g(ship, K.signatureRadius);
     for (auto& ps : f.proj_special) {
-      if (ps.rep) continue;
+      if (ps.rep || ps.ecm) continue;
       double need = g(ps.item, ps.amount) * ps.factor * ps.sign;
       if (ps.resist != 0) need *= g(ship, ps.resist);
       double sres = g(ps.item, K.energyNeutralizerSignatureResolution);
@@ -878,6 +881,39 @@ void Calc::run(JW& w) {
     if (v > best_v) {
       best_v = v;
       best_n = snames[k];
+    }
+  }
+  // ECM jam chance (Pyfa Fit.jamChance): strengths vs the strongest sensor type (ties -> multispectral -> 0)
+  double jam = 0.0;
+  {
+    bool any = false;
+    for (auto& ps : f.proj_special)
+      if (ps.ecm) any = true;
+    if (any) {
+      static const char* TY[4] = {"Magnetometric", "Ladar", "Radar", "Gravimetric"};
+      double max_s = -1.0;
+      int ty = -1;
+      for (int k = 0; k < 4; k++) {
+        double v = g(ship, ds.attr_id(std::string("scan") + TY[k] + "Strength"));
+        if (v > max_s) {
+          max_s = v;
+          ty = k;
+        } else if (v == max_s) {
+          ty = -1;
+        }
+      }
+      double retain = 1.0;
+      for (auto& ps : f.proj_special) {
+        if (!ps.ecm || ty < 0) continue;
+        std::string an = ps.fighter ? std::string("fighterAbilityECMStrength") + TY[ty] : std::string("scan") + TY[ty] + "StrengthBonus";
+        double st = g(ps.item, ds.attr_id(an)) * ps.factor;
+        if (ps.resist != 0) {
+          double r = g(ship, ps.resist);
+          if (r != 0.0) st *= r;
+        }
+        if (max_s > 0.0) retain *= 1.0 - std::min(st / max_s, 1.0);
+      }
+      jam = (1.0 - retain) * 100.0;
     }
   }
   double scan_res = g(ship, K.scanResolution);
@@ -1029,7 +1065,7 @@ void Calc::run(JW& w) {
       if (v) w.num(*v);
       else w.null();
     };
-    w.key("targeting").obj().key("lock_time_s").obj();
+    w.key("targeting").obj().kn("jam_chance_percent", jam).key("lock_time_s").obj();
     opt("sig_125m", lock_time(scan_res, 125.0));
     opt("sig_25m", lock_time(scan_res, 25.0));
     opt("sig_400m", lock_time(scan_res, 400.0));
