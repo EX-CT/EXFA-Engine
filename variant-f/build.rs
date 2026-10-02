@@ -444,6 +444,112 @@ fn main() {
     arr(&mut out, "TYPE_NAME_OFF", "u32", &noff);
     skills.sort();
     arr(&mut out, "PUBLISHED_SKILLS", "u32", &skills);
+
+    // ---- folded skills: a published skill's attributes are only ever modified by the skill's own Item-domain
+    // modifiers (verified below), so every value a skill exports is a pure function of its level (0..5).
+    // We evaluate those at build time and compile each skill's outbound modifiers with constant sources.
+    {
+        let skill_groups: BTreeSet<u32> = gl.iter().filter(|g| g.1 == 16).map(|g| g.0).collect();
+        for e in &el {
+            for m in &e.mods {
+                if m[1] == 2 && (m[0] == 1 || (m[0] == 2 && skill_groups.contains(&(m[5] as u32)))) {
+                    panic!("effect {} modifies skill attributes (char location); skill folding assumption broken", e.name);
+                }
+            }
+        }
+        let structure_ok: Vec<u32> = [
+            "targetingMaxTargetBonusModAddMaxLockedTargetsLocationChar",
+            "skillStructureMissileDamageBonus",
+            "skillStructureElectronicSystemsCapNeedBonus",
+            "skillStructureEngineeringSystemsCapNeedBonus",
+            "skillStructureDoomsdayDurationBonus",
+        ]
+        .iter()
+        .map(|n| eid(n))
+        .collect();
+        let mut vals_tab: Vec<String> = Vec::new();
+        let mut code = String::new();
+        code.push_str("/// Outbound modifiers of published skill #`k` (index into PUBLISHED_SKILLS) at level `l`, sources folded to constants.\n");
+        code.push_str("#[allow(unused_variables, clippy::all)]\npub fn apply_skill(f: &mut Fit, k: usize, l: usize) {\n    match k {\n");
+        let mut n_folded = 0usize;
+        for (k, sid) in skills.iter().enumerate() {
+            let t = &types[&sid.to_string()];
+            let mut base: BTreeMap<u32, f64> = t["attrs"]
+                .as_object()
+                .map(|o| o.iter().map(|(k, v)| (k.parse().unwrap(), v.as_f64().unwrap_or(0.0))).collect())
+                .unwrap_or_default();
+            let f = |k: &str| t[k].as_f64().unwrap_or(0.0);
+            for (a, v) in [(4u32, f("mass")), (38, f("capacity")), (161, f("volume")), (162, f("radius"))] {
+                if v != 0.0 || !base.contains_key(&a) {
+                    base.insert(a, v);
+                }
+            }
+            // applicable effects (skills are always "online": categories 0, 4, 7)
+            let effs: Vec<&Eff> = t["effects"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|e| eidx.get(&u(&e[0]).unwrap()).map(|ix| &el[*ix]))
+                .filter(|e| e.id != SKILL_EFFECT && matches!(e.cat, 0 | 4 | 7))
+                .collect();
+            let own: Vec<(u32, i64, u32)> = effs
+                .iter()
+                .flat_map(|e| e.mods.iter())
+                .filter(|m| m[0] == 0 && m[1] == 0 && m[4] != 9)
+                .map(|m| (m[2] as u32, m[4], m[3] as u32))
+                .collect();
+            let mut body = String::new();
+            let mut src_slot: BTreeMap<u32, usize> = BTreeMap::new();
+            for e in &effs {
+                let mut eb = String::new();
+                for m in &e.mods {
+                    let (func, dom, modified, modifying, op, extra) = (m[0], m[1], m[2] as u32, m[3] as u32, m[4], m[5] as u32);
+                    if func >= 5 || op == 9 || dom == 5 || dom == 6 || dom == 0 || dom == 3 {
+                        continue;
+                    }
+                    let slot = *src_slot.entry(modifying).or_insert_with(|| {
+                        let row: Vec<String> = (0..6).map(|l| lit(skill_eval(&base, &own, modifying, l as f64, &a_def, &a_flags, &a_min, &a_max, amax, &mut Vec::new()))).collect();
+                        vals_tab.push(format!("[{}]", row.join(",")));
+                        vals_tab.len() - 1
+                    });
+                    let skill = if extra == 0 && (func == 3 || func == 4) { *sid } else { extra };
+                    let args = format!("{modified}, {op}, SKILL_VALS[{slot}][l]");
+                    let call = match (dom, func) {
+                        (1, 0) | (4, 0) => format!("f.c_item(f.ship, {args});"),
+                        (1, 1) | (4, 1) => format!("f.c_ship_loc({args});"),
+                        (1, 2) | (4, 2) => format!("f.c_ship_group({extra}, {args});"),
+                        (1, 3) | (4, 3) => format!("f.c_ship_skill({skill}, {args});"),
+                        (1, 4) | (4, 4) => format!("f.c_owner_skill({skill}, {args});"),
+                        (2, 0) => format!("f.c_item(f.char, {args});"),
+                        (2, 2) => format!("f.c_char_group({extra}, {args});"),
+                        (2, 3) | (2, 4) => format!("f.c_char_skill({skill}, {args});"),
+                        _ => panic!("unexpected skill modifier {m:?} in {}", e.name),
+                    };
+                    n_folded += 1;
+                    if dom == 4 {
+                        write!(eb, " if f.is_structure {{ {call} }}").unwrap();
+                    } else {
+                        write!(eb, " {call}").unwrap();
+                    }
+                }
+                if eb.is_empty() {
+                    continue;
+                }
+                if structure_ok.contains(&e.id) {
+                    writeln!(body, "           {eb} // {}", e.name).unwrap();
+                } else {
+                    writeln!(body, "            if !f.is_structure {{{eb} }} // {}", e.name).unwrap();
+                }
+            }
+            if !body.is_empty() {
+                writeln!(code, "        {k} => {{ // {}\n{body}        }}", names[tl.binary_search_by_key(sid, |x| x.0).unwrap()]).unwrap();
+            }
+        }
+        code.push_str("        _ => {}\n    }\n}\n");
+        out.push_str(&code);
+        arr(&mut out, "SKILL_VALS", "[f64; 6]", &vals_tab);
+        writeln!(out, "pub const FOLDED_SKILL_MODIFIERS: usize = {n_folded};").unwrap();
+    }
     // name -> type index (lowercase), published types win, then lowest id
     let mut by_name: BTreeMap<String, (bool, u32, usize)> = BTreeMap::new();
     for (ix, (id, t)) in tl.iter().enumerate() {
@@ -565,4 +671,67 @@ fn main() {
 
     let dst = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("gen.rs");
     std::fs::write(&dst, out).unwrap();
+}
+
+/// Evaluate attribute `attr` of a skill at level `lvl` with only the skill's own Item-domain modifiers
+/// (same operator order / caps as the runtime evaluator; skills are exempt from stacking penalties).
+#[allow(clippy::too_many_arguments)]
+fn skill_eval(
+    base: &BTreeMap<u32, f64>,
+    own: &[(u32, i64, u32)],
+    attr: u32,
+    lvl: f64,
+    a_def: &[f64],
+    a_flags: &[u8],
+    a_min: &[u16],
+    a_max: &[u16],
+    amax: usize,
+    busy: &mut Vec<u32>,
+) -> f64 {
+    let b = if attr == 280 { lvl } else { base.get(&attr).copied().unwrap_or_else(|| if (attr as usize) <= amax { a_def[attr as usize] } else { 0.0 }) };
+    let present = attr == 280 || base.contains_key(&attr) || own.iter().any(|m| m.0 == attr);
+    if !present {
+        return b;
+    }
+    if busy.contains(&attr) {
+        return b;
+    }
+    busy.push(attr);
+    let mut val = b;
+    let hig = (attr as usize) > amax || a_flags[attr as usize] & 1 == 0 || a_flags[attr as usize] & 4 != 0;
+    for op in -1i64..=7 {
+        let mut assign: Option<f64> = None;
+        for &(m, o, src) in own {
+            if m != attr || o != op {
+                continue;
+            }
+            let v = skill_eval(base, own, src, lvl, a_def, a_flags, a_min, a_max, amax, busy);
+            match op {
+                -1 | 7 => assign = Some(match assign { None => v, Some(c) => if hig { c.max(v) } else { c.min(v) } }),
+                2 => val += v,
+                3 => val -= v,
+                0 | 4 => val *= v,
+                1 | 5 => val *= if v == 0.0 { 1.0 } else { 1.0 / v },
+                6 => val *= 1.0 + v / 100.0,
+                _ => {}
+            }
+        }
+        if let Some(v) = assign {
+            val = v;
+        }
+    }
+    if (attr as usize) <= amax {
+        let (mn, mx) = (a_min[attr as usize], a_max[attr as usize]);
+        if mn != 0 {
+            val = val.max(skill_eval(base, own, mn as u32, lvl, a_def, a_flags, a_min, a_max, amax, busy));
+        }
+        if mx != 0 {
+            val = val.min(skill_eval(base, own, mx as u32, lvl, a_def, a_flags, a_min, a_max, amax, busy));
+        }
+        if a_flags[attr as usize] & 8 != 0 {
+            val = (val * 100.0).round() / 100.0;
+        }
+    }
+    busy.pop();
+    val
 }

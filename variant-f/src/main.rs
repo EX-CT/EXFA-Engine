@@ -92,7 +92,22 @@ fn main() {
                 std::hint::black_box(eve_dogma_f::calc(&req));
             }
             let el = t1.elapsed().as_secs_f64();
-            writeln!(out, "{}", serde_json::json!({"iterations": n, "total_s": el, "per_calc_us": el / n as f64 * 1e6})).unwrap();
+            // phase breakdown: build+register / stats / serialize
+            let (mut tb, mut ts, mut tj) = (0f64, 0f64, 0f64);
+            for _ in 0..n {
+                let t = Instant::now();
+                let fit = eve_dogma_f::engine::Fit::build(&req).expect("build");
+                let t2 = Instant::now();
+                let v = fit.compute_stats(&req);
+                let t3 = Instant::now();
+                std::hint::black_box(serde_json::to_string(&v).unwrap());
+                tj += t3.elapsed().as_secs_f64();
+                ts += (t3 - t2).as_secs_f64();
+                tb += (t2 - t).as_secs_f64();
+            }
+            let us = |x: f64| x / n as f64 * 1e6;
+            writeln!(out, "{}", serde_json::json!({"iterations": n, "total_s": el, "per_calc_us": el / n as f64 * 1e6,
+                "build_us": us(tb), "stats_us": us(ts), "serialize_us": us(tj)})).unwrap();
         }
         _ => {
             eprintln!("{USAGE}");

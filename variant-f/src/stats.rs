@@ -729,13 +729,7 @@ impl Fit {
             }
         }
         // skills
-        let mut have: Vec<(u32, f64)> = Vec::new();
-        for (i, it) in self.items.iter().enumerate() {
-            if it.kind == Kind::Skill {
-                have.push((it.type_id, self.base(i, crate::engine::ATTR_SKILL_LEVEL)));
-            }
-        }
-        have.sort_by_key(|x| x.0);
+        let have: Vec<(u32, f64)> = self.skill_levels.iter().map(|&(s, l)| (s, l.min(5) as f64)).collect();
         const SKILL_ATTRS: [(u16, u16); 6] = [
             (a::requiredSkill1, a::requiredSkill1Level),
             (a::requiredSkill2, a::requiredSkill2Level),

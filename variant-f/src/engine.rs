@@ -123,6 +123,10 @@ pub struct Fit {
     by_group: Vec<(u32, u32)>,
     /// (required skill, item) sorted
     by_skill: Vec<(u32, u32)>,
+    /// every skill level of the character (folded or instantiated), sorted by skill id
+    pub skill_levels: Vec<(u32, u8)>,
+    /// published skills handled by compiled, level-folded code: (index into PUBLISHED_SKILLS, level)
+    folded: Vec<(u16, u8)>,
 }
 
 #[derive(Debug)]
@@ -318,6 +322,58 @@ impl Fit {
             }
         }
     }
+    // folded skill modifiers: constant source, skills are exempt from stacking penalties
+    #[inline]
+    pub fn c_item(&mut self, t: usize, modified: u16, op: i8, v: f64) {
+        self.push(t, modified, op, false, Src::Const(v));
+    }
+    pub fn c_ship_loc(&mut self, modified: u16, op: i8, v: f64) {
+        for k in 0..self.ship_items.len() {
+            let t = self.ship_items[k] as usize;
+            self.c_item(t, modified, op, v);
+        }
+    }
+    pub fn c_ship_group(&mut self, g: u32, modified: u16, op: i8, v: f64) {
+        for k in range_of(&self.by_group, g) {
+            let t = self.by_group[k].1 as usize;
+            if self.items[t].loc == Loc::Ship {
+                self.c_item(t, modified, op, v);
+            }
+        }
+    }
+    pub fn c_ship_skill(&mut self, s: u32, modified: u16, op: i8, v: f64) {
+        for k in range_of(&self.by_skill, s) {
+            let t = self.by_skill[k].1 as usize;
+            if self.items[t].loc == Loc::Ship {
+                self.c_item(t, modified, op, v);
+            }
+        }
+    }
+    pub fn c_owner_skill(&mut self, s: u32, modified: u16, op: i8, v: f64) {
+        for k in range_of(&self.by_skill, s) {
+            let t = self.by_skill[k].1 as usize;
+            if self.items[t].owned {
+                self.c_item(t, modified, op, v);
+            }
+        }
+    }
+    pub fn c_char_group(&mut self, g: u32, modified: u16, op: i8, v: f64) {
+        for k in range_of(&self.by_group, g) {
+            let t = self.by_group[k].1 as usize;
+            if self.items[t].loc == Loc::Char {
+                self.c_item(t, modified, op, v);
+            }
+        }
+    }
+    pub fn c_char_skill(&mut self, s: u32, modified: u16, op: i8, v: f64) {
+        for k in range_of(&self.by_skill, s) {
+            let t = self.by_skill[k].1 as usize;
+            let it = &self.items[t];
+            if (it.owned || it.loc == Loc::Char) && it.kind != Kind::Skill {
+                self.c_item(t, modified, op, v);
+            }
+        }
+    }
     // warfare buffs (never exempt from stacking)
     pub fn b_item(&mut self, attr: u16, op: i8, src: Src, _s: usize) {
         let ship = self.ship;
@@ -456,6 +512,8 @@ impl Fit {
             char_items: Vec::new(),
             by_group: Vec::new(),
             by_skill: Vec::new(),
+            skill_levels: Vec::new(),
+            folded: Vec::with_capacity(d::PUBLISHED_SKILLS.len()),
         };
         let ship = fit.new_item(req.ship.type_id, Kind::Ship, Loc::Ship, "/ship/type_id")?;
         fit.ship = ship;
@@ -477,14 +535,22 @@ impl Fit {
                 }
             }
         }
-        for (s, l) in levels {
+        for &(s, l) in &levels {
             if d::type_index(s).is_none() {
                 continue;
+            }
+            // fast path: published skill without attribute overrides -> compiled, level-folded modifiers
+            if let Ok(k) = d::PUBLISHED_SKILLS.binary_search(&s) {
+                if !req.overrides.iter().any(|o| o.type_id == s) {
+                    fit.folded.push((k as u16, l.min(5)));
+                    continue;
+                }
             }
             let idx = fit.new_item(s, Kind::Skill, Loc::Char, "/character/skills")?;
             fit.set_base(idx, ATTR_SKILL_LEVEL, l.min(5) as f64);
             fit.items[idx].owned = false;
         }
+        fit.skill_levels = levels;
         // T3D: default mode resolved at build time (lowest mode type id named after the hull)
         let mode_id = req.ship.mode_type_id.or_else(|| {
             let m = d::default_mode(req.ship.type_id)?;
@@ -606,8 +672,10 @@ impl Fit {
                 _ => {}
             }
             self.by_group.push((it.group, i as u32));
-            for s in it.req_skills {
-                self.by_skill.push((*s, i as u32));
+            if it.kind != Kind::Skill {
+                for s in it.req_skills {
+                    self.by_skill.push((*s, i as u32));
+                }
             }
         }
         self.by_group.sort_unstable();
@@ -634,6 +702,9 @@ impl Fit {
         let n = self.items.len();
         let is_structure = self.is_structure;
         for i in 0..n {
+            if i == 2 {
+                self.apply_folded_skills();
+            }
             let kind = self.items[i].kind;
             if kind == Kind::Projected {
                 self.register_projected(i);
@@ -667,7 +738,18 @@ impl Fit {
                 d::apply_local(self, ei as u16, i, p);
             }
         }
+        if n <= 2 {
+            self.apply_folded_skills();
+        }
         self.register_buffs(req);
+    }
+
+    fn apply_folded_skills(&mut self) {
+        let folded = std::mem::take(&mut self.folded);
+        for &(k, l) in &folded {
+            d::apply_skill(self, k as usize, l as usize);
+        }
+        self.folded = folded;
     }
 
     fn register_projected(&mut self, i: usize) {
