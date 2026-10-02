@@ -1230,7 +1230,13 @@ impl Fit {
 
     fn src_value(&self, s: &Src) -> f64 {
         match *s {
-            Src::Attr { item, attr } => self.get(item as usize, attr),
+            Src::Attr { item, attr } => {
+                if d::attr_flags(attr) & d::AF_OVERLOAD != 0 && self.items[item as usize].kind == Kind::Module {
+                    self.eval_before(item as usize, attr)
+                } else {
+                    self.get(item as usize, attr)
+                }
+            }
             Src::Const(v) => v,
             Src::Prop { module } => {
                 let mut m = self.get(self.ship, a::mass);
@@ -1250,6 +1256,42 @@ impl Fit {
                 if mul { (v - 1.0) * f + 1.0 } else { v * f }
             }
         }
+    }
+
+    /// Pyfa evaluates effects module by module: an overheat effect reads its module's `overload*` attribute before
+    /// modules later in the fit have applied their modifiers (e.g. a Tengu defensive subsystem listed after the
+    /// hardener does not boost overloadHardeningBonus yet). Value of (i, attr) ignoring modifiers whose source is
+    /// a module after `i`.
+    fn eval_before(&self, i: usize, attr: u16) -> f64 {
+        let Some(s) = self.slot_of(i, attr).map(|s| s as usize) else { return self.get(i, attr) };
+        let slot = &self.slots[s];
+        let mut vals: Vec<(i8, bool, f64)> = Vec::new();
+        let mut present = 0u16;
+        let mut skipped = false;
+        let mut cur = slot.head;
+        for _ in 0..slot.n {
+            let (m, next) = &self.mods[cur as usize];
+            cur = *next;
+            let src_item = match m.src {
+                Src::Attr { item, .. } => Some(item as usize),
+                Src::Prop { module } => Some(module as usize),
+                _ => None,
+            };
+            if let Some(si) = src_item {
+                if si > i && self.items[si].kind == Kind::Module && self.items[si].loc == Loc::Ship {
+                    skipped = true;
+                    continue;
+                }
+            }
+            vals.push((m.op, m.pen, self.src_value(&m.src)));
+            present |= 1 << ((m.op + 1) as u16 & 15);
+        }
+        if !skipped {
+            return self.get(i, attr);
+        }
+        let hig = d::attr_flags(attr) & d::AF_HIGH_IS_GOOD != 0 || d::attr_flags(attr) & 1 == 0;
+        let val = combine(slot.base, hig, &vals, present);
+        self.post(i, attr, val)
     }
 
     fn eval(&self, i: usize, attr: u16, s: usize) -> f64 {
@@ -1281,92 +1323,7 @@ impl Fit {
                 vals[k] = (m.op, m.pen, self.src_value(&m.src));
                 present |= 1 << ((m.op + 1) as u16 & 15);
             }
-            // Pyfa folds every non-penalised post multiplier (postMul / postDiv / postPercent) into one product
-            // and applies it once before the penalised ones (val * (m1 * m2)), which matters for float-exact
-            // results that are later truncated (e.g. cap-sim cycle times).
-            let mut post_mult = 1.0f64;
-            let mut post_any = false;
-            for &(o, pen, v) in vals.iter() {
-                if !pen && (4..=6).contains(&o) {
-                    post_mult *= match o {
-                        4 => v,
-                        5 => {
-                            if v == 0.0 { 1.0 } else { 1.0 / v }
-                        }
-                        _ => 1.0 + v / 100.0,
-                    };
-                    post_any = true;
-                }
-            }
-            for op in -1i8..=7 {
-                if op == 4 && post_any {
-                    val *= post_mult;
-                }
-                if present & (1 << (op + 1)) == 0 {
-                    continue;
-                }
-                let mut assign: Option<f64> = None;
-                let mut pos = [0f64; 32];
-                let mut neg = [0f64; 32];
-                let (mut np, mut nn) = (0usize, 0usize);
-                let mut pos_v: Vec<f64> = Vec::new();
-                let mut neg_v: Vec<f64> = Vec::new();
-                for &(o, pen, v) in vals.iter() {
-                    if o != op {
-                        continue;
-                    }
-                    match op {
-                        -1 | 7 => {
-                            assign = Some(match assign {
-                                None => v,
-                                Some(c) => {
-                                    if hig { c.max(v) } else { c.min(v) }
-                                }
-                            });
-                        }
-                        2 => val += v,
-                        3 => val -= v,
-                        _ => {
-                            let m = match op {
-                                0 | 4 => v,
-                                1 | 5 => {
-                                    if v == 0.0 { 1.0 } else { 1.0 / v }
-                                }
-                                6 => 1.0 + v / 100.0,
-                                _ => 1.0,
-                            };
-                            if pen {
-                                if m > 1.0 {
-                                    if np < 32 { pos[np] = m; np += 1 } else { pos_v.push(m) }
-                                } else if m < 1.0 {
-                                    if nn < 32 { neg[nn] = m; nn += 1 } else { neg_v.push(m) }
-                                }
-                            } else if op < 4 {
-                                val *= m;
-                            }
-                        }
-                    }
-                }
-                if let Some(v) = assign {
-                    val = v;
-                }
-                if np + nn > 0 {
-                    for (list, extra) in [(&mut pos[..np], &pos_v), (&mut neg[..nn], &neg_v)] {
-                        let mut l: Vec<f64>;
-                        let list: &mut [f64] = if extra.is_empty() {
-                            list
-                        } else {
-                            l = list.to_vec();
-                            l.extend_from_slice(extra);
-                            &mut l[..]
-                        };
-                        list.sort_by(|x, y| (y - 1.0).abs().partial_cmp(&(x - 1.0).abs()).unwrap_or(std::cmp::Ordering::Equal));
-                        for (k, m) in list.iter().enumerate() {
-                            val *= 1.0 + (m - 1.0) * PENALTY[k.min(PENALTY.len() - 1)];
-                        }
-                    }
-                }
-            }
+            val = combine(val, hig, vals, present);
         }
         let val = self.post(i, attr, val);
         slot.st.set(2);
@@ -1376,6 +1333,97 @@ impl Fit {
 }
 
 use crate::data::PENALTY;
+
+/// Apply resolved modifiers (op, penalised, value) to `val` in dogma operator order (Pyfa-compatible float order).
+fn combine(mut val: f64, hig: bool, vals: &[(i8, bool, f64)], present: u16) -> f64 {
+    // Pyfa folds every non-penalised post multiplier (postMul / postDiv / postPercent) into one product
+    // and applies it once before the penalised ones (val * (m1 * m2)), which matters for float-exact
+    // results that are later truncated (e.g. cap-sim cycle times).
+    let mut post_mult = 1.0f64;
+    let mut post_any = false;
+    for &(o, pen, v) in vals.iter() {
+        if !pen && (4..=6).contains(&o) {
+            post_mult *= match o {
+                4 => v,
+                5 => {
+                    if v == 0.0 { 1.0 } else { 1.0 / v }
+                }
+                _ => 1.0 + v / 100.0,
+            };
+            post_any = true;
+        }
+    }
+    for op in -1i8..=7 {
+        if op == 4 && post_any {
+            val *= post_mult;
+        }
+        if present & (1 << (op + 1)) == 0 {
+            continue;
+        }
+        let mut assign: Option<f64> = None;
+        let mut pos = [0f64; 32];
+        let mut neg = [0f64; 32];
+        let (mut np, mut nn) = (0usize, 0usize);
+        let mut pos_v: Vec<f64> = Vec::new();
+        let mut neg_v: Vec<f64> = Vec::new();
+        for &(o, pen, v) in vals.iter() {
+            if o != op {
+                continue;
+            }
+            match op {
+                -1 | 7 => {
+                    assign = Some(match assign {
+                        None => v,
+                        Some(c) => {
+                            if hig { c.max(v) } else { c.min(v) }
+                        }
+                    });
+                }
+                2 => val += v,
+                3 => val -= v,
+                _ => {
+                    let m = match op {
+                        0 | 4 => v,
+                        1 | 5 => {
+                            if v == 0.0 { 1.0 } else { 1.0 / v }
+                        }
+                        6 => 1.0 + v / 100.0,
+                        _ => 1.0,
+                    };
+                    if pen {
+                        if m > 1.0 {
+                            if np < 32 { pos[np] = m; np += 1 } else { pos_v.push(m) }
+                        } else if m < 1.0 {
+                            if nn < 32 { neg[nn] = m; nn += 1 } else { neg_v.push(m) }
+                        }
+                    } else if op < 4 {
+                        val *= m;
+                    }
+                }
+            }
+        }
+        if let Some(v) = assign {
+            val = v;
+        }
+        if np + nn > 0 {
+            for (list, extra) in [(&mut pos[..np], &pos_v), (&mut neg[..nn], &neg_v)] {
+                let mut l: Vec<f64>;
+                let list: &mut [f64] = if extra.is_empty() {
+                    list
+                } else {
+                    l = list.to_vec();
+                    l.extend_from_slice(extra);
+                    &mut l[..]
+                };
+                list.sort_by(|x, y| (y - 1.0).abs().partial_cmp(&(x - 1.0).abs()).unwrap_or(std::cmp::Ordering::Equal));
+                for (k, m) in list.iter().enumerate() {
+                    val *= 1.0 + (m - 1.0) * PENALTY[k.min(PENALTY.len() - 1)];
+                }
+            }
+        }
+    }
+    val
+}
 
 /// Slot from the type's slot effect (hiPower 12, medPower 13, loPower 11, rigSlot 2663, subSystem 3772, serviceSlot 6306).
 pub fn infer_slot(ty: usize) -> Option<Slot> {

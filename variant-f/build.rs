@@ -157,7 +157,8 @@ fn main() {
         let stackable = a["stackable"].as_bool().unwrap_or(true);
         let hig = a["high_is_good"].as_bool().unwrap_or(true);
         let round2 = matches!(name.as_str(), "cpu" | "power" | "cpuOutput" | "powerOutput");
-        a_flags[id] = 1 | (stackable as u8) << 1 | (hig as u8) << 2 | (round2 as u8) << 3;
+        let overload = name.starts_with("overload");
+        a_flags[id] = 1 | (stackable as u8) << 1 | (hig as u8) << 2 | (round2 as u8) << 3 | (overload as u8) << 4;
         a_min[id] = a["min_attr"].as_u64().map(|x| x as u16).unwrap_or(0);
         a_max[id] = a["max_attr"].as_u64().map(|x| x as u16).unwrap_or(0);
         a_names[id] = name;

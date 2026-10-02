@@ -36,6 +36,8 @@ include!(concat!(env!("OUT_DIR"), "/gen.rs"));
 pub const AF_STACKABLE: u8 = 2;
 pub const AF_HIGH_IS_GOOD: u8 = 4;
 pub const AF_ROUND2: u8 = 8;
+/// `overload*` attribute (read by overheat effects; see Fit::eval_before)
+pub const AF_OVERLOAD: u8 = 16;
 
 #[inline]
 pub fn type_index(id: u32) -> Option<usize> {
