@@ -1,7 +1,7 @@
 {
  "variant": "F",
- "cmd": "./target/release/eve-dogma-f calc",
- "batch_cmd": "./target/release/eve-dogma-f batch",
+ "cmd": "./target/eve-dogma-f-bench calc",
+ "batch_cmd": "./target/eve-dogma-f-bench batch",
  "cases": 249,
  "cases_fully_correct": 249,
  "values_correct": 13812,
@@ -622,26 +622,26 @@
  "errors": 0,
  "perf": {
   "single_process_per_case_ms": {
-   "median": 6.5676880039973184,
-   "min": 1.741658998071216,
-   "max": 23.029481002595276
+   "median": 1.8970390010508709,
+   "min": 1.1856979981530458,
+   "max": 10.821918003784958
   },
   "batch_corpus": {
-   "requests": 249,
-   "total_s": 0.09478266000223812,
-   "fits_per_s": 2627.0627981333328,
-   "avg_ms_incl_startup": 0.38065325302103664,
-   "responses": 249,
+   "requests": 1245,
+   "total_s": 0.2708905830004369,
+   "fits_per_s": 4595.951569117455,
+   "avg_ms_incl_startup": 0.21758279759071236,
+   "responses": 1245,
    "exit": 0
   },
   "latency_one_fit": {
    "case": "exct_rifter",
-   "n": 100,
-   "startup_plus_one_ms": 11.020393001672346,
-   "per_calc_ms": 0.4516955757733538
+   "n": 500,
+   "startup_plus_one_ms": 2.4771579992375337,
+   "per_calc_ms": 0.12400071944445111
   },
   "deterministic": true
  },
  "host": "x86_64",
- "time": "2026-10-03T04:24:23+0800"
+ "time": "2026-10-03T04:47:46+0800"
 }

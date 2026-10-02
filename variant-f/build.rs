@@ -192,7 +192,16 @@ fn main() {
     writeln!(out, "pub static GROUP_NAMES: &str = {gb:?};").unwrap();
     arr(&mut out, "GROUP_NAME_OFF", "u32", &goff);
     let group_by_name = |n: &str| gl.iter().find(|g| g.2 == n).map(|g| g.0).unwrap_or_else(|| panic!("group {n}"));
-    writeln!(out, "pub const G_CAPACITOR_BOOSTER: u32 = {};", group_by_name("Capacitor Booster")).unwrap();
+    for (c, n) in [
+        ("G_CAPACITOR_BOOSTER", "Capacitor Booster"),
+        ("G_SHIELD_BOOSTER", "Shield Booster"),
+        ("G_ANCILLARY_SHIELD_BOOSTER", "Ancillary Shield Booster"),
+        ("G_ARMOR_REPAIR_UNIT", "Armor Repair Unit"),
+        ("G_ANCILLARY_ARMOR_REPAIRER", "Ancillary Armor Repairer"),
+        ("G_HULL_REPAIR_UNIT", "Hull Repair Unit"),
+    ] {
+        writeln!(out, "pub const {c}: u32 = {};", group_by_name(n)).unwrap();
+    }
 
     // ------------------------------------------------------------ effects
     let effects = d["effects"].as_object().unwrap();

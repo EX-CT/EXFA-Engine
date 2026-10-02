@@ -1,6 +1,6 @@
 # Scorecard: F
 
-- command: `./target/release/eve-dogma-f calc`, batch: `./target/release/eve-dogma-f batch`
+- command: `./target/eve-dogma-f-bench calc`, batch: `./target/eve-dogma-f-bench batch`
 - cases fully correct: **249/249**
 - values correct: **13812/13812** (100.00 %)
 - engine errors: 0
@@ -18,8 +18,8 @@
 
 | perf | value |
 |---|---|
-| one process per case, median ms (cold start + calc) | 6.6 |
-| batch throughput (corpus x1) fits/s | 2627 |
-| latency one fit (exct_rifter) ms/calc | 0.452 |
-| startup + one calc ms | 11.0 |
+| one process per case, median ms (cold start + calc) | 1.9 |
+| batch throughput (corpus x5) fits/s | 4596 |
+| latency one fit (exct_rifter) ms/calc | 0.124 |
+| startup + one calc ms | 2.5 |
 | deterministic | True |

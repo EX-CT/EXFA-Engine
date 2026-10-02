@@ -142,6 +142,8 @@ pub struct Fit {
     pub rr: Vec<(u8, f64, f64)>,
     /// incoming cap drains/fills (neuts, nos, transfers) for the cap simulation
     pub ext_drains: Vec<ExtDrain>,
+    /// incoming ECM jammers
+    pub ext_ecm: Vec<ExtEcm>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -156,10 +158,20 @@ pub struct ExtDrain {
 
 /// One effect projected onto this fit, fully evaluated on the projecting side.
 enum ProjAction {
-    Mod { attr: u16, op: i8, v: f64, factor: f64, resist: u16, pen: bool },
+    /// `off`: offensive fighter ability (dropped on targets with disallowOffensiveModifiers)
+    Mod { attr: u16, op: i8, v: f64, factor: f64, resist: u16, pen: bool, off: bool },
     Rr { kind: u8, amount: f64, dur_s: f64 },
     Drain(ExtDrain),
+    /// ECM jam strengths (magnetometric, ladar, radar, gravimetric) already scaled by range/squadron, + resist attr
+    Ecm { st: [f64; 4], resist: u16 },
     Warn(String),
+}
+
+/// Incoming ECM (Pyfa addProjectedEcm): strengths per sensor type, target resistance attribute.
+#[derive(Debug, Clone, Copy)]
+pub struct ExtEcm {
+    pub st: [f64; 4],
+    pub resist: u16,
 }
 
 #[derive(Debug)]
@@ -583,6 +595,7 @@ impl Fit {
             ext: Vec::new(),
             rr: Vec::new(),
             ext_drains: Vec::new(),
+            ext_ecm: Vec::new(),
         };
         let ship = fit.new_item(req.ship.type_id, Kind::Ship, Loc::Ship, "/ship/type_id")?;
         fit.ship = ship;
@@ -700,6 +713,22 @@ impl Fit {
                             it.owned = false;
                             it.state = State::Active;
                             it.distance = p.distance_m;
+                        }
+                    }
+                }
+                "fighter" => {
+                    if let Some(f) = &p.fighter {
+                        for _ in 0..p.amount.max(1) {
+                            let idx = fit.new_item(f.type_id, Kind::Projected, Loc::Nowhere, &format!("/projected/{i}"))?;
+                            let maxsq = fit.base_opt(idx, a::fighterSquadronMaxSize).map(|v| v as u32).unwrap_or(1).max(1);
+                            let it = &mut fit.items[idx];
+                            it.owned = false;
+                            it.state = if f.active { State::Active } else { State::Offline };
+                            it.quantity = f.quantity.unwrap_or(maxsq).clamp(1, maxsq);
+                            it.active_count = it.quantity;
+                            it.distance = p.distance_m;
+                            it.req_index = Some(i);
+                            it.fighter_abilities = f.abilities.clone().unwrap_or_else(|| d::fighter_default_abilities(f.type_id).to_vec());
                         }
                     }
                 }
@@ -830,6 +859,9 @@ impl Fit {
                 } else {
                     d::apply_local(self, ei as u16, i, p);
                 }
+                if kind == Kind::Fighter && meta.flags & 8 != 0 {
+                    self.fighter_self_ability(i, eid, p);
+                }
             }
         }
         self.register_projectors(req);
@@ -837,6 +869,29 @@ impl Fit {
             self.apply_folded_skills();
         }
         self.register_buffs(req);
+    }
+
+    /// Fighter self abilities have no modifier data in the SDE (Pyfa hand-written handlers): compiled here.
+    fn fighter_self_ability(&mut self, i: usize, eid: u32, p: bool) {
+        let list: &[(u16, u16, i8)] = match eid {
+            e::fighterAbilityMicroWarpDrive => &[
+                (a::maxVelocity, a::fighterAbilityMicroWarpDriveSpeedBonus, 6),
+                (a::signatureRadius, a::fighterAbilityMicroWarpDriveSignatureRadiusBonus, 6),
+            ],
+            e::fighterAbilityAfterburner => &[(a::maxVelocity, a::fighterAbilityAfterburnerSpeedBonus, 6)],
+            e::fighterAbilityEvasiveManeuvers => &[
+                (a::maxVelocity, a::fighterAbilityEvasiveManeuversSpeedBonus, 6),
+                (a::signatureRadius, a::fighterAbilityEvasiveManeuversSignatureRadiusBonus, 6),
+                (a::shieldEmDamageResonance, a::fighterAbilityEvasiveManeuversEmResonance, 4),
+                (a::shieldThermalDamageResonance, a::fighterAbilityEvasiveManeuversThermResonance, 4),
+                (a::shieldKineticDamageResonance, a::fighterAbilityEvasiveManeuversKinResonance, 4),
+                (a::shieldExplosiveDamageResonance, a::fighterAbilityEvasiveManeuversExpResonance, 4),
+            ],
+            _ => return,
+        };
+        for &(t, s, op) in list {
+            self.push(i, t, op, p && !d::attr_stackable(t), Src::Attr { item: i as u32, attr: s });
+        }
     }
 
     fn apply_folded_skills(&mut self) {
@@ -872,20 +927,24 @@ impl Fit {
                     Kind::Module if it.state >= State::Active => collect_projection(sf, i, *dist, *amount, &mut acts),
                     // Pyfa projects a fit's drones at range 0
                     Kind::Drone if it.active_count > 0 => collect_projection(sf, i, Some(0.0), *amount * it.active_count, &mut acts),
-                    Kind::Fighter if it.active_count > 0 => acts.push(ProjAction::Warn("projected fighters are not modelled yet".into())),
+                    Kind::Fighter if it.active_count > 0 => collect_projection(sf, i, *dist, *amount, &mut acts),
                     _ => {}
                 }
             }
         }
         let ship = self.ship;
+        let no_offense = self.base(ship, a::disallowOffensiveModifiers) != 0.0;
         for a in acts {
             match a {
-                ProjAction::Mod { attr, op, v, factor, resist, pen } => {
+                ProjAction::Mod { off: true, .. } if no_offense => {}
+                ProjAction::Ecm { .. } if no_offense => {}
+                ProjAction::Mod { attr, op, v, factor, resist, pen, .. } => {
                     let mul = op == 4 || op == 0;
                     self.push(ship, attr, op, pen, Src::Projected { v, factor, resist, mul });
                 }
                 ProjAction::Rr { kind, amount, dur_s } => self.rr.push((kind, amount, dur_s)),
                 ProjAction::Drain(dr) => self.ext_drains.push(dr),
+                ProjAction::Ecm { st, resist } => self.ext_ecm.push(ExtEcm { st, resist }),
                 ProjAction::Warn(w) => {
                     if !self.warnings.contains(&w) {
                         self.warnings.push(w)
@@ -1253,14 +1312,34 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
     let pen_cat = !EXEMPT_CATEGORIES.contains(&sf.items[i].category);
     let effs: Vec<usize> = sf.items[i].effects().map(|x| x.0).collect();
     let paste = sf.items[i].charge.map(|c| sf.items[c].type_id == d::T_NANITE_REPAIR_PASTE).unwrap_or(false);
+    let qty = sf.items[i].quantity.max(1) as f64;
+    // the target never takes offensive modifiers (e.g. structures in some systems) -- checked by the caller's ship
     for ei in effs {
         let meta = d::EFF_META[ei];
-        if meta.cat != 2 && meta.cat != 3 {
+        let eid = d::EFF_IDS[ei];
+        if meta.cat != 2 && meta.cat != 3 && eid != e::ECMBurstJammer {
             continue;
         }
-        let eid = d::EFF_IDS[ei];
+        if meta.flags & 8 != 0 && !sf.items[i].fighter_abilities.contains(&eid) {
+            continue;
+        }
         let rf = |opt: u16, fo: u16| crate::stats::range_factor(g(opt), g(fo), distance, true);
-        let resist = if meta.resist != 0 { meta.resist } else { g(a::remoteResistanceID) as u16 };
+        let resist = if meta.resist != 0 {
+            meta.resist
+        } else if meta.flags & 8 != 0 {
+            // fighter abilities: "<effect>ResistanceID" attribute, if any
+            if eid == e::fighterAbilityStasisWebifier { g(a::fighterAbilityStasisWebifierResistanceID) as u16 } else { 0 }
+        } else {
+            g(a::remoteResistanceID) as u16
+        };
+        let ecm = |base: [u16; 4], factor: f64| ProjAction::Ecm { st: [g(base[0]) * factor, g(base[1]) * factor, g(base[2]) * factor, g(base[3]) * factor], resist };
+        const ECM_MOD: [u16; 4] = [a::scanMagnetometricStrengthBonus, a::scanLadarStrengthBonus, a::scanRadarStrengthBonus, a::scanGravimetricStrengthBonus];
+        const ECM_FIGHTER: [u16; 4] = [
+            a::fighterAbilityECMStrengthMagnetometric,
+            a::fighterAbilityECMStrengthLadar,
+            a::fighterAbilityECMStrengthRadar,
+            a::fighterAbilityECMStrengthGravimetric,
+        ];
         let cutoff = |attr: u16| distance.map(|dd| g(attr) < dd).unwrap_or(false);
         let mut one: Vec<ProjAction> = Vec::new();
         match eid {
@@ -1305,6 +1384,33 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                     one.push(ProjAction::Drain(ExtDrain { cycle_ms: g(a::duration), amount, resist, sig_res: g(a::energyNeutralizerSignatureResolution), assistance: true }));
                 }
             }
+            e::remoteECMFalloff | e::structureModuleEffectECM => one.push(ecm(ECM_MOD, rf(a::maxRange, a::falloffEffectiveness))),
+            e::entityECMFalloff => one.push(ecm(ECM_MOD, if cutoff(a::ECMRangeOptimal) { 0.0 } else { 1.0 })),
+            e::ECMBurstJammer => one.push(ecm(ECM_MOD, if cutoff(a::ecmBurstRange) { 0.0 } else { 1.0 })),
+            e::fighterAbilityECM => {
+                one.push(ecm(ECM_FIGHTER, rf(a::fighterAbilityECMRangeOptimal, a::fighterAbilityECMRangeFalloff) * qty));
+            }
+            e::fighterAbilityEnergyNeutralizer => {
+                let amount = g(a::fighterAbilityEnergyNeutralizerAmount)
+                    * rf(a::fighterAbilityEnergyNeutralizerOptimalRange, a::fighterAbilityEnergyNeutralizerFalloffRange)
+                    * qty;
+                one.push(ProjAction::Drain(ExtDrain {
+                    cycle_ms: g(a::fighterAbilityEnergyNeutralizerDuration),
+                    amount,
+                    resist,
+                    sig_res: 0.0,
+                    assistance: false,
+                }));
+            }
+            e::fighterAbilityStasisWebifier => {
+                let f = rf(a::fighterAbilityStasisWebifierOptimalRange, a::fighterAbilityStasisWebifierFalloffRange) * qty;
+                one.push(ProjAction::Mod { attr: a::maxVelocity, op: 6, v: g(a::fighterAbilityStasisWebifierSpeedPenalty), factor: f, resist, pen: pen_cat, off: true });
+            }
+            e::fighterAbilityWarpDisruption => {
+                if g(a::fighterAbilityWarpDisruptionRange) >= distance.unwrap_or(0.0) {
+                    one.push(ProjAction::Mod { attr: a::warpScrambleStatus, op: 2, v: g(a::fighterAbilityWarpDisruptionPointStrength), factor: qty, resist, pen: false, off: true });
+                }
+            }
             e::entityEnergyNeutralizerFalloff => {
                 if !cutoff(a::energyNeutralizerRangeOptimal) {
                     let amount = g(a::energyNeutralizerAmount);
@@ -1341,18 +1447,19 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
                     }
                 }
                 for (t, s, op) in list {
-                    one.push(ProjAction::Mod { attr: t, op, v: g(s), factor, resist, pen: pen_cat && !d::attr_stackable(t) });
+                    one.push(ProjAction::Mod { attr: t, op, v: g(s), factor, resist, pen: pen_cat && !d::attr_stackable(t), off: false });
                 }
             }
         }
         for _ in 0..times {
             for x in &one {
                 out.push(match x {
-                    ProjAction::Mod { attr, op, v, factor, resist, pen } => {
-                        ProjAction::Mod { attr: *attr, op: *op, v: *v, factor: *factor, resist: *resist, pen: *pen }
+                    ProjAction::Mod { attr, op, v, factor, resist, pen, off } => {
+                        ProjAction::Mod { attr: *attr, op: *op, v: *v, factor: *factor, resist: *resist, pen: *pen, off: *off }
                     }
                     ProjAction::Rr { kind, amount, dur_s } => ProjAction::Rr { kind: *kind, amount: *amount, dur_s: *dur_s },
                     ProjAction::Drain(dr) => ProjAction::Drain(*dr),
+                    ProjAction::Ecm { st, resist } => ProjAction::Ecm { st: *st, resist: *resist },
                     ProjAction::Warn(w) => ProjAction::Warn(w.clone()),
                 });
             }
