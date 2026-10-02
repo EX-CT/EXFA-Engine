@@ -82,19 +82,23 @@ static SpoolRes spoolup(double max, double step, double cycle_s, Spool sp) {
 namespace {
 struct Dmg {
   double em = 0, th = 0, ki = 0, ex = 0;
-  double total() const { return em + th + ki + ex; }
-  Dmg scale(double k) const { return {em * k, th * k, ki * k, ex * k}; }
+  double pure = 0;  // breacher pod damage (Pyfa DmgTypes.pure: ignores resistances; strongest pod only)
+  double total() const { return em + th + ki + ex + pure; }
+  Dmg scale(double k) const { return {em * k, th * k, ki * k, ex * k, pure * k}; }
   void add(const Dmg& o) {
     em += o.em;
     th += o.th;
     ki += o.ki;
     ex += o.ex;
+    pure += o.pure;
   }
   double vs(const Resists& r) const {
-    return em * (1.0 - r.em) + th * (1.0 - r.thermal) + ki * (1.0 - r.kinetic) + ex * (1.0 - r.explosive);
+    return em * (1.0 - r.em) + th * (1.0 - r.thermal) + ki * (1.0 - r.kinetic) + ex * (1.0 - r.explosive) + pure;
   }
   void json(JW& w) const {
-    w.obj().kn("em", em).kn("explosive", ex).kn("kinetic", ki).kn("thermal", th).kn("total", total()).end_obj();
+    w.obj().kn("em", em).kn("explosive", ex).kn("kinetic", ki);
+    if (pure != 0.0) w.kn("pure", pure);
+    w.kn("thermal", th).kn("total", total()).end_obj();
   }
 };
 
@@ -627,8 +631,35 @@ void Calc::run(JW& w) {
   Dmg w_vol, w_dps;
   const uint32_t a_dd = ds.attr_id("doomsdayDamageDuration"), a_dsub = ds.attr_id("doomsdayDamageCycleTime");
   const uint32_t e_slash = ds.effect_id("doomsdaySlash");
+  const uint32_t e_dot = ds.effect_id("dotMissileLaunching");
+  const uint32_t a_dot_dur = ds.attr_id("dotDuration"), a_dot_tick = ds.attr_id("dotMaxDamagePerTick"),
+                 a_dot_pct = ds.attr_id("dotMaxHPPercentagePerTick");
+  double w_pure = 0.0;
   for (uint32_t i : modules) {
     if (!active(i)) continue;
+    // breacher pods (Pyfa isBreacher; via eve-dogma-rs): damage over time, dotMaxDamagePerTick every second for
+    // floor(dotDuration / 1 s) ticks; volley = dps = one tick; the fit total keeps only the strongest pod
+    if (f.items[i].charge >= 0 && e_dot && has_eff((uint32_t)f.items[i].charge, e_dot)) {
+      const uint32_t c = (uint32_t)f.items[i].charge;
+      const double ticks = std::floor(g(c, a_dot_dur) / 1000.0);
+      if (ticks < 1.0 || raw_cycle_ms(i) == 0.0) continue;
+      const double tick = g(c, a_dot_tick);
+      if (tick <= 0.0) continue;
+      w_pure = std::max(w_pure, tick);
+      Dmg v;
+      v.pure = tick;
+      const Item& it = f.items[i];
+      wo.obj().ki("charge_type_id", f.items[c].type_id).kn("cycle_time_ms", 1000.0).key("dps");
+      v.json(wo);
+      wo.kn("duration_s", ticks).ks("kind", "breacher").kn("max_hp_percent_per_tick", g(c, a_dot_pct));
+      wo.key("module_index");
+      if (it.req_index >= 0) wo.i64(it.req_index);
+      else wo.null();
+      wo.ks("name", tname(i)).ki("type_id", it.type_id).key("volley");
+      v.json(wo);
+      wo.end_obj();
+      continue;
+    }
     const char* kind = weapon_kind(i);
     Dmg base = module_volley(i, kind);
     if (base.total() == 0.0) continue;
@@ -719,6 +750,8 @@ void Calc::run(JW& w) {
     wo.end_obj();
   }
   wo.end_arr();
+  w_vol.pure = w_pure;
+  w_dps.pure = w_pure;
   Dmg d_vol, d_dps;
   JW wd;
   wd.arr();
