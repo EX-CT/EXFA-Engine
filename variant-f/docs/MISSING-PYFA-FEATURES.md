@@ -98,7 +98,7 @@ The following are covered and verified by the suites (section G: bench 1.9.0 331
 | round-1 corpus (bench 1.8.0) batch output | – | sha256 214f6192… | byte-identical to af1c04b; EFT 326/326 |
 
 What is still not matched, with evidence:
-- **pending-1.10 fuzz `lf10_123_28659`, `lf10_197_28659`** (Paladin `align_time_s` 102.93 vs Pyfa 10.29): Pyfa's
+- **pending-1.10 fuzz `lf10_123_28659`, `lf10_197_28659`** (Paladin `align_time_s`: F 10.29 s, Pyfa oracle 102.93 s): Pyfa's
   eve.db 3532181 has agility 0.858 vs SDE 3569502 0.0858 (docs/15 class (a)), i.e. oracle data drift, not a
   missing feature. Effectively 200/200.
 - **Module-state handling** follows Pyfa (F corrects an impossible state and warns); `warp_scramble_status` follows
