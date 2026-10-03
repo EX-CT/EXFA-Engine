@@ -51,6 +51,16 @@ pub fn call(ctx: &mut Ctx, name: &str, a: &[Option<f64>]) -> Result<Option<f64>,
             }
             None => None,
         },
+        "tgt_vmax" => Some(super::dmg::build_target(ctx)?.vmax),
+        "tgt_sig" => {
+            let s = super::dmg::build_target(ctx)?.sig;
+            if s.is_finite() { Some(s) } else { None }
+        }
+        "scanres_damp_mult" => Some(scanres_damp_mult(ctx)),
+        "ecm_src_damage" => match (a.first().copied().flatten(), a.get(1).copied().flatten()) {
+            (Some(l), Some(dps)) => Some(ecm_src_damage(ctx, l, dps)),
+            _ => None,
+        },
         n if n.starts_with("sum_sources_") => Some(sources(ctx, &n[12..], false)?),
         n if n.starts_with("stack_sources_") => Some(sources(ctx, &n[14..], true)?),
         _ => return Err(format!("unknown kernel '{name}'")),
@@ -186,7 +196,30 @@ fn sources(ctx: &mut Ctx, table: &str, stack: bool) -> Result<f64, String> {
     use crate::engine::Kind;
     let Some(list) = super::spec().tables.get(table) else { return Err(format!("unknown source table {table}")) };
     let dist = ctx.x;
-    let resonance = 1.0 - ctx.param_f("resist").unwrap_or(0.0);
+    let resonance = match ctx.param_f("resist") {
+        Some(r) => 1.0 - r.clamp(0.0, 1.0),
+        None => match target_ship_attrs(ctx)? {
+            None => 1.0,
+            Some(t) => {
+                // target fit (contract 0.2): resistance attribute of the EWAR type; offensive-immune ships take
+                // no EWAR except neutralisation
+                if t.disallow_offensive && table != "neut" {
+                    return Ok(if stack { 1.0 } else { 0.0 });
+                }
+                let name = match table {
+                    "neut" => "energyWarfareResistance",
+                    "web" => "stasisWebifierResistance",
+                    "ecm" => "ECMResistance",
+                    "damp" => "sensorDampenerResistance",
+                    "tp" => "targetPainterResistance",
+                    _ => "weaponDisruptionResistance",
+                };
+                let v = t.attr(name);
+                let v = if v == 0.0 { 1.0 } else { v };
+                1.0 - (1.0 - v).clamp(0.0, 1.0)
+            }
+        },
+    };
     let in_lock = ctx.setting_b("ignore_lock_range", true) || dist <= ctx.stat("targeting.max_range_m").unwrap_or(0.0);
     let in_dcr = ctx.setting_b("ignore_drone_control_range", false) || dist <= ctx.stat("drones.control_range_m").unwrap_or(0.0);
     let factor_reload = ctx.fit_req.options.factor_reload;
@@ -238,4 +271,70 @@ fn sources(ctx: &mut Ctx, table: &str, stack: bool) -> Result<f64, String> {
         }
     }
     Ok(if stack { stack_mult(&mults) } else { sum })
+}
+
+/// Scan-resolution damp multiplier of the source's own damps (one stacking group, range ignored).
+fn scanres_damp_mult(ctx: &mut Ctx) -> f64 {
+    use crate::engine::Kind;
+    let fit = &ctx.fit;
+    let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let me = names(&["remoteSensorDampFalloff", "structureModuleEffectRemoteSensorDampener", "doomsdayAOEDamp"]);
+    let de = names(&["remoteSensorDampEntity"]);
+    let bonus = super::cycles::an("scanResolutionBonus");
+    let mut mults = Vec::new();
+    for i in 0..fit.items.len() {
+        let it = &fit.items[i];
+        let b = bonus.map(|a| fit.get(i, a)).unwrap_or(0.0);
+        if it.kind == Kind::Module && it.state >= State::Active && !has_effect_name(fit, i, &me).is_empty() {
+            mults.push(1.0 + b / 100.0);
+        } else if it.kind == Kind::Drone && it.active_count > 0 && !has_effect_name(fit, i, &de).is_empty() {
+            for _ in 0..it.active_count {
+                mults.push(1.0 + b / 100.0);
+            }
+        }
+    }
+    stack_mult(&mults)
+}
+
+/// HP the source deals before dying while ECM-bursting every 30 s (enemy re-locks after each burst).
+fn ecm_src_damage(ctx: &mut Ctx, lock: f64, tgt_dps: f64) -> f64 {
+    let adj = ctx.param_f("uptime_adj_s").unwrap_or(1.0);
+    let limit = ctx.param_f("uptime_amount_limit").unwrap_or(3.0).trunc() as i64;
+    let drones = ctx.param_f("apply_drones").map(|v| v != 0.0).unwrap_or(true);
+    let ehp = ctx.stat("defense.ehp.total").unwrap_or(0.0);
+    let wdps = ctx.stat("offense.total.weapon_dps").unwrap_or(0.0);
+    let ddps = if drones { ctx.stat("offense.total.drone_dps").unwrap_or(0.0) + ctx.stat("offense.total.fighter_dps").unwrap_or(0.0) } else { 0.0 };
+    let up = (30.0 - lock - adj).max(0.0);
+    let down = 30.0 - up;
+    let mut rem = ehp;
+    let mut dmg = 0.0;
+    for _ in 0..limit.max(0) {
+        let alive = down + up.min(rem / tgt_dps);
+        rem -= up * tgt_dps;
+        dmg += alive * wdps + (alive - 3.0).max(0.0) * ddps;
+        if rem <= 0.0 {
+            break;
+        }
+    }
+    dmg
+}
+
+pub struct TargetShip {
+    pub fit: crate::engine::Fit,
+    pub disallow_offensive: bool,
+}
+impl TargetShip {
+    pub fn attr(&self, n: &str) -> f64 {
+        super::cycles::an(n).map(|a| self.fit.get(self.fit.ship, a)).unwrap_or(0.0)
+    }
+}
+
+/// Target fit of an ewar / remote_reps request (contract 0.2), if any.
+pub fn target_ship_attrs(ctx: &Ctx) -> Result<Option<TargetShip>, String> {
+    let Some(fr) = ctx.req.pointer("/target/fit").filter(|v| !v.is_null()) else { return Ok(None) };
+    let req: crate::request::FitRequest = serde_json::from_value(fr.clone()).map_err(|e| format!("target fit: {e}"))?;
+    let fit = crate::engine::Fit::build(&req).map_err(|e| format!("target fit: {e:?}"))?;
+    let t = TargetShip { fit, disallow_offensive: false };
+    let d = t.attr("disallowOffensiveModifiers") != 0.0;
+    Ok(Some(TargetShip { disallow_offensive: d, ..t }))
 }

@@ -299,6 +299,14 @@
     "tgt_sig_m": {
      "unit": "m",
      "valid": "x > 0"
+    },
+    "tgt_speed_pct": {
+     "unit": "%",
+     "valid": "x >= 0"
+    },
+    "tgt_sig_pct": {
+     "unit": "%",
+     "valid": "x > 0"
     }
    },
    "params": {
@@ -319,7 +327,9 @@
       "distance_m": "dmg_dps(p.time_s, x, null(), null())",
       "time_s": "dmg_dps(x, p.distance_m, null(), null())",
       "tgt_speed_mps": "dmg_dps(p.time_s, p.distance_m, x, null())",
-      "tgt_sig_m": "dmg_dps(p.time_s, p.distance_m, null(), x)"
+      "tgt_sig_m": "dmg_dps(p.time_s, p.distance_m, null(), x)",
+      "tgt_speed_pct": "dmg_dps(p.time_s, p.distance_m, x / 100 * tgt_vmax(), null())",
+      "tgt_sig_pct": "isnull(tgt_sig()) ? null() : dmg_dps(p.time_s, p.distance_m, null(), x / 100 * tgt_sig())"
      }
     },
     "volley": {
@@ -328,7 +338,9 @@
       "distance_m": "dmg_volley(p.time_s, x, null(), null())",
       "time_s": "dmg_volley(x, p.distance_m, null(), null())",
       "tgt_speed_mps": "dmg_volley(p.time_s, p.distance_m, x, null())",
-      "tgt_sig_m": "dmg_volley(p.time_s, p.distance_m, null(), x)"
+      "tgt_sig_m": "dmg_volley(p.time_s, p.distance_m, null(), x)",
+      "tgt_speed_pct": "dmg_volley(p.time_s, p.distance_m, x / 100 * tgt_vmax(), null())",
+      "tgt_sig_pct": "isnull(tgt_sig()) ? null() : dmg_volley(p.time_s, p.distance_m, null(), x / 100 * tgt_sig())"
      }
     },
     "damage": {
@@ -337,7 +349,9 @@
       "distance_m": "dmg_damage(p.time_s, x, null(), null())",
       "time_s": "dmg_damage(x, p.distance_m, null(), null())",
       "tgt_speed_mps": "dmg_damage(p.time_s, p.distance_m, x, null())",
-      "tgt_sig_m": "dmg_damage(p.time_s, p.distance_m, null(), x)"
+      "tgt_sig_m": "dmg_damage(p.time_s, p.distance_m, null(), x)",
+      "tgt_speed_pct": "dmg_damage(p.time_s, p.distance_m, x / 100 * tgt_vmax(), null())",
+      "tgt_sig_pct": "isnull(tgt_sig()) ? null() : dmg_damage(p.time_s, p.distance_m, null(), x / 100 * tgt_sig())"
      }
     }
    }
@@ -372,6 +386,55 @@
      "unit": "HP",
      "by_axis": {
       "distance_m": "app_volley(x)"
+     }
+    }
+   }
+  },
+  "ecm_burst": {
+   "title": "ECM Burst + Scanres Damps",
+   "pyfa": "fitEcmBurstScanresDamps",
+   "axes": {
+    "tgt_scan_res_mm": {
+     "unit": "mm",
+     "valid": "x >= 1"
+    },
+    "tgt_dps": {
+     "unit": "HP/s",
+     "valid": "x > 0"
+    }
+   },
+   "params": {
+    "tgt_scan_res_mm": 700,
+    "tgt_dps": 200,
+    "uptime_adj_s": 1,
+    "uptime_amount_limit": 3,
+    "apply_damps": true,
+    "apply_drones": true
+   },
+   "defs": {
+    "m": "p.apply_damps ? scanres_damp_mult() : 1",
+    "sig": "ship.signatureRadius",
+    "lock_x": "min(40000 / (x * m) / asinh(sig) ^ 2, 1800)",
+    "lock_p": "min(40000 / (p.tgt_scan_res_mm * m) / asinh(sig) ^ 2, 1800)"
+   },
+   "series": {
+    "src_damage": {
+     "unit": "HP",
+     "by_axis": {
+      "tgt_scan_res_mm": "p.tgt_dps <= 0 ? null() : ecm_src_damage(lock_x, p.tgt_dps)",
+      "tgt_dps": "p.tgt_scan_res_mm < 1 ? null() : ecm_src_damage(lock_p, x)"
+     }
+    },
+    "tgt_lock_time_s": {
+     "unit": "s",
+     "by_axis": {
+      "tgt_scan_res_mm": "lock_x"
+     }
+    },
+    "tgt_lock_uptime_s": {
+     "unit": "s",
+     "by_axis": {
+      "tgt_scan_res_mm": "max(0, 30 - lock_x)"
      }
     }
    }

@@ -181,5 +181,12 @@ pub fn rr(ctx: &Ctx, mode: u8, time: Option<f64>, dist: Option<f64>) -> Option<f
             }
         }
     }
+    // target fit (contract 0.2): remote repair impedance, no assistance to ships that disallow it
+    if let Ok(Some(t)) = super::kernels::target_ship_attrs(ctx) {
+        if t.attr("disallowAssistance") != 0.0 {
+            return Some(0.0);
+        }
+        total *= t.attr("remoteRepairImpedance");
+    }
     Some(total)
 }
