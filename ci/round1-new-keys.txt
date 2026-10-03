@@ -2,3 +2,5 @@
 mining
 attributes.fighters
 outgoing
+drones.items
+fighters

@@ -860,7 +860,26 @@ impl Fit {
             "lock_time_s": {"sig_25m": lt(25.0), "sig_40m": lt(40.0), "sig_125m": lt(125.0), "sig_400m": lt(400.0), "sig_target_profile": tp.signature_radius.and_then(lt)},
         });
 
+        // per drone / fighter type entry: one drone's hp, ehp (request damage pattern) and peak passive shield
+        // recharge (Pyfa drone/fighter hp, ehp, calculateShieldRecharge); contract 1.10 stats-ext
+        let unit_hp = |i: usize, key: &'static str| {
+            let r = |x: [u16; 4]| -> [f64; 4] { [g(i, x[0]), g(i, x[1]), g(i, x[2]), g(i, x[3])] };
+            let (hs, ha, hh) = (g(i, a::shieldCapacity), g(i, a::armorHP), g(i, a::hp));
+            let rr_s = g(i, a::shieldRechargeRate) / 1000.0;
+            let mut o = jv!({
+                 "hp": {"shield": hs, "armor": ha, "hull": hh},
+                 "ehp": {"shield": effectivify(hs, r([a::shieldEmDamageResonance, a::shieldThermalDamageResonance, a::shieldKineticDamageResonance, a::shieldExplosiveDamageResonance])),
+                         "armor": effectivify(ha, r([a::armorEmDamageResonance, a::armorThermalDamageResonance, a::armorKineticDamageResonance, a::armorExplosiveDamageResonance])),
+                         "hull": effectivify(hh, r([a::emDamageResonance, a::thermalDamageResonance, a::kineticDamageResonance, a::explosiveDamageResonance]))},
+                 "shield_peak_recharge_hp_s": if rr_s > 0.0 { 10.0 / rr_s * 0.5 * 0.5 * hs } else { 0.0 }});
+            if let J::O(m) = &mut o {
+                m.push_kv(key.into(), jv!(self.items[i].req_index));
+            }
+            o
+        };
+        let fighters_j = jv!({"items": J::A(fighters.iter().map(|&i| unit_hp(i, "fighter_index")).collect())});
         let drones_j = jv!({
+            "items": J::A(drones.iter().map(|&i| unit_hp(i, "drone_index")).collect()),
             "active": drones.iter().map(|&i| self.items[i].active_count).sum::<u32>(),
             "max_active": g(ch, a::maxActiveDrones),
             "control_range_m": g(ch, a::droneControlDistance),
@@ -984,6 +1003,7 @@ impl Fit {
         out.push_kv("drones".into(), drones_j);
         out.push_kv("mining".into(), mining);
         out.push_kv("outgoing".into(), outgoing);
+        out.push_kv("fighters".into(), fighters_j);
         out.push_kv("modules".into(), J::A(module_rows));
         if req.options.validate {
             out.push_kv("violations".into(), J::A(self.validate(cpu_used, pg_used, calib_used, bw_used)));
