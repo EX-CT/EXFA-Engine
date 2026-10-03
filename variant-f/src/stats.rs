@@ -75,7 +75,12 @@ impl Dmg {
         self.em * (1.0 - r.em) + self.th * (1.0 - r.thermal) + self.ki * (1.0 - r.kinetic) + self.ex * (1.0 - r.explosive) + self.pure
     }
     fn json(&self) -> J {
-        jv!({"em": self.em, "thermal": self.th, "kinetic": self.ki, "explosive": self.ex, "total": self.total()})
+        let mut o = jv!({"em": self.em, "thermal": self.th, "kinetic": self.ki, "explosive": self.ex, "total": self.total()});
+        if self.pure != 0.0 {
+            // contract 1.4.4: optional `pure` key (breacher pods), omitted when 0
+            o["pure"] = jv!(self.pure);
+        }
+        o
     }
 }
 
@@ -294,7 +299,7 @@ impl Fit {
         if let Some(c) = it.charge.filter(|&c| self.has_eff(c, &[e::dotMissileLaunching])) {
             // breacher pod (Pyfa BreacherInfo): untyped damage per 1 s tick, no damage multipliers
             let dm = Dmg { em: 0.0, th: 0.0, ki: 0.0, ex: 0.0, pure: self.get(c, a::dotMaxDamagePerTick) };
-            return (dm, kind);
+            return (dm, "breacher");
         }
         let dm = Dmg {
             em: self.get(src, DMG[0]) * mult,
