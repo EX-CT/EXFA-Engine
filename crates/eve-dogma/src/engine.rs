@@ -905,6 +905,13 @@ impl Fit {
                 }
             }
         }
+        // Alpha clone (Pyfa Skill.level): min(level, alpha cap), skills without an alpha cap at 0
+        if req.character.alpha_clone {
+            for x in levels.iter_mut() {
+                let cap = d::ALPHA_CLONE_SKILLS.binary_search_by_key(&x.0, |c| c.0).map(|p| d::ALPHA_CLONE_SKILLS[p].1).unwrap_or(0);
+                x.1 = x.1.min(cap);
+            }
+        }
         for &(s, l) in &levels {
             if d::type_index(s).is_none() {
                 continue;
@@ -962,15 +969,24 @@ impl Fit {
         // already taken by an earlier entry is ignored completely (mutated-suite contract §3.1).
         let slot_of_type = |t: u32, attr: u16| d::type_index(t).and_then(|ix| d::type_attr(ix, attr));
         let mut taken: Vec<f64> = Vec::new();
-        for (i, imp) in req.implants.iter().enumerate() {
+        // options.implant_source (Pyfa ImplantLocation): "fit" (default) = the fit's implants, "character" = the
+        // character's implants; the other list is ignored
+        let (implants, ipath) = match req.options.implant_source.as_deref() {
+            None | Some("fit") => (&req.implants, "implants"),
+            Some("character") => (&req.character.implants, "character/implants"),
+            Some(o) => {
+                return Err(EngineError { code: "BAD_REQUEST", message: format!("options.implant_source must be \"fit\" or \"character\", got {o:?}"), path: "/options/implant_source".into() })
+            }
+        };
+        for (i, imp) in implants.iter().enumerate() {
             if let Some(sl) = slot_of_type(*imp, a::implantness) {
                 if taken.contains(&sl) {
-                    fit.warnings.push(format!("implants/{i}: implant slot {sl} already taken, ignored (Pyfa)"));
+                    fit.warnings.push(format!("{ipath}/{i}: implant slot {sl} already taken, ignored (Pyfa)"));
                     continue;
                 }
                 taken.push(sl);
             }
-            let idx = fit.new_item(*imp, Kind::Implant, Loc::Char, &format!("/implants/{i}"))?;
+            let idx = fit.new_item(*imp, Kind::Implant, Loc::Char, &format!("/{ipath}/{i}"))?;
             fit.items[idx].owned = false;
             fit.items[idx].req_index = Some(i);
         }

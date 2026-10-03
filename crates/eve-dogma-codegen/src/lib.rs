@@ -872,6 +872,14 @@ fn generate() -> String {
             }
         }
         arr(&mut out, "TYPE_RADIUS", "(u32, f64)", &rad);
+        // Alpha clone skill caps (Pyfa alphaCloneID 1 = dataset clone_grades["1"]; bench draft 1.11 alpha_*)
+        let mut alpha: Vec<(u32, u64)> = d["clone_grades"]["1"]["skills"]
+            .as_object()
+            .map(|m| m.iter().filter_map(|(k, v)| Some((k.parse().ok()?, v.as_u64()?))).collect())
+            .unwrap_or_default();
+        alpha.sort();
+        writeln!(out, "pub const HAS_ALPHA_CLONE: bool = {};", !alpha.is_empty()).unwrap();
+        arr(&mut out, "ALPHA_CLONE_SKILLS", "(u32, u8)", &alpha.iter().map(|(a, b)| format!("({a}, {b})")).collect::<Vec<_>>());
         let units = &d["units"];
         let tname = |id: &str| types.get(id).and_then(|t| t["name"].as_str()).unwrap_or(id).to_string();
         let strip = |s: &str| {

@@ -120,6 +120,13 @@ pub struct Character {
     pub skills: Skills,
     #[serde(default)]
     pub security_status: Option<f64>,
+    /// Character implants (Pyfa ImplantLocation.CHARACTER); used instead of the fit's `implants` when
+    /// `options.implant_source` is "character" (bench draft 1.11 cimp_*).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implants: Vec<u32>,
+    /// Alpha clone: every skill capped at its Alpha level, untrainable skills at 0 (Pyfa alphaCloneID 1).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub alpha_clone: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,6 +249,9 @@ pub struct Options {
     /// Emit the `price` block (docs/23 §6) even without price inputs.
     #[serde(default, skip_serializing_if = "is_false")]
     pub price: bool,
+    /// "fit" (default): the fit's `implants`; "character": `character.implants` (the fit's are ignored).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub implant_source: Option<String>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -262,6 +272,7 @@ impl Default for Options {
             cap_sim: CapSimOpts::default(),
             full_precision: false,
             price: false,
+            implant_source: None,
         }
     }
 }

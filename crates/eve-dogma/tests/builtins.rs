@@ -26,3 +26,22 @@ fn builtin_pattern_and_profile() {
     assert!(calc(q)["offense"]["vs_target_profile"].is_object());
     rpc("pyfa_data_load", json!({"clear": true}));
 }
+
+#[test]
+fn character_implants_and_alpha_clone() {
+    let base = json!({"schema_version": 1, "ship": {"type_id": 587}, "character": {"implants": [19540]}});
+    let mut c = base.clone();
+    c["options"] = json!({"implant_source": "character"});
+    let mut f = base.clone();
+    f["implants"] = json!([19540]);
+    assert_eq!(calc(c.clone()), calc(f));
+    assert_ne!(calc(c.clone()), calc(base.clone()));
+    c["options"]["implant_source"] = json!("ship");
+    assert_eq!(calc(c)["error"]["code"], "BAD_REQUEST");
+    let mut a = base.clone();
+    a["character"] = json!({"alpha_clone": true, "skills": {"default_level": 5}});
+    let mut o = base;
+    o["character"] = json!({"skills": {"default_level": 5}});
+    assert!(eve_dogma::data::HAS_ALPHA_CLONE);
+    assert_ne!(calc(a)["targeting"], calc(o)["targeting"]);
+}
