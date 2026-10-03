@@ -2,7 +2,9 @@
 
 EXCT's Rust mainline, migrated 2026-10-03 from eve-dogma-lab `variant-f-features` (engine variant F + graphs layer),
 history included. The previous C++ engine (variant J) is in this repository's history (`dd97e12`) and in eve-dogma-lab
-tag `j-backup-2026-10-03`. Architecture: eve-fit-docs `docs/20-rust-architecture-plan.md`; scope: `docs/19`.
+tag `j-backup-2026-10-03`.
+The C++ alternative implementation J lives on branch `j-backup` and on eve-dogma-lab tag `j-backup-2026-10-03`.
+Architecture: eve-fit-docs `docs/20-rust-architecture-plan.md`; scope: `docs/19`.
 Licence: LGPL-3.0-or-later (`LICENSE`, with the GPL text it extends in `LICENSE.GPL-3.0`). Pyfa is used only as a
 black-box oracle and behaviour reference; no Pyfa code.
 
