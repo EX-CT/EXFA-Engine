@@ -1,0 +1,17 @@
+[package]
+name = "eve-dogma"
+description = "EVE Online dogma engine: SDE compiled into Rust at build time; fit stats, formats, graphs, JSON-RPC"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+eve-capsim.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+itoa.workspace = true
+zmij.workspace = true
+
+[build-dependencies]
+eve-dogma-codegen.workspace = true

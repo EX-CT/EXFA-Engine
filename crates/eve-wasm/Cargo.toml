@@ -1,0 +1,13 @@
+[package]
+name = "eve-wasm"
+description = "C-ABI WebAssembly exports (alloc, dealloc, calc, rpc) of eve-dogma for wasm32-unknown-unknown"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+eve-dogma.workspace = true
+serde_json.workspace = true

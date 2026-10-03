@@ -1077,18 +1077,4 @@ impl Fit {
     }
 }
 
-/// Python `round(x, nd)`: correctly rounded on the exact binary value, ties to even.
-/// Fast path for non-ties; near-ties fall back to exact decimal formatting.
-#[inline]
-pub fn py_round(x: f64, nd: i32) -> f64 {
-    if !x.is_finite() {
-        return x;
-    }
-    let p = 10f64.powi(nd);
-    let y = x * p;
-    let fr = (y - y.trunc()).abs();
-    if nd < 0 || (fr - 0.5).abs() > 1e-6 {
-        return y.round() / p;
-    }
-    format!("{:.*}", nd as usize, x).parse().unwrap_or(y.round() / p)
-}
+pub use crate::capsim::py_round;

@@ -1,0 +1,8 @@
+[package]
+name = "eve-capsim"
+description = "Pyfa-compatible capacitor simulator (event heap), used by eve-dogma stats and graphs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

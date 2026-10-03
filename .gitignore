@@ -1,3 +1,5 @@
 target/
 *.wasm
 !dist/*.wasm
+ci-results/
+_suites/

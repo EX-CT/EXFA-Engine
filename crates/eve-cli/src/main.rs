@@ -47,21 +47,21 @@ fn main() {
     match cmd.as_str() {
         "calc" => {
             let s = read_input(args.get(1));
-            let res = eve_dogma_f::calc_json(&s);
+            let res = eve_dogma::calc_json(&s);
             writeln!(out, "{res}").or_pipe();
             out.flush().or_pipe();
             if res.starts_with("{\"error\"") {
                 std::process::exit(2);
             }
         }
-        "batch" => batch(&mut out, eve_dogma_f::calc_json),
-        "graph-batch" => batch(&mut out, eve_dogma_f::graphs::graph_json),
+        "batch" => batch(&mut out, eve_dogma::calc_json),
+        "graph-batch" => batch(&mut out, eve_dogma::graphs::graph_json),
         "graph-specs" => {
-            writeln!(out, "{}", eve_dogma_f::graphs::SPEC_JSON.trim()).or_pipe();
+            writeln!(out, "{}", eve_dogma::graphs::SPEC_JSON.trim()).or_pipe();
         }
         "graph" => {
             let s = read_input(args.get(1));
-            let res = eve_dogma_f::graphs::graph_json(&s);
+            let res = eve_dogma::graphs::graph_json(&s);
             writeln!(out, "{res}").or_pipe();
             out.flush().or_pipe();
             if res.starts_with("{\"error\"") {
@@ -77,12 +77,12 @@ fn main() {
             let do_calc = args.iter().any(|a| a == "--calc");
             args.retain(|a| a != "--calc");
             let s = read_input(args.get(1));
-            match eve_dogma_f::eft::parse(&s) {
+            match eve_dogma::eft::parse(&s) {
                 Ok(mut r) => {
                     if let Some(l) = skills {
                         r.character.skills.default_level = l.parse().ok();
                     }
-                    let v = if do_calc { serde_json::to_value(eve_dogma_f::calc(&r)).unwrap() } else { serde_json::to_value(&r).unwrap() };
+                    let v = if do_calc { serde_json::to_value(eve_dogma::calc(&r)).unwrap() } else { serde_json::to_value(&r).unwrap() };
                     writeln!(out, "{}", serde_json::to_string_pretty(&v).unwrap()).or_pipe();
                 }
                 Err(e) => {
@@ -92,13 +92,13 @@ fn main() {
             }
         }
         "serve-stdio" => {
-            eprintln!("eve-dogma-f serve-stdio ready (sde {})", eve_dogma_f::data::SDE_BUILD);
+            eprintln!("eve-dogma-f serve-stdio ready (sde {})", eve_dogma::data::SDE_BUILD);
             for line in std::io::stdin().lock().lines() {
                 let line = line.unwrap();
                 if line.trim().is_empty() {
                     continue;
                 }
-                writeln!(out, "{}", serde_json::to_string(&eve_dogma_f::rpc(&line)).unwrap()).or_pipe();
+                writeln!(out, "{}", serde_json::to_string(&eve_dogma::rpc(&line)).unwrap()).or_pipe();
                 out.flush().or_pipe();
             }
         }
@@ -112,30 +112,30 @@ fn main() {
                     _ => q.push(x.clone()),
                 }
             }
-            let r = eve_dogma_f::search_kinds(&q.join(" "), limit, kinds.as_deref());
+            let r = eve_dogma::search_kinds(&q.join(" "), limit, kinds.as_deref());
             writeln!(out, "{}", serde_json::to_string_pretty(&r).unwrap()).or_pipe();
         }
         "type" => {
-            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma_f::type_info(&args[1..].join(" "))).unwrap()).or_pipe();
+            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma::type_info(&args[1..].join(" "))).unwrap()).or_pipe();
         }
         "meta" => {
-            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma_f::meta()).unwrap()).or_pipe();
+            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma::meta()).unwrap()).or_pipe();
         }
         "bench" => {
             let n: usize = take_flag(&mut args, "-n").and_then(|v| v.parse().ok()).unwrap_or(1000);
             let s = read_input(args.get(1));
-            let req: eve_dogma_f::FitRequest = serde_json::from_str(&s).expect("bad request");
-            let _ = eve_dogma_f::calc(&req);
+            let req: eve_dogma::FitRequest = serde_json::from_str(&s).expect("bad request");
+            let _ = eve_dogma::calc(&req);
             let t1 = Instant::now();
             for _ in 0..n {
-                std::hint::black_box(eve_dogma_f::calc(&req));
+                std::hint::black_box(eve_dogma::calc(&req));
             }
             let el = t1.elapsed().as_secs_f64();
             // phase breakdown: build+register / stats / serialize
             let (mut tb, mut ts, mut tj) = (0f64, 0f64, 0f64);
             for _ in 0..n {
                 let t = Instant::now();
-                let fit = eve_dogma_f::engine::Fit::build(&req).expect("build");
+                let fit = eve_dogma::engine::Fit::build(&req).expect("build");
                 let t2 = Instant::now();
                 let v = fit.compute_stats(&req);
                 let t3 = Instant::now();

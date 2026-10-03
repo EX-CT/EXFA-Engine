@@ -1,4 +1,4 @@
-// Usage: node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogma_f.wasm < request.json
+// Usage: node crates/eve-wasm/examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_wasm.wasm < request.json
 import { readFileSync } from "node:fs";
 const bytes = readFileSync(process.argv[2]);
 const { instance } = await WebAssembly.instantiate(bytes, {});

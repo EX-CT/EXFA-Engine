@@ -1,17 +1,17 @@
-//! Build-time code generator (variant F).
+//! eve-dogma-codegen: build-time code generator for the `eve-dogma` crate (formerly variant F `build.rs`).
 //!
 //! Reads the EXCT dataset (`dataset-<build>.json.gz`, eve-sde-pipeline format v1) and emits
 //! `$OUT_DIR/gen.rs`: static tables (types, attributes, groups, mutaplasmids, …) and, most importantly,
 //! every SDE effect's modifier list compiled into straight-line Rust (`apply_local`, `apply_projected`,
 //! `apply_dbuff`). The runtime never parses or interprets dataset JSON.
 //!
-//! Dataset path: `$EVE_DOGMA_DATASET`, else `../../data/dataset-3569502.json.gz` (EXCT box layout).
+//! Dataset path: `$EVE_DOGMA_DATASET`, else `../../../data/dataset-3569502.json.gz` relative to `crates/eve-dogma` (EXCT box layout).
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::io::Read;
 
-const DEFAULT_DATASET: &str = "../../data/dataset-3569502.json.gz";
+const DEFAULT_DATASET: &str = "../../../data/dataset-3569502.json.gz";
 const REQ_SKILL_ATTRS: [u32; 6] = [182, 183, 184, 1285, 1289, 1290];
 const HULL_RESONANCES: [u32; 4] = [113, 111, 109, 110];
 const SKILL_EFFECT: u32 = 132;
@@ -157,7 +157,8 @@ struct Eff {
     mods: Vec<[i64; 6]>,
 }
 
-fn main() {
+/// Generate `$OUT_DIR/gen.rs`; called from `crates/eve-dogma/build.rs`.
+pub fn run() {
     let path = std::env::var("EVE_DOGMA_DATASET").unwrap_or_else(|_| DEFAULT_DATASET.to_string());
     println!("cargo:rerun-if-env-changed=EVE_DOGMA_DATASET");
     println!("cargo:rerun-if-changed={path}");

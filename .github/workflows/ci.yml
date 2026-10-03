@@ -1,0 +1,123 @@
+name: ci
+
+# Build native + WASM, then gate every push / PR on all regression suites (eve-dogma-bench, pinned refs in
+# ci/run_suites.sh, minimum scores in ci/gate.json) and on the byte-identical round-1 output (ci/round1.sha256).
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SDE_TAG: sde-3569502
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1,wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Dataset (${{ env.SDE_TAG }})
+        run: |
+          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
+          echo "EVE_DOGMA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
+      - name: Build native (eve-fit)
+        run: cargo build --release --locked
+      - name: Build WASM (wasip1 CLI, unknown-unknown C ABI)
+        run: |
+          cargo build --release --locked --target wasm32-wasip1 -p eve-cli
+          cargo build --profile release-small --locked --target wasm32-unknown-unknown -p eve-wasm
+          ls -l target/wasm32-wasip1/release/eve-fit.wasm target/wasm32-unknown-unknown/release-small/eve_wasm.wasm
+      - name: Test
+        run: cargo test --release --locked --workspace
+      - name: WASM C-ABI test (node, byte-identical to native)
+        run: |
+          git clone -q --filter=blob:none --no-checkout https://github.com/EX-CT/eve-dogma-bench _b
+          git -C _b checkout -q d2edf98 -- cases
+          n=0
+          for f in _b/cases/exct_rifter.json _b/cases/breacher_kestrel.json _b/cases/proj_neut_hyperion.json _b/cases/fleet_two_boosters_hyperion.json; do
+            a=$(node crates/eve-wasm/examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_wasm.wasm < "$f" | sha256sum)
+            b=$(./target/release/eve-fit calc < "$f" | sha256sum)
+            [ "$a" = "$b" ] && n=$((n+1)) || echo "::error::wasm C ABI output differs for $f"
+          done
+          echo "- wasm32-unknown-unknown C ABI: $n/4 byte-identical to native" >> "$GITHUB_STEP_SUMMARY"
+          [ $n = 4 ]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine
+          path: |
+            target/release/eve-fit
+            target/wasm32-wasip1/release/eve-fit.wasm
+            target/wasm32-unknown-unknown/release-small/eve_wasm.wasm
+
+  suites:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [native, wasm]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: EX-CT/eve-dogma-bench
+          path: _bench
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine
+          path: _engine
+      - name: Dataset (${{ env.SDE_TAG }})
+        run: |
+          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
+          echo "EVE_DOGMA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+        if: matrix.mode == 'wasm'
+      - name: Engine command
+        run: |
+          chmod +x _engine/release/eve-fit
+          if [ "${{ matrix.mode }}" = wasm ]; then
+            wasmtime compile _engine/wasm32-wasip1/release/eve-fit.wasm -o "$PWD/_engine/eve-fit.cwasm"
+            echo "ENGINE=wasmtime run --allow-precompiled $PWD/_engine/eve-fit.cwasm" >> "$GITHUB_ENV"
+          else
+            echo "ENGINE=$PWD/_engine/release/eve-fit" >> "$GITHUB_ENV"
+          fi
+      - name: Suites (bench 1.9.0, EFT 1.8.0, cap, mutated, formats, graphs 0.2, round-1 sha256)
+        env:
+          BENCH: ${{ github.workspace }}/_bench
+        run: |
+          ci/run_suites.sh "${{ matrix.mode }}" "$ENGINE"; rc=$?
+          cat "ci-results/${{ matrix.mode }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: suite-results-${{ matrix.mode }}
+          path: ci-results/
+          if-no-files-found: ignore

@@ -1,8 +1,8 @@
-//! eve-dogma-f — EVE Online dogma engine, variant F (EXCT).
+//! eve-dogma — EVE Online dogma engine (EXCT Rust mainline, formerly variant F). Engine core + stats + formats + graphs + RPC.
 //!
 //! The SDE dataset is compiled into this crate by `build.rs`: static tables plus generated Rust code for every
 //! effect's modifiers. `calc(request) -> stats` is pure: no I/O, no clocks, no global state, no data loading.
-pub mod capsim;
+pub use eve_capsim as capsim;
 pub mod data;
 pub mod eft;
 pub mod formats;
@@ -11,8 +11,6 @@ pub mod engine;
 pub mod j;
 pub mod request;
 pub mod stats;
-#[cfg(target_arch = "wasm32")]
-pub mod wasm;
 
 use serde_json::{json, Value};
 

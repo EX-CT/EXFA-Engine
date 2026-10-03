@@ -1,37 +1,64 @@
-# Variant F — build-time code generation (Rust → native + WASM)
+# eve-dogma — EVE Online fitting engine (Rust mainline)
 
-> **Branch `graphs-g4`:** variant F plus round-2 graphs, scheme **G4 (declarative graph spec)** — see
-> [Graphs (G4)](#graphs-g4-declarative-graph-spec) below and [GRAPHS.md](GRAPHS.md).
+EXCT's Rust mainline, migrated 2026-10-03 from eve-dogma-lab `variant-f-features` (engine variant F + graphs layer),
+history included. The previous C++ engine (variant J) is in this repository's history (`dd97e12`) and in eve-dogma-lab
+tag `j-backup-2026-10-03`. Architecture: eve-fit-docs `docs/20-rust-architecture-plan.md`; scope: `docs/19`.
+Licence: LGPL-3.0-or-later (`LICENSE`, with the GPL text it extends in `LICENSE.GPL-3.0`). Pyfa is used only as a
+black-box oracle and behaviour reference; no Pyfa code.
 
 EVE Online dogma engine for the EXCT contract (`eve-dogma-rs/docs/contract.md`, v1): one JSON `FitRequest` on
 stdin → one JSON `FitStats` on stdout, stateless and deterministic.
 
-The SDE dataset (`dataset-3569502.json.gz`, eve-sde-pipeline format v1) is **compiled into the binary**: `build.rs`
-turns every effect's modifier list into straight-line Rust code and every type/attribute/group into static tables.
-The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.md).
+The SDE dataset (`dataset-3569502.json.gz`, eve-sde-pipeline format v1) is **compiled into the binary**: the code
+generator turns every effect's modifier list into straight-line Rust code and every type/attribute/group into static
+tables. The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.md).
+
+## Workspace
+
+| crate | what | from (variant F) |
+|---|---|---|
+| `crates/eve-dogma-codegen` | build-time generator: dataset → `gen.rs` (tables + effect code) | `build.rs` |
+| `crates/eve-capsim` | capacitor simulator (+ Pyfa `round`) | `src/capsim.rs` |
+| `crates/eve-dogma` | engine core, stats, formats (EFT/DNA/ESI/XML/…), graphs, JSON-RPC dispatch | `src/*` |
+| `crates/eve-cli` | binary `eve-fit` (calc, batch, serve-stdio, graph, graph-batch, eft, search, type, meta, bench) | `src/main.rs` |
+| `crates/eve-wasm` | wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `calc`, `rpc`) | `src/wasm.rs` |
+
+This first split follows existing code boundaries only, with byte-identical output. Further crates from docs/20
+(eve-stats, eve-formats, eve-graphs, eve-fit-model, eve-rpc, …) need `Fit` internals made public first and come
+next.
 
 ## Build & run
 
 ```bash
-# dataset: $EVE_DOGMA_DATASET, default ../../data/dataset-3569502.json.gz (EXCT box layout)
-export EVE_DOGMA_DATASET=/workspace/exct-eve/data/dataset-3569502.json.gz
+export EVE_DOGMA_DATASET=/abs/path/dataset-3569502.json.gz   # default ../../../data/… relative to crates/eve-dogma
 cargo build --release
-./target/release/eve-dogma-f calc < request.json > response.json
-./target/release/eve-dogma-f batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
+./target/release/eve-fit calc < request.json > response.json
+./target/release/eve-fit batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
 # EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)
-./target/release/eve-dogma-f serve-stdio                                   # JSONL RPC: calc | search | type | meta | eft_parse | eft_export | format_export | format_import
-./target/release/eve-dogma-f meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
+./target/release/eve-fit serve-stdio                                   # JSONL RPC: calc | graph | search | type | meta | eft_parse | eft_export | format_export | format_import
+./target/release/eve-fit meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
 ```
+
+The `meta.engine` string stays `eve-dogma-f 0.1.0` for now (byte-identical output); it changes with the first
+intended output change.
 
 ### WASM
 
 ```bash
 rustup target add wasm32-wasip1 wasm32-unknown-unknown
-cargo build --release --target wasm32-wasip1                 # CLI as WASI module
-wasmtime run target/wasm32-wasip1/release/eve-dogma-f.wasm calc < request.json
-cargo build --lib --profile release-small --target wasm32-unknown-unknown   # 3.76 MB (0.86 MB gzip), C-ABI exports
-node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogma_f.wasm < request.json
+cargo build --release --target wasm32-wasip1 -p eve-cli                                  # CLI as WASI module
+wasmtime run target/wasm32-wasip1/release/eve-fit.wasm calc < request.json
+cargo build --profile release-small --target wasm32-unknown-unknown -p eve-wasm          # C-ABI exports
+node crates/eve-wasm/examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_wasm.wasm < request.json
 ```
+
+### CI
+
+`.github/workflows/ci.yml`: native + both WASM targets; then, native and wasip1, every suite at its pinned
+eve-dogma-bench ref (`ci/run_suites.sh`) against the minimum scores in `ci/gate.json` (bench 1.9.0 331/331, EFT
+1.8.0 326/326, cap-suite 150/150, mutated-suite 93/93 + EFT 93/93 / 99/99, formats-suite 4779/4779, graphs 0.2
+178/178), plus the round-1 batch output sha256 (`ci/round1.sha256`). Locally:
+`BENCH=/path/to/eve-dogma-bench ci/run_suites.sh native ./target/release/eve-fit`.
 
 ### Bench
 
@@ -43,9 +70,9 @@ node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogm
 Round-2 graph contract (eve-dogma-bench `graphs-round2`, `graphs/CONTRACT-GRAPHS.md`): all 9 Pyfa graph types.
 
 ```bash
-./target/release/eve-dogma-f graph < graph_request.json        # one GraphRequest -> GraphResult
-./target/release/eve-dogma-f graph-batch < requests.jsonl       # JSONL, parallel, ordered
-./target/release/eve-dogma-f graph-specs                        # the catalogue (graphs.json)
+./target/release/eve-fit graph < graph_request.json        # one GraphRequest -> GraphResult
+./target/release/eve-fit graph-batch < requests.jsonl       # JSONL, parallel, ordered
+./target/release/eve-fit graph-specs                        # the catalogue (graphs.json)
 # RPC (serve-stdio and the WASM `rpc` export): {"method":"graph","params":GraphRequest}, {"method":"graph_specs"}
 ```
 

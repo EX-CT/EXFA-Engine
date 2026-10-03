@@ -88,7 +88,7 @@ modifier data, the generator and engine reproduce Pyfa's behaviour:
   formatter, at no spool-up.
 
 ## WASM
-* `wasm32-wasip1`: the same CLI binary. Run it with `wasmtime run eve-dogma-f.wasm calc < req.json`. Precompiling with
+* `wasm32-wasip1`: the same CLI binary. Run it with `wasmtime run eve-fit.wasm calc < req.json`. Precompiling with
   `wasmtime compile` gives about 6.6 ms cold.
 * `wasm32-unknown-unknown` (`--lib --profile release-small`): C-ABI exports `alloc`, `dealloc`, `calc(ptr,len)->u64`,
   `rpc(ptr,len)->u64`. See `examples/node-calc.mjs`.

@@ -25,12 +25,12 @@ fn out(s: String) -> u64 {
 #[no_mangle]
 pub unsafe extern "C" fn calc(ptr: *const u8, len: usize) -> u64 {
     let s = std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).unwrap_or("");
-    out(crate::calc_json(s))
+    out(eve_dogma::calc_json(s))
 }
 
 /// JSONL RPC line (ptr,len) -> response JSON.
 #[no_mangle]
 pub unsafe extern "C" fn rpc(ptr: *const u8, len: usize) -> u64 {
     let s = std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).unwrap_or("");
-    out(serde_json::to_string(&crate::rpc(s)).unwrap())
+    out(serde_json::to_string(&eve_dogma::rpc(s)).unwrap())
 }

@@ -24,14 +24,43 @@ dependencies = [
 ]
 
 [[package]]
-name = "eve-dogma-f"
+name = "eve-capsim"
+version = "0.1.0"
+
+[[package]]
+name = "eve-cli"
 version = "0.1.0"
 dependencies = [
- "flate2",
+ "eve-dogma",
+ "serde_json",
+]
+
+[[package]]
+name = "eve-dogma"
+version = "0.1.0"
+dependencies = [
+ "eve-capsim",
+ "eve-dogma-codegen",
  "itoa",
  "serde",
  "serde_json",
  "zmij",
+]
+
+[[package]]
+name = "eve-dogma-codegen"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "serde_json",
+]
+
+[[package]]
+name = "eve-wasm"
+version = "0.1.0"
+dependencies = [
+ "eve-dogma",
+ "serde_json",
 ]
 
 [[package]]
