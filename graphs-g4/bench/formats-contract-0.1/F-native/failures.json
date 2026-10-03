@@ -1,0 +1,122 @@
+[
+ {
+  "id": "esf_items_7.json@export:shipstats",
+  "category": "export:shipstats",
+  "reasons": [
+   "text"
+  ],
+  "error": null,
+  "expected_error": null
+ },
+ {
+  "id": "esf_structure_bonus_1.json@export:shipstats",
+  "category": "export:shipstats",
+  "reasons": [
+   "text"
+  ],
+  "error": null,
+  "expected_error": null
+ },
+ {
+  "id": "edge_export/name_newline.json@import:xml",
+  "category": "edge_export:import_xml",
+  "reasons": [
+   "name"
+  ],
+  "error": null,
+  "expected_error": null
+ },
+ {
+  "id": "eft_case_names.eft.txt@auto",
+  "category": "edge:eft",
+  "reasons": [
+   "expected_error"
+  ],
+  "error": null,
+  "expected_error": {
+   "code": "IMPORT_ERROR",
+   "pyfa": "no fit produced (1 null)"
+  }
+ },
+ {
+  "id": "eft_header_empty_name.eft.txt@auto",
+  "category": "edge:eft",
+  "reasons": [
+   "expected_error"
+  ],
+  "error": null,
+  "expected_error": {
+   "code": "IMPORT_ERROR",
+   "pyfa": "no fit produced (1 null)"
+  }
+ },
+ {
+  "id": "eft_renamed_item.eft.txt@auto",
+  "category": "edge:eft",
+  "reasons": [
+   "modules"
+  ],
+  "error": null,
+  "expected_error": null
+ },
+ {
+  "id": "esi_missing_description.esi.json@auto",
+  "category": "edge:esi",
+  "reasons": [
+   "expected_error"
+  ],
+  "error": null,
+  "expected_error": {
+   "code": "IMPORT_ERROR",
+   "pyfa": "KeyError: 'description'"
+  }
+ },
+ {
+  "id": "xml_malformed.xml@auto",
+  "category": "edge:xml",
+  "reasons": [
+   "expected_error"
+  ],
+  "error": null,
+  "expected_error": {
+   "code": "IMPORT_ERROR",
+   "pyfa": "ExpatError: no element found: line 5, column 0"
+  }
+ },
+ {
+  "id": "xml_no_description.xml@auto",
+  "category": "edge:xml",
+  "reasons": [
+   "expected_error"
+  ],
+  "error": null,
+  "expected_error": {
+   "code": "IMPORT_ERROR",
+   "pyfa": "AttributeError: 'NoneType' object has no attribute 'getAttribute'"
+  }
+ },
+ {
+  "id": "xml_no_fittings.xml@auto",
+  "category": "edge:xml",
+  "reasons": [
+   "expected_error"
+  ],
+  "error": null,
+  "expected_error": {
+   "code": "IMPORT_ERROR",
+   "pyfa": "no fit produced (0 null)"
+  }
+ },
+ {
+  "id": "auto_garbage.txt@xml",
+  "category": "edge:forced",
+  "reasons": [
+   "expected_error"
+  ],
+  "error": null,
+  "expected_error": {
+   "code": "IMPORT_ERROR",
+   "pyfa": "ExpatError: syntax error: line 1, column 0"
+  }
+ }
+]
