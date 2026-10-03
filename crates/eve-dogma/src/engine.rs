@@ -106,6 +106,8 @@ pub struct Item {
     pub booster_side_effects: Vec<u32>,
     pub spool: Option<Spool>,
     pub distance: Option<f64>,
+    /// mutated (rolled) attributes: request overrides do not replace them (Pyfa reads mutators after overrides)
+    pub rolled: Vec<u16>,
 }
 
 impl Item {
@@ -254,6 +256,7 @@ impl Fit {
             booster_side_effects: Vec::new(),
             spool: None,
             distance: None,
+            rolled: Vec::new(),
         });
         Ok(self.items.len() - 1)
     }
@@ -758,6 +761,9 @@ impl Fit {
         }
         let muta = m.mutaplasmid_type_id.and_then(d::muta_attrs);
         let base_t = d::type_index(m.base_type_id);
+        if let Some(mu) = muta {
+            self.items[idx].rolled.extend(mu.iter().map(|x| x.0));
+        }
         for (k, v) in &m.attributes {
             let Ok(aid) = k.parse::<u16>() else { continue };
             let mut val = *v;
@@ -771,6 +777,7 @@ impl Fit {
                 }
             }
             self.set_base(idx, aid, val);
+            self.items[idx].rolled.push(aid);
         }
     }
 
@@ -993,6 +1000,9 @@ impl Fit {
                     if let Some(pf) = &p.fit {
                         let mut sub = (**pf).clone();
                         sub.projected.clear();
+                        // top-level overrides are global to the request (one Pyfa override table); the
+                        // sub-fit's own entries come after, so they win for the same (type, attribute)
+                        sub.overrides = req.overrides.iter().chain(sub.overrides.iter()).cloned().collect();
                         match Fit::build(&sub) {
                             Ok(sf) => fit.ext.push((sf, p.amount.max(1), p.distance_m)),
                             Err(e) => {
@@ -1026,7 +1036,7 @@ impl Fit {
         }
         for o in &req.overrides {
             for i in 0..fit.items.len() {
-                if fit.items[i].type_id == o.type_id {
+                if fit.items[i].type_id == o.type_id && !fit.items[i].rolled.contains(&(o.attribute_id as u16)) {
                     fit.set_base(i, o.attribute_id as u16, o.value);
                 }
             }
@@ -1305,6 +1315,15 @@ impl Fit {
         }
         self.clear_cache();
         for (k, bf) in req.fleet.booster_fits.iter().enumerate() {
+            let with_global;
+            let bf = if req.overrides.is_empty() {
+                bf
+            } else {
+                let mut b = bf.clone();
+                b.overrides = req.overrides.iter().chain(bf.overrides.iter()).cloned().collect();
+                with_global = b;
+                &with_global
+            };
             match Fit::build(bf) {
                 Ok(b) => {
                     for (id, v) in b.burst_values() {
