@@ -15,6 +15,7 @@ stage cap d80cc38      # cap-suite
 stage mut 2ac7c00      # mutated-suite
 stage fmt 7c716e7      # formats-suite (FORMATS 0.1)
 stage gr  84f7c2e      # graphs-round2, contract 0.2
+stage b110 d7911631f3d4056cdcd4a339b43759486478e52e   # bench v1.10.0: core 339, effects/ 2378, ext/ 116
 fail=0
 note() { echo "$1" | tee -a "$OUT/summary.md"; }
 # round-1 corpus, batch output sha256 (pure refactors must not change a byte)
@@ -29,5 +30,8 @@ if [ "$sha" = "$want" ]; then note "- round-1 batch sha256 $sha (unchanged)"; el
  python3 mutated/tools/check_eft.py --rpc-cmd "$E serve-stdio" --dataset "$D" > "$OUT/mut-eft.json" 2> "$OUT/mut-eft.log")
 (cd "$T/fmt" && python3 tools/evaluate_formats.py --rpc "$E serve-stdio" --name "$NAME" --out "$OUT/fmt" > "$OUT/fmt.log" 2>&1)
 (cd "$T/gr" && python3 graphs/run_graphs.py --name "$NAME" --rpc-cmd "$E serve-stdio" --timeout 60 > "$OUT/gr.log" 2>&1)
+(cd "$T/b110" && python3 run.py --name "$NAME" --cmd "$E calc" --batch-cmd "$E batch" --batch-repeat 1 --latency-n 3 > "$OUT/b110.log" 2>&1)
+(cd "$T/b110" && python3 effects/tools/score.py --batch-cmd "$E batch" --name "$NAME" --out "$OUT/effects.json" > "$OUT/effects.log" 2>&1)
+(cd "$T/b110" && python3 ext/tools/score.py --batch-cmd "$E batch" --name "$NAME" --out "$OUT/ext.json" > "$OUT/ext.log" 2>&1)
 python3 ci/gate.py "$NAME" "$T" "$OUT" | tee -a "$OUT/summary.md"; [ "${PIPESTATUS[0]}" = 0 ] || fail=1
 exit $fail

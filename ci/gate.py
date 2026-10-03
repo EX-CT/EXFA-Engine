@@ -25,6 +25,13 @@ except Exception as e: got["formats-suite"] = (0, repr(e))
 try:
     sc = json.load(open(T / "gr/results" / f"graphs-{name}" / "scorecard.json")); got["graphs-0.2"] = (sc["cases_fully_correct"], sc["cases"])
 except Exception as e: got["graphs-0.2"] = (0, repr(e))
+try:
+    sc = json.load(open(T / "b110/results" / name / "scorecard.json")); got["bench-1.10.0"] = (sc["cases_fully_correct"], sc["cases"])
+except Exception as e: got["bench-1.10.0"] = (0, repr(e))
+for k, f in (("effects-1.10.0", "effects.json"), ("ext-1.10.0", "ext.json")):
+    try:
+        sc = json.load(open(OUT / f)); got[k] = (sc["pass"], sc["total"])
+    except Exception as e: got[k] = (0, repr(e))
 bad = 0
 print(f"| suite ({name}) | score | gate |\n|---|---|---|")
 for k, need in gate.items():

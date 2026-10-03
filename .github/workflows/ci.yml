@@ -127,12 +127,24 @@ jobs:
           else
             echo "ENGINE=$PWD/_engine/release/eve-fit" >> "$GITHUB_ENV"
           fi
-      - name: Suites (bench 1.9.0, EFT 1.8.0, cap, mutated, formats, graphs 0.2, round-1 sha256)
+      - name: Suites (bench 1.10.0 core/effects/ext, bench 1.9.0, EFT 1.8.0, cap, mutated, formats, graphs 0.2, round-1 sha256)
         env:
           BENCH: ${{ github.workspace }}/_bench
         run: |
-          ci/run_suites.sh "${{ matrix.mode }}" "$ENGINE"; rc=$?
+          rc=0; ci/run_suites.sh "${{ matrix.mode }}" "$ENGINE" || rc=$?
           cat "ci-results/${{ matrix.mode }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      # docs/20 §5.1 inventory -> tests gate (eve-dogma-bench tools/check_inventory.py, docs/19 YAML from eve-fit-docs).
+      # Non-blocking until eve3 publishes cases for the uncovered items (ENG-OFF-003, TGT-004, VAL-002..006) and tags a
+      # new bench release; then drop continue-on-error.
+      - name: Inventory check (non-blocking)
+        if: matrix.mode == 'native'
+        continue-on-error: true
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/EX-CT/eve-fit-docs/main/docs/19-pyfa-feature-inventory.yaml -o _inv19.yaml
+          python3 _bench/tools/check_inventory.py --inventory _inv19.yaml --bench-repo _bench --columns f --root unit=$PWD \
+            --json ci-results/inventory.json | tee ci-results/inventory.txt; rc=${PIPESTATUS[0]}
+          { echo; echo '### inventory check (non-blocking)'; echo '```'; tail -3 ci-results/inventory.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit $rc
       - uses: actions/upload-artifact@v4
         if: always()
