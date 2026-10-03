@@ -145,7 +145,10 @@ jobs:
       - name: No-regression gate (bench pending-1.11 tip, baselines/f.json; core, ext, ext_rpc, batch, effects, sde, price_inject, graphs, cap, mutated, formats)
         if: matrix.mode == 'native'
         run: |
-          git clone -q --depth 1 -b pending-1.11 https://github.com/EX-CT/eve-dogma-bench _nrg_bench
+          # blobless (not shallow) clone: run_all_suites.sh fetches pinned suite commits into it; a --depth 1 clone raced on .git/shallow
+          # bench ref: pending-1.11 tip (>= 05ae5a1, eve3's alignment with eve-fit-docs eccf455; baseline 8bde0ba)
+          for i in 1 2 3; do rm -rf _nrg_bench; git clone -q --filter=blob:none -b pending-1.11 https://github.com/EX-CT/eve-dogma-bench _nrg_bench && break; sleep 5; done
+          git -C _nrg_bench merge-base --is-ancestor 05ae5a1e70859f7eab628a748360b060f9069574 HEAD
           _nrg_bench/tools/run_all_suites.sh "$ENGINE" nrg-out
           rc=0; python3 _nrg_bench/tools/check_no_regress.py --baseline _nrg_bench/baselines/f.json --run-dir nrg-out | tee nrg.txt || rc=$?
           { echo; echo "### no-regression gate (bench pending-1.11 $(git -C _nrg_bench rev-parse --short HEAD))"; echo '```'; cat nrg.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
