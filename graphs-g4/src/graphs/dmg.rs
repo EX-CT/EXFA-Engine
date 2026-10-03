@@ -96,10 +96,12 @@ pub fn dealers(fit: &Fit) -> Vec<Dealer> {
                 let k = module_kind(fit, i);
                 if k == K::Breacher {
                     let c = it.charge.unwrap();
+                    // one tick per pod cycle lands on the time line (Pyfa's time cache keeps the first tick only);
+                    // ticks from several launchers at the same moment do not stack (strongest applies)
                     let n = (attr(fit, c, "dotDuration") / 1000.0).floor();
                     let tick = attr(fit, c, "dotMaxDamagePerTick");
-                    let base: Vec<(f64, D)> = (0..n as i64).map(|k| (1000.0 * (1 + k) as f64, [0.0, 0.0, 0.0, 0.0, tick])).collect();
-                    if tick > 0.0 {
+                    let base: Vec<(f64, D)> = vec![(1.0, [0.0, 0.0, 0.0, 0.0, tick])];
+                    if tick > 0.0 && n > 0.0 {
                         v.push(Dealer { k, i, eid: 0, base });
                     }
                     continue;
@@ -251,7 +253,7 @@ pub fn dealer_values(ctx: &Ctx, dl: &[Dealer], time: Option<f64>) -> Vec<(D, D, 
                         if tot(&vv) > tot(&best) {
                             best = vv;
                         }
-                        if tot(&vv) != 0.0 && float_unerr(now + delay / 1000.0) <= tu {
+                        if tot(&vv) != 0.0 && float_unerr(now + delay / 1000.0 + off) <= tu {
                             add(&mut dmg, &vv);
                         }
                         if x.k == K::Breacher {
@@ -279,6 +281,7 @@ pub fn dealer_values(ctx: &Ctx, dl: &[Dealer], time: Option<f64>) -> Vec<(D, D, 
 // ------------------------------------------------------------------ application
 
 pub struct Target {
+    pub hp: f64,
     pub res: [f64; 4],
     pub vmax: f64,
     pub sig: f64,
@@ -604,7 +607,8 @@ pub fn build_target(ctx: &Ctx) -> Result<Target, String> {
         let mode = t.get("resist_mode").and_then(|v| v.as_str()).unwrap_or("auto");
         let res = fit_resists(&fit, &stats, mode);
         let s = fit.ship;
-        return Ok(Target { res, vmax: attr(&fit, s, "maxVelocity"), sig: attr(&fit, s, "signatureRadius"), radius: attr(&fit, s, "radius"), fit: Some(Box::new(TargetFit { fit, req })) });
+        let hp = sget(&stats, "defense.hp.shield") + sget(&stats, "defense.hp.armor") + sget(&stats, "defense.hp.hull");
+        return Ok(Target { hp, res, vmax: attr(&fit, s, "maxVelocity"), sig: attr(&fit, s, "signatureRadius"), radius: attr(&fit, s, "radius"), fit: Some(Box::new(TargetFit { fit, req })) });
     }
     let p = t.get("profile").cloned().unwrap_or(Value::Null);
     let f = |k: &str, def: f64| p.get(k).and_then(|v| v.as_f64()).unwrap_or(def);
@@ -614,9 +618,9 @@ pub fn build_target(ctx: &Ctx) -> Result<Target, String> {
         None => if p.is_null() { f64::INFINITY } else { 125.0 },
     };
     if p.is_null() {
-        return Ok(Target { res: [0.0; 4], vmax: 0.0, sig, radius: 0.0, fit: None });
+        return Ok(Target { hp: f64::INFINITY, res: [0.0; 4], vmax: 0.0, sig, radius: 0.0, fit: None });
     }
-    Ok(Target { res: [f("em", 0.0), f("thermal", 0.0), f("kinetic", 0.0), f("explosive", 0.0)], vmax: f("max_velocity", 0.0), sig, radius: f("radius", 0.0), fit: None })
+    Ok(Target { hp: f("hp", f64::INFINITY), res: [f("em", 0.0), f("thermal", 0.0), f("kinetic", 0.0), f("explosive", 0.0)], vmax: f("max_velocity", 0.0), sig, radius: f("radius", 0.0), fit: None })
 }
 
 struct Proj {
@@ -852,6 +856,7 @@ pub fn damage(ctx: &Ctx, mode: u8, time: Option<f64>, dist: Option<f64>, speed_x
     let vals = dealer_values(ctx, &dl, time);
     let res = if ctx.setting_b("ignore_resists", true) { [0.0; 4] } else { tgt.res };
     let mut total = [0.0; 5];
+    let mut pure_max = 0.0f64;
     for (x, v) in dl.iter().zip(&vals) {
         let app = application(ctx, x, &tgt, &g, &r);
         let y = match mode {
@@ -859,8 +864,21 @@ pub fn damage(ctx: &Ctx, mode: u8, time: Option<f64>, dist: Option<f64>, speed_x
             1 => &v.1,
             _ => &v.2,
         };
-        add(&mut total, &scale(y, app));
+        let mut yy = scale(y, app);
+        if x.k == K::Breacher {
+            // per tick: min(absolute, relative x target HP)
+            let c = fit.items[x.i].charge.unwrap();
+            let abs = attr(fit, c, "dotMaxDamagePerTick");
+            let rel = attr(fit, c, "dotMaxHPPercentagePerTick") / 100.0;
+            let capped = abs.min(rel * tgt.hp);
+            if abs > 0.0 {
+                pure_max = pure_max.max(yy[4] * capped / abs);
+            }
+            yy[4] = 0.0;
+        }
+        add(&mut total, &yy);
     }
+    total[4] += pure_max;
     let mut out = total[4];
     for k in 0..4 {
         out += total[k] * (1.0 - res[k]);
