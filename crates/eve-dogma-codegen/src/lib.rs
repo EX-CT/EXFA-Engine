@@ -7,13 +7,13 @@
 //!
 //! The runtime never parses or interprets dataset JSON.
 //!
-//! Dataset path: `$EVE_DOGMA_DATASET`, else `../../../data/dataset-3569502.json.gz` relative to the crate dir (EXCT box layout).
+//! Dataset path: `$EVE_DOGMA_DATASET`, else `../../../data/dataset-3569502-r5.json.gz` relative to the crate dir (EXCT box layout).
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::io::Read;
 
-const DEFAULT_DATASET: &str = "../../../data/dataset-3569502.json.gz";
+const DEFAULT_DATASET: &str = "../../../data/dataset-3569502-r5.json.gz";
 const REQ_SKILL_ATTRS: [u32; 6] = [182, 183, 184, 1285, 1289, 1290];
 const HULL_RESONANCES: [u32; 4] = [113, 111, 109, 110];
 const SKILL_EFFECT: u32 = 132;
@@ -847,6 +847,18 @@ fn generate() -> String {
         }
     }
     arr(&mut out, "SHIP_DEFAULT_MODE", "(u32, u32)", &ship_modes);
+
+    // market groups (prices, docs/23 §5): per-type market group (0 = none) and, when the dataset has the
+    // `market_groups` section (pipeline r2+), the parent of every market group (0 = root)
+    arr(&mut out, "TYPE_MARKET_GROUP", "u32", &tl.iter().map(|(_, t)| u(&t["market_group"]).unwrap_or(0)).collect::<Vec<_>>());
+    let mut mgl: Vec<(u32, u32)> = d["market_groups"]
+        .as_object()
+        .map(|o| o.iter().map(|(k, g)| (k.parse().unwrap(), u(&g["parent"]).unwrap_or(0))).collect())
+        .unwrap_or_default();
+    mgl.sort();
+    writeln!(out, "pub const HAS_MARKET_GROUP_TREE: bool = {};", d["market_groups"].is_object()).unwrap();
+    arr(&mut out, "MARKET_GROUP_IDS", "u32", &mgl.iter().map(|g| g.0).collect::<Vec<_>>());
+    arr(&mut out, "MARKET_GROUP_PARENT", "u32", &mgl.iter().map(|g| g.1).collect::<Vec<_>>());
 
     // fighter default abilities (Pyfa default: standard attack on; abilities before it on except MWD/evasive/MJD)
     let mut fdef = Vec::new();

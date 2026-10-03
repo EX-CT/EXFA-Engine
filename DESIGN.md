@@ -1,7 +1,7 @@
 # Variant F: design
 
 ## Core idea
-The SDE is compiled into Rust code. `build.rs` reads `dataset-3569502.json.gz` (eve-sde-pipeline format v1, path from
+The SDE is compiled into Rust code. `build.rs` reads `dataset-3569502-r5.json.gz` (eve-sde-pipeline format v1, release sde-3569502-r5; r2+ adds the market-group tree used by price overrides; path from
 `$EVE_DOGMA_DATASET`) and writes `$OUT_DIR/gen.rs` (about 5.4 MB of Rust), which is pulled in with `include!`. At runtime
 the engine never parses dataset JSON and never interprets modifier records. Every effect is a match arm of straight-line
 calls.

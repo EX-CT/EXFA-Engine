@@ -122,6 +122,14 @@ pub fn eff_index(id: u32) -> Option<usize> {
     EFF_IDS.binary_search(&id).ok()
 }
 
+/// Market group of a type (None = not on the market).
+pub fn type_market_group(ix: usize) -> Option<u32> {
+    Some(TYPE_MARKET_GROUP[ix]).filter(|&g| g != 0)
+}
+/// Parent market group (None = root or unknown). Needs the dataset's market-group tree (HAS_MARKET_GROUP_TREE).
+pub fn market_group_parent(id: u32) -> Option<u32> {
+    MARKET_GROUP_IDS.binary_search(&id).ok().map(|k| MARKET_GROUP_PARENT[k]).filter(|&p| p != 0)
+}
 pub fn group_index(id: u32) -> Option<usize> {
     GROUP_IDS.binary_search(&id).ok()
 }

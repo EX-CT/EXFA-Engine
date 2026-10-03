@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SDE_TAG: sde-3569502
+  SDE_TAG: sde-3569502-r5
   CARGO_TERM_COLOR: always
 
 jobs:

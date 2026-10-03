@@ -11,7 +11,7 @@ black-box oracle and behaviour reference; no Pyfa code.
 EVE Online dogma engine for the EXCT contract (`eve-dogma-rs/docs/contract.md`, v1): one JSON `FitRequest` on
 stdin → one JSON `FitStats` on stdout, stateless and deterministic.
 
-The SDE dataset (`dataset-3569502.json.gz`, eve-sde-pipeline format v1) is **compiled into the binary**: the code
+The SDE dataset (`dataset-3569502-r5.json.gz`, eve-sde-pipeline format v1, release `sde-3569502-r5`) is **compiled into the binary**: the code
 generator turns every effect's modifier list into straight-line Rust code and every type/attribute/group into static
 tables. The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.md).
 
@@ -45,7 +45,7 @@ CI checks the boundary (`cargo tree`: no eve-dogma under eve-fit-formats, no for
 ## Build & run
 
 ```bash
-export EVE_DOGMA_DATASET=/abs/path/dataset-3569502.json.gz   # default ../../../data/… relative to crates/eve-sde, crates/eve-dogma
+export EVE_DOGMA_DATASET=/abs/path/dataset-3569502-r5.json.gz   # default ../../../data/… relative to crates/eve-sde, crates/eve-dogma
 cargo build --release
 cargo install --path crates/eve-cli --locked                       # installs the binary `eve-fit` (package eve-cli)
 ./target/release/eve-fit calc < request.json > response.json
