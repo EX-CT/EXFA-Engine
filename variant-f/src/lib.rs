@@ -168,7 +168,7 @@ fn format_export(p: &Value) -> Value {
         "dna" => formats::dna_export(&r, name, opt(p, "formatting", false)),
         "esi" => match formats::esi_export(&r, name, opt(p, "charges", true), opt(p, "implants", true), opt(p, "boosters", true)) {
             Ok(t) => t,
-            Err(e) => return json!({"error": {"code": "EXPORT", "message": e}}),
+            Err(e) => return json!({"error": {"code": "EXPORT_ERROR", "message": e}}),
         },
         "xml" => formats::xml_export(&[(&r, name)]),
         "multibuy" => formats::multibuy_export(&r, &formats::MultibuyOpts {
@@ -217,14 +217,14 @@ fn format_import(p: &Value) -> Value {
             None => {
                 return match formats::items_import(text) {
                     Some((kind, items)) => json!({"kind": kind, "items": items.iter().map(|(t, n, m)| json!({"type_id": t, "amount": n, "mutation": m})).collect::<Vec<_>>()}),
-                    None => json!({"error": {"code": "UNSUPPORTED_FORMAT", "message": "format not recognised"}}),
+                    None => json!({"error": {"code": "UNRECOGNIZED_INPUT", "message": "format not recognised"}}),
                 }
             }
         }
     }
     let one = |r: Result<formats::Imported, String>, kind: &str| match r {
         Ok(f) => json!({"kind": kind, "fits": [imported_json(&f)]}),
-        Err(e) => json!({"error": {"code": "IMPORT", "message": e}}),
+        Err(e) => json!({"error": {"code": "IMPORT_ERROR", "message": e}}),
     };
     match fmt.as_str() {
         "eft" => one(formats::eft_import(text), "EFT"),
@@ -236,19 +236,19 @@ fn format_import(p: &Value) -> Value {
         }
         "dna_link" => match formats::dna_link(text) {
             Some((dna, name)) => one(formats::dna_import(&dna, Some(&name), false), "DNA"),
-            None => json!({"error": {"code": "IMPORT", "message": "bad fitting link"}}),
+            None => json!({"error": {"code": "IMPORT_ERROR", "message": "bad fitting link"}}),
         },
         "esi" => one(formats::esi_import(text), "JSON"),
         "eftcfg" => {
             let stem = path.map(|p| p.rsplit('/').next().unwrap_or(p)).and_then(|f| f.split('.').next()).unwrap_or("");
             match formats::eftcfg_import(text, stem) {
                 Ok(v) => json!({"kind": "EFT Config", "fits": v.iter().map(imported_json).collect::<Vec<_>>()}),
-                Err(e) => json!({"error": {"code": "IMPORT", "message": e}}),
+                Err(e) => json!({"error": {"code": "IMPORT_ERROR", "message": e}}),
             }
         }
         "xml" => match formats::xml_import(text) {
             Ok(v) => json!({"kind": "XML", "fits": v.iter().map(imported_json).collect::<Vec<_>>()}),
-            Err(e) => json!({"error": {"code": "IMPORT", "message": e}}),
+            Err(e) => json!({"error": {"code": "IMPORT_ERROR", "message": e}}),
         },
         f => json!({"error": {"code": "UNSUPPORTED_FORMAT", "message": f}}),
     }

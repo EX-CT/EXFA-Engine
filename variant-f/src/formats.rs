@@ -730,6 +730,9 @@ pub fn dna_import(text: &str, fit_name: Option<&str>, alt: bool) -> Result<Impor
 /// Minimal JSON helpers for the ESI body (serde_json is used; this just pulls the fields Pyfa reads).
 pub fn esi_import(text: &str) -> Result<Imported, String> {
     let v: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    if v.get("description").is_none() {
+        return Err("no description".into());
+    }
     let ship = v.get("ship_type_id").and_then(|x| x.as_u64()).ok_or("no ship_type_id")? as u32;
     if !is_hull(ship) {
         return Err("not a ship".into());
@@ -783,7 +786,86 @@ pub fn esi_import(text: &str) -> Result<Imported, String> {
     })
 }
 
+/// Type by name as Pyfa's item lookup sees it: exact (case-sensitive) match on the trimmed name.
+fn type_by_name(name: &str) -> Option<u32> {
+    let n = name.trim();
+    d::type_by_name(n).filter(|&t| ix(t).map(|i| d::type_name(i).trim() == n).unwrap_or(false))
+}
+
 // ---- XML
+
+/// Well-formedness check (what an XML parser rejects before Pyfa sees any fitting): balanced, properly nested
+/// elements, exactly one root element, no character data outside it, nothing left open at the end.
+fn xml_well_formed(text: &str) -> Result<(), String> {
+    let b = text.as_bytes();
+    let mut i = 0;
+    let mut stack: Vec<&str> = Vec::new();
+    let mut roots = 0;
+    while i < b.len() {
+        if b[i] != b'<' {
+            if stack.is_empty() && !(b[i] as char).is_whitespace() && b[i] != 0xEF && b[i] != 0xBB && b[i] != 0xBF {
+                return Err("syntax error: text outside the root element".into());
+            }
+            i += 1;
+            continue;
+        }
+        let r = &text[i..];
+        let skip = |open: &str, close: &str| -> Option<Result<usize, String>> {
+            if r.starts_with(open) {
+                Some(r[open.len()..].find(close).map(|e| open.len() + e + close.len()).ok_or_else(|| "unclosed markup".to_string()))
+            } else {
+                None
+            }
+        };
+        if let Some(n) = skip("<?", "?>").or_else(|| skip("<!--", "-->")).or_else(|| skip("<![CDATA[", "]]>")).or_else(|| skip("<!", ">")) {
+            i += n?;
+            continue;
+        }
+        // tag end, respecting quoted attribute values
+        let mut j = i + 1;
+        let mut q: Option<u8> = None;
+        while j < b.len() {
+            match (q, b[j]) {
+                (None, b'"') | (None, b'\'') => q = Some(b[j]),
+                (Some(c), x) if x == c => q = None,
+                (None, b'>') => break,
+                (None, b'<') => return Err("not well-formed (invalid token)".into()),
+                _ => {}
+            }
+            j += 1;
+        }
+        if j >= b.len() {
+            return Err("no element found (unclosed tag)".into());
+        }
+        let inner = &text[i + 1..j];
+        if let Some(name) = inner.strip_prefix('/') {
+            let name = name.trim();
+            if stack.pop() != Some(name) {
+                return Err("mismatched tag".into());
+            }
+        } else {
+            let self_closing = inner.ends_with('/');
+            let name = inner.trim_end_matches('/').split(|c: char| c.is_whitespace()).next().unwrap_or("");
+            if name.is_empty() {
+                return Err("not well-formed (invalid token)".into());
+            }
+            if stack.is_empty() {
+                roots += 1;
+                if roots > 1 {
+                    return Err("junk after document element".into());
+                }
+            }
+            if !self_closing {
+                stack.push(name);
+            }
+        }
+        i = j + 1;
+    }
+    if !stack.is_empty() || roots == 0 {
+        return Err("no element found".into());
+    }
+    Ok(())
+}
 
 fn xml_unescape(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
@@ -851,7 +933,9 @@ fn xml_attrs(tag: &str) -> Vec<(String, String)> {
                 let q = b[i];
                 let vs = i + 1;
                 let ve = (vs..b.len()).find(|&k| b[k] == q).unwrap_or(b.len());
-                v.push((key, xml_unescape(&tag[vs..ve])));
+                // XML attribute-value normalisation: literal CR LF / LF / CR / TAB become a space
+                let raw = tag[vs..ve].replace("\r\n", " ").replace(['\n', '\r', '\t'], " ");
+                v.push((key, xml_unescape(&raw)));
                 i = ve + 1;
                 continue;
             }
@@ -886,23 +970,25 @@ fn xml_tags<'a>(s: &'a str, name: &str) -> Vec<(usize, Vec<(String, String)>)> {
 /// EVE client XML: every `<fitting>` becomes a fit; hardware by `base_type` (or `type`) name; drone and fighter
 /// bays, cargo by `slot="cargo"`; mutated hardware keeps its mutaplasmid and attributes.
 pub fn xml_import(text: &str) -> Result<Vec<Imported>, String> {
+    xml_well_formed(text)?;
     let fittings = xml_tags(text, "fitting");
     let mut out = Vec::new();
     for (k, (pos, fa)) in fittings.iter().enumerate() {
         let end = fittings.get(k + 1).map(|x| x.0).unwrap_or(text.len());
         let body = &text[*pos..end];
         let ship_name = xml_tags(body, "shipType").first().map(|x| attr(&x.1, "value").to_string()).unwrap_or_default();
-        let Some(ship) = d::type_by_name(&ship_name).filter(|t| is_hull(*t)) else { continue };
+        let Some(ship) = type_by_name(&ship_name).filter(|t| is_hull(*t)) else { continue };
         let mut req = new_req(ship);
-        let notes = xml_tags(body, "description").first().map(|x| attr(&x.1, "value").to_string());
+        // every fitting needs a <description> element (Pyfa aborts the whole import without one)
+        let notes = Some(xml_tags(body, "description").first().map(|x| attr(&x.1, "value").to_string()).ok_or("fitting without description")?);
         let (mut subs, mut mods) = (Vec::new(), Vec::new());
         for (_, ha) in xml_tags(body, "hardware") {
             let nm = if !attr(&ha, "base_type").is_empty() { attr(&ha, "base_type") } else { attr(&ha, "type") };
-            let Some(t) = d::type_by_name(nm) else { continue };
+            let Some(t) = type_by_name(nm) else { continue };
             if !published(t) {
                 continue;
             }
-            let muta = Some(attr(&ha, "mutaplasmid")).filter(|s| !s.is_empty()).and_then(d::type_by_name).filter(|m| published(*m));
+            let muta = Some(attr(&ha, "mutaplasmid")).filter(|s| !s.is_empty()).and_then(type_by_name).filter(|m| published(*m));
             let mattrs = parse_mutant_attrs(attr(&ha, "mutated_attrs"));
             let mutation = muta.filter(|m| d::muta_output(*m, t).is_some()).map(|m| full_mutation(t, m, &mattrs));
             let qty = attr(&ha, "qty").trim().parse::<u32>().unwrap_or(0);
@@ -928,7 +1014,10 @@ pub fn xml_import(text: &str) -> Result<Vec<Imported>, String> {
             }
         }
         req.modules = assemble(ship, subs, mods, false);
-        out.push(Imported { name: xml_unescape(attr(fa, "name")), notes, req });
+        out.push(Imported { name: attr(fa, "name").to_string(), notes, req });
+    }
+    if out.is_empty() {
+        return Err("no fit in XML".into());
     }
     Ok(out)
 }
@@ -955,7 +1044,7 @@ fn spec_multi_cat(s: &Option<Spec>, cat: u32) -> bool {
 
 /// A published type by exact (trimmed) name; unknown or unpublished names are stubs, like Pyfa.
 fn fetch(name: &str) -> Option<u32> {
-    d::type_by_name(name).filter(|t| published(*t))
+    type_by_name(name).filter(|t| published(*t))
 }
 
 fn valid_charge(module: u32, charge: u32) -> bool {
@@ -993,6 +1082,10 @@ pub fn eft_import(text: &str) -> Result<Imported, String> {
     let header = lines.remove(0);
     let h = header.strip_prefix('[').and_then(|x| x.strip_suffix(']')).ok_or("corrupted fit header")?;
     let (ship_name, fit_name) = h.split_once(',').ok_or("corrupted fit header")?;
+    if fit_name.is_empty() || ship_name.trim().is_empty() {
+        // "[Ship,]": the header needs at least one character after the comma
+        return Err("corrupted fit header".into());
+    }
     let ship = fetch(ship_name.trim()).filter(|t| is_hull(*t)).ok_or("unknown ship")?;
     let fit_name = fit_name.trim().to_string();
     // mutation blocks: "[n] Base" + following non-blank lines
@@ -1255,7 +1348,7 @@ pub fn dna_link(text: &str) -> Option<(String, String)> {
 /// EFT config file (`<Ship>.cfg`, ship = file stem): `[name]` starts a fit; `Drones_Active|Inactive=Name,N`,
 /// `Implant_*=`, `Booster_*=`, `Cargohold=Name,N`, `Description=` (`|` = newline), else `Module,Charge` lines.
 pub fn eftcfg_import(text: &str, ship_name: &str) -> Result<Vec<Imported>, String> {
-    let ship = d::type_by_name(ship_name).filter(|t| is_hull(*t)).ok_or("unknown ship")?;
+    let ship = type_by_name(ship_name).filter(|t| is_hull(*t)).ok_or("unknown ship")?;
     let lines: Vec<&str> = text.lines().collect();
     let starts: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| l.starts_with('[') && l.ends_with(']')).map(|x| x.0).collect();
     let mut out = Vec::new();
@@ -1279,7 +1372,7 @@ pub fn eftcfg_import(text: &str, ship_name: &str) -> Result<Vec<Imported>, Strin
             match kv {
                 Some((k, v)) if k.starts_with("Drones_") => {
                     let (n, amount) = num(v);
-                    let Some(t) = d::type_by_name(&n) else { continue };
+                    let Some(t) = type_by_name(&n) else { continue };
                     match category(t) {
                         CAT_DRONE => req.drones.push(DroneReq { type_id: t, quantity: amount, active: Some(if k == "Drones_Active" { amount } else { 0 }), mutation: None }),
                         CAT_FIGHTER => req.fighters.push(FighterReq { type_id: t, quantity: Some(amount), active: true, abilities: None }),
@@ -1287,7 +1380,7 @@ pub fn eftcfg_import(text: &str, ship_name: &str) -> Result<Vec<Imported>, Strin
                     }
                 }
                 Some((k, v)) if k.starts_with("Implant_") || k.starts_with("Booster_") => {
-                    let Some(t) = d::type_by_name(v).filter(|t| category(*t) == CAT_IMPLANT) else { continue };
+                    let Some(t) = type_by_name(v).filter(|t| category(*t) == CAT_IMPLANT) else { continue };
                     if k.starts_with("Implant_") {
                         req.implants.push(t)
                     } else {
@@ -1296,7 +1389,7 @@ pub fn eftcfg_import(text: &str, ship_name: &str) -> Result<Vec<Imported>, Strin
                 }
                 Some(("Cargohold", v)) => {
                     let (n, amount) = num(v);
-                    if let Some(t) = d::type_by_name(&n) {
+                    if let Some(t) = type_by_name(&n) {
                         req.cargo.push(CargoReq { type_id: t, quantity: amount });
                     }
                 }
@@ -1306,7 +1399,7 @@ pub fn eftcfg_import(text: &str, ship_name: &str) -> Result<Vec<Imported>, Strin
                         Some((a, b)) => (a, Some(b)),
                         None => (*l, None),
                     };
-                    let Some(t) = d::type_by_name(mn) else { continue };
+                    let Some(t) = type_by_name(mn) else { continue };
                     if !is_module_cat(t) || ix(t).and_then(infer_slot).is_none() {
                         continue;
                     }
@@ -1314,7 +1407,7 @@ pub fn eftcfg_import(text: &str, ship_name: &str) -> Result<Vec<Imported>, Strin
                     if category(t) == CAT_SUBSYSTEM {
                         subs.push(m);
                     } else {
-                        m.charge_type_id = cn.and_then(d::type_by_name).filter(|c| category(*c) == CAT_CHARGE);
+                        m.charge_type_id = cn.and_then(type_by_name).filter(|c| category(*c) == CAT_CHARGE);
                         mods.push(m);
                     }
                 }
@@ -1335,8 +1428,8 @@ pub fn items_import(text: &str) -> Option<(&'static str, Vec<(u32, u32, Option<M
         return None;
     }
     // single mutant
-    if let Some(base) = d::type_by_name(lines[0]) {
-        let muta = lines.get(1).and_then(|l| d::type_by_name(l)).filter(|m| d::muta_output(*m, base).is_some());
+    if let Some(base) = type_by_name(lines[0]) {
+        let muta = lines.get(1).and_then(|l| type_by_name(l)).filter(|m| d::muta_output(*m, base).is_some());
         let mutation = muta.map(|mu| full_mutation(base, mu, &lines.get(2).map(|l| parse_mutant_attrs(l)).unwrap_or_default()));
         return Some(("FittingItem", vec![(base, 1, mutation)]));
     }
@@ -1349,7 +1442,7 @@ pub fn items_import(text: &str) -> Option<(&'static str, Vec<(u32, u32, Option<M
             Some((a, n)) if !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) => (a, n.parse().ok()?, true),
             _ => (l, 1, false),
         };
-        d::type_by_name(name).map(|t| (t, n, has_x || has_ref))
+        type_by_name(name).map(|t| (t, n, has_x || has_ref))
     };
     let items: Vec<(u32, u32, bool)> = lines.iter().filter_map(|l| parse(l)).collect();
     if items.is_empty() {
