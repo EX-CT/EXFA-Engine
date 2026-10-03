@@ -1,4 +1,5 @@
 #include "dataset.hpp"
+#include "serdenum.hpp"
 
 #include <fcntl.h>
 #include <libdeflate.h>
@@ -222,8 +223,13 @@ bool Dataset::build_image(const std::vector<uint8_t>& src, std::vector<uint8_t>&
   std::string sha = sha256_hex(json.data(), json.size());
   memcpy(b.hdr.sha256, sha.data(), 64);
 
+  // eve-dogma-rs reads the dataset with serde_json (no float_roundtrip): reproduce its rounding of long decimals
+  // (e.g. agility 0.15843621910255345 -> ...343) so every attribute value is bit-identical to the reference's
+  std::string fixed;
+  std::string_view jtext(reinterpret_cast<const char*>(json.data()), json.size());
+  if (serde_fix_numbers(jtext, fixed)) jtext = fixed;
   simdjson::dom::parser parser;
-  simdjson::padded_string ps(reinterpret_cast<const char*>(json.data()), json.size());
+  simdjson::padded_string ps(jtext.data(), jtext.size());
   simdjson::dom::element root;
   if (parser.parse(ps).get(root)) {
     err = "dataset json: parse error";

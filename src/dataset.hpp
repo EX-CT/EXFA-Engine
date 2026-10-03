@@ -87,7 +87,7 @@ struct Header {
   SecEnt sec[S_COUNT];
 };
 
-constexpr uint32_t CACHE_VERSION = 6;
+constexpr uint32_t CACHE_VERSION = 7;
 
 class Dataset {
  public:
