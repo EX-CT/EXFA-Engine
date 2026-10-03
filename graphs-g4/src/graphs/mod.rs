@@ -200,25 +200,51 @@ fn num(v: Option<f64>) -> Value {
 
 /// GraphRequest -> GraphResult (CONTRACT-GRAPHS.md).
 pub fn graph(req: &Value) -> Value {
-    let gname = req.get("graph").and_then(|g| g.as_str()).unwrap_or("");
+    // ---- structural validation (contract 0.2: BAD_REQUEST before anything else) ----
+    let Some(gname) = req.get("graph").and_then(|g| g.as_str()) else { return err("BAD_REQUEST", "graph missing or not a string", "graph") };
+    if !req.get("fit").map_or(false, |f| f.is_object()) {
+        return err("BAD_REQUEST", "fit missing or not an object", "fit");
+    }
+    let Some(xv) = req.pointer("/x/values") else { return err("BAD_REQUEST", "missing x.values", "x.values") };
+    let Some(xa) = xv.as_array() else { return err("BAD_REQUEST", "x.values must be an array", "x.values") };
+    let mut xs: Vec<f64> = Vec::with_capacity(xa.len());
+    for (i, v) in xa.iter().enumerate() {
+        match v.as_f64().filter(|f| f.is_finite()) {
+            Some(f) => xs.push(f),
+            None => return err("BAD_REQUEST", "x values must be finite numbers", &format!("x.values[{i}]")),
+        }
+    }
+    let Some(ya) = req.get("y").and_then(|y| y.as_array()) else { return err("BAD_REQUEST", "y missing or not an array", "y") };
+    if ya.is_empty() {
+        return err("BAD_REQUEST", "y must not be empty", "y");
+    }
+    let mut ys: Vec<String> = Vec::new();
+    for (i, v) in ya.iter().enumerate() {
+        match v.as_str() {
+            Some(s) => ys.push(s.to_string()),
+            None => return err("BAD_REQUEST", "y entries must be strings", &format!("y[{i}]")),
+        }
+    }
     let Some(graph) = spec().graphs.get(gname) else { return err("UNKNOWN_GRAPH", format!("unknown graph '{gname}'"), "graph") };
     let axis = req.pointer("/x/axis").and_then(|a| a.as_str()).unwrap_or("").to_string();
     let Some(ax) = graph.axes.get(&axis) else { return err("BAD_AXIS", format!("x axis '{axis}' not valid for {gname}"), "x.axis") };
-    let xs: Vec<f64> = match req.pointer("/x/values").and_then(|v| v.as_array()) {
-        Some(a) => match a.iter().map(|v| v.as_f64()).collect::<Option<Vec<_>>>() {
-            Some(v) => v,
-            None => return err("BAD_REQUEST", "x.values must be numbers", "x.values"),
-        },
-        None => return err("BAD_REQUEST", "missing x.values", "x.values"),
-    };
-    let ys: Vec<String> = req.get("y").and_then(|y| y.as_array()).map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default();
-    let mut forms = Vec::new();
-    for y in &ys {
-        match graph.series.get(y).and_then(|s| s.by_axis.get(&axis)) {
-            Some(f) => forms.push(f),
-            None => return err("BAD_AXIS", format!("series '{y}' not valid for {gname} / {axis}"), "y"),
+    for (i, y) in ys.iter().enumerate() {
+        if graph.series.get(y).and_then(|s| s.by_axis.get(&axis)).is_none() {
+            return err("BAD_AXIS", format!("series '{y}' not valid for {gname} / {axis}"), &format!("y[{i}]"));
         }
     }
+    for (ptr, path, allowed) in [
+        ("/target/resist_mode", "target.resist_mode", &["auto", "shield", "armor", "hull", "weighted_average"][..]),
+        ("/settings/mobile_drone_mode", "settings.mobile_drone_mode", &["auto", "follow_attacker", "follow_target"][..]),
+        ("/params/ammo_quality", "params.ammo_quality", &["t1", "navy", "all"][..]),
+    ] {
+        if let Some(v) = req.pointer(ptr).filter(|v| !v.is_null()) {
+            if !v.as_str().map_or(false, |s| allowed.contains(&s)) {
+                return err("BAD_REQUEST", format!("unrecognised value for {path}"), path);
+            }
+        }
+    }
+    let forms: Vec<&Expr> = ys.iter().map(|y| graph.series.get(y).and_then(|s| s.by_axis.get(&axis)).unwrap()).collect();
     let fit_req: FitRequest = match serde_json::from_value(req.get("fit").cloned().unwrap_or(Value::Null)) {
         Ok(r) => r,
         Err(e) => return err("BAD_REQUEST", e.to_string(), "fit"),
@@ -227,12 +253,28 @@ pub fn graph(req: &Value) -> Value {
         Ok(f) => f,
         Err(e) => return json!({"error": {"code": e.code, "message": e.message, "path": e.path}}),
     };
+    if let Some(tf) = req.pointer("/target/fit").filter(|v| !v.is_null()) {
+        let treq: FitRequest = match serde_json::from_value(tf.clone()) {
+            Ok(r) => r,
+            Err(e) => return err("BAD_REQUEST", e.to_string(), "target.fit"),
+        };
+        if let Err(e) = Fit::build(&treq) {
+            return json!({"error": {"code": e.code, "message": e.message, "path": format!("target.fit{}", e.path)}});
+        }
+    }
     let stats = fit.compute_stats(&fit_req).to_value_raw();
     let drains = crate::stats::LAST_DRAINS.with(|c| c.borrow().clone());
     let mut params = graph.params.clone();
     if let Some(o) = req.get("params").and_then(|p| p.as_object()) {
         for (k, v) in o {
             params.insert(k.clone(), v.clone());
+        }
+    }
+    // clamp numeric params where the contract says so
+    for (k, lo, hi) in [("time_s", 0.0, 2500.0), ("cap_start_pct", 0.0, 100.0), ("shield_start_pct", 0.0, 100.0), ("resist", 0.0, 1.0)] {
+        if let Some(f) = params.get(k).and_then(|v| v.as_f64()) {
+            let hi = if k == "time_s" && !matches!(gname, "damage" | "application_profile" | "remote_reps") { f64::INFINITY } else { hi };
+            params.insert(k.to_string(), json!(f.clamp(lo, hi)));
         }
     }
     let settings = req.get("settings").and_then(|s| s.as_object()).cloned().unwrap_or_default();
@@ -276,6 +318,11 @@ pub fn graph(req: &Value) -> Value {
     }
     for (k, v) in std::mem::take(&mut ctx.k.extra_series) {
         series.insert(k, Value::Array(v));
+    }
+    if xs.is_empty() && gname == "application_profile" {
+        for y in &ys {
+            series.entry(format!("{y}_charge_type_id")).or_insert(Value::Array(vec![]));
+        }
     }
     json!({"graph": gname, "x_axis": axis, "x": req.pointer("/x/values").cloned().unwrap_or(Value::Null), "series": series})
 }

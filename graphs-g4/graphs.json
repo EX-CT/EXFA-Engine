@@ -197,7 +197,7 @@
     }
    },
    "params": {
-    "resist": 0
+    "resist": null
    },
    "series": {
     "neut_gj_s": {
