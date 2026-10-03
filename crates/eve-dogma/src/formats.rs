@@ -403,7 +403,7 @@ fn can_be_active(t: u32) -> bool {
 }
 
 /// State an imported module gets: active when it can be activated, unless it is one of the online-only kinds.
-fn import_state(t: u32) -> State {
+pub(crate) fn import_state(t: u32) -> State {
     if can_be_active(t) {
         let effs = effect_names(t);
         if effs.iter().any(|e| ONLINE_ONLY_EFFECTS.contains(e)) {

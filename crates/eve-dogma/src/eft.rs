@@ -161,14 +161,15 @@ pub fn parse(text: &str) -> Result<FitRequest, String> {
                     Some(c) => Some(d::type_by_name(c).ok_or(format!("unknown charge '{c}'"))?),
                     None => None,
                 };
-                let active_capable = d::type_effects(ix).iter().any(|&x| d::EFF_META[(x >> 1) as usize].cat == 1)
-                    || d::type_attr(ix, 6).map(|v| v != 0.0).unwrap_or(false);
+                // Pyfa EFT import: "/OFFLINE" -> offline; otherwise active when the module can be activated
+                // (active or target effect, not activationBlocked, not one of the online-only kinds), else online.
+                // Same rule as format_import (formats::import_state).
                 let state = if offline {
                     State::Offline
-                } else if active_capable && !matches!(slot, Some(Slot::Rig) | Some(Slot::Subsystem)) {
-                    State::Active
-                } else {
+                } else if matches!(slot, Some(Slot::Rig) | Some(Slot::Subsystem)) {
                     State::Online
+                } else {
+                    crate::formats::import_state(tid)
                 };
                 req.modules.push(ModuleReq { type_id: tid, slot, state: Some(state), charge_type_id, mutation: mutation.clone(), spool: None });
             }
