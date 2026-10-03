@@ -136,6 +136,18 @@ jobs:
           rc=0; ci/run_suites.sh "${{ matrix.mode }}" "$ENGINE" || rc=$?
           cat "ci-results/${{ matrix.mode }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
           exit $rc
+      # eve3's no-regression gate (eve-dogma-bench pending-1.11 tools/check_no_regress.py, baseline bench/baselines/f.json,
+      # maintained by eve3 and only ever raised): per-suite pass counts must not drop and no case id that passed in the
+      # baseline may fail; new failures elsewhere are allowed. Blocking.
+      - name: No-regression gate (bench pending-1.11, baselines/f.json)
+        if: matrix.mode == 'native'
+        run: |
+          git clone -q --depth 1 -b pending-1.11 https://github.com/EX-CT/eve-dogma-bench bench
+          bench/tools/run_all_suites.sh "$ENGINE" nrg-out
+          rc=0; python3 bench/tools/check_no_regress.py --baseline bench/baselines/f.json --run-dir nrg-out | tee nrg.txt || rc=$?
+          { echo; echo "### no-regression gate (bench pending-1.11 $(git -C bench rev-parse --short HEAD))"; echo '```'; cat nrg.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p ci-results && cp nrg.txt ci-results/no-regress.txt
+          exit $rc
       # docs/20 §5.1 inventory -> tests gate (eve-dogma-bench tools/check_inventory.py, docs/19 YAML from eve-fit-docs).
       # Non-blocking until eve3 publishes cases for the uncovered items (ENG-OFF-003, TGT-004, VAL-002..006) and tags a
       # new bench release; then drop continue-on-error.
