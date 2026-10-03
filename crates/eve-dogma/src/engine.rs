@@ -621,6 +621,12 @@ impl Fit {
                 _ => &[],
             }
         };
+        // Pyfa quirk Q11 (Fit.__runCommandBoosts, behaviour only): Mining Burst "Enhanced Mining Scanner"
+        // forces the ship's miningScannerUpgrade to the buff value (SDE: percentage boost of a 0 attribute)
+        if id == 2474 {
+            self.push(ship, a::miningScannerUpgrade, 7, false, src);
+            return;
+        }
         let unpen = hull_res(id);
         if !unpen.is_empty() {
             let drones: Vec<usize> = (0..self.items.len()).filter(|&t| self.items[t].kind == Kind::Drone && self.items[t].req_skills.contains(&SKILL_DRONES)).collect();
@@ -709,6 +715,43 @@ impl Fit {
             };
             self.push(i, t, 7, false, src);
         }
+    }
+    /// Pyfa quirk Q1 (eos/effects.py `mining` handler, behaviour only): a mining drone multiplies its own
+    /// miningAmount by miningDroneAmountPercent / 100 (Drone Interfacing raises that percentage, see codegen
+    /// `pyfa_mod_quirk`); skipped when the drone has no such attribute or it is 0, as in Pyfa.
+    pub fn sp_mining_drone(&mut self, i: usize) {
+        if self.items[i].kind != Kind::Drone || !self.has(i, a::miningDroneAmountPercent) || self.base(i, a::miningDroneAmountPercent) == 0.0 {
+            return;
+        }
+        self.push(i, a::miningAmount, 4, false, Src::AttrScaled { item: i as u32, attr: a::miningDroneAmountPercent, k: 0.01 });
+    }
+    /// Pyfa quirk Q2 (missileDMGBonus / missileDMGBonusPassive handlers, behaviour only): ballistic control
+    /// systems, warhead rigs and the Guristas booster multiply the loaded missiles' four damage attributes
+    /// (charges requiring Missile Launcher Operation; for BCS also Defender Missiles), stacking-penalised except
+    /// from boosters, instead of the SDE's character missileDamageMultiplier.
+    pub fn sp_missile_charge_damage(&mut self, i: usize, defenders: bool, p: bool) {
+        const MISSILE_LAUNCHER_OPERATION: u32 = 3319;
+        const DEFENDER_MISSILES: u32 = 3323;
+        let pen = p && self.items[i].kind != Kind::Booster;
+        for m in 0..self.items.len() {
+            if self.items[m].kind != Kind::Module {
+                continue;
+            }
+            let Some(c) = self.items[m].charge else { continue };
+            let rs = self.items[c].req_skills;
+            if !(rs.contains(&MISSILE_LAUNCHER_OPERATION) || (defenders && rs.contains(&DEFENDER_MISSILES))) {
+                continue;
+            }
+            for t in [a::emDamage, a::kineticDamage, a::explosiveDamage, a::thermalDamage] {
+                self.push(c, t, 4, pen, Src::Attr { item: i as u32, attr: a::missileDamageMultiplierBonus });
+            }
+        }
+    }
+    /// Pyfa quirk Q10 (moduleBonusBreacherPodDamageControl handler, behaviour only; no SDE modifierInfo): the
+    /// active module boosts the ship's breacherPodDamageResistance by breacherPodActivatedDamageReceivedPercentage.
+    pub fn sp_breacher_pod_dc(&mut self, i: usize) {
+        let ship = self.ship;
+        self.push(ship, a::breacherPodDamageResistance, 6, false, Src::Attr { item: i as u32, attr: a::breacherPodActivatedDamageReceivedPercentage });
     }
     pub fn sp_ehe(&mut self, i: usize, p: bool) {
         let ship = self.ship;
@@ -1116,7 +1159,8 @@ impl Fit {
                 if kind == Kind::Fighter && meta.cat != 0 && !self.items[i].fighter_abilities.contains(&eid) {
                     continue;
                 }
-                if !state_ok(meta.cat, state) {
+                // Pyfa runs the drones' `mining` handler as a passive effect (any drone state)
+                if !state_ok(meta.cat, state) && !(eid == e::mining && kind == Kind::Drone) {
                     continue;
                 }
                 if restricted {

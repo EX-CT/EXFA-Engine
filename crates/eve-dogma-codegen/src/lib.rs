@@ -59,6 +59,47 @@ const PYFA_NO_HANDLER: [&str; 16] = [
     "cloneRespawnBay",
     "online",
 ];
+/// How Pyfa's hand-written handler for an effect differs from one SDE modifier (observed behaviour of
+/// eos/effects.py, GPL-3.0; no Pyfa code used). Each case is listed in DESIGN.md "Pyfa parity quirks".
+enum Quirk {
+    None,
+    /// the handler does not apply this modifier
+    Skip,
+    /// the handler modifies another attribute
+    Target(u32),
+    /// the handler uses another operator
+    Op(i64),
+    /// the handler multiplies (multiplyItemAttr, no stacking penalty) instead of the SDE's PreMul
+    PostMulUnpenalised,
+    /// the handler filters on another required skill
+    Skill(u32),
+}
+fn pyfa_mod_quirk(effect: &str, modified: u32, aid: &dyn Fn(&str) -> u32) -> Quirk {
+    let is = |n: &str| modified == aid(n);
+    match effect {
+        // Q1 Drone Interfacing: Pyfa boosts the drones' miningDroneAmountPercent (which the drone's own
+        // `mining` effect then multiplies into miningAmount), not miningAmount directly
+        "skillBonusDroneInterfacing" if is("miningAmount") => Quirk::Target(aid("miningDroneAmountPercent")),
+        // Q3 siege / triage / capital industrial core handlers have no gateScrambleStatus line
+        "moduleBonusSiegeModule" | "moduleBonusTriageModule" | "industrialCoreEffect2" if is("gateScrambleStatus") => Quirk::Skip,
+        // Q4 triage: drones lose damage through damageMultiplier (-100%), the four damage attributes stay
+        "moduleBonusTriageModule" if is("kineticDamage") => Quirk::Target(aid("damageMultiplier")),
+        "moduleBonusTriageModule" if is("emDamage") || is("thermalDamage") || is("explosiveDamage") => Quirk::Skip,
+        // Q5 Rorqual consumption bonus filters on Industrial Reconfiguration (58956), not Capital
+        // Industrial Reconfiguration (28585), so it never reaches the Capital Industrial Core
+        "shipConsumptionQuantityBonusIndustrialReconfigurationORECapital1" => Quirk::Skill(58956),
+        // Q6 Ishkur drone shield bonus is a percentage boost (SDE: ModAdd)
+        "shipBonusDroneShieldHitpointsGF2" if is("shieldCapacity") => Quirk::Op(6),
+        // Q7 Proteus Hyperspatial Optimization boosts baseWarpSpeed (SDE: warpSpeedMultiplier)
+        "subsystemBonusGallentePropulsionWarpSpeed" if is("warpSpeedMultiplier") => Quirk::Target(aid("baseWarpSpeed")),
+        // Q8 structure hidden armor multiplier: no power-state scaling of armor plating bonuses
+        "structureHiddenArmorHPMultiplier" if is("armorHpBonus") => Quirk::Skip,
+        // Q9 Squall-class fitting bonus multiplies after the other modifiers (affects cpu rounding)
+        "shipRoleBonusUpwellHaulersMediumMissileFittingBonus" => Quirk::PostMulUnpenalised,
+        _ => Quirk::None,
+    }
+}
+
 /// effect category as Pyfa sees it (handler `type`), where it differs from the SDE category
 fn pyfa_cat(name: &str, cat: u32) -> u32 {
     match name {
@@ -416,6 +457,11 @@ fn generate() -> String {
         (eid("jumpPortalPassengerBonusModAddSkill"), "f.sp_conduit_passengers(i);"),
         (eid("subsystemBonusBlackOpsJumpPassenger"), "f.sp_force_from_charge(i, &[a::isBlackOpsJumpPortalPassenger, a::isBlackOpsJumpConduitPassenger]);"),
         (eid("modifyJumpConduitPassengerRequired"), "f.sp_force_from_charge(i, &[a::jumpConduitPassengerRequiredAttributeID]);"),
+        // Pyfa quirks (observed behaviour of eos/effects.py handlers; see DESIGN.md "Pyfa parity quirks")
+        (eid("mining"), "f.sp_mining_drone(i);"),
+        (eid("missileDMGBonus"), "f.sp_missile_charge_damage(i, true, true);"),
+        (eid("missileDMGBonusPassive"), "f.sp_missile_charge_damage(i, false, p);"),
+        (eid("moduleBonusBreacherPodDamageControl"), "f.sp_breacher_pod_dc(i);"),
     ]
     .into_iter()
     .collect();
@@ -448,7 +494,24 @@ fn generate() -> String {
             if func >= 5 || op == 9 || dom == 5 || dom == 6 || modified == skip_attr {
                 continue;
             }
-            let pen = if stackable(modified) || (e.id == bastion && HULL_RESONANCES.contains(&modified)) { "false" } else { "p" };
+            // Pyfa writes each modifier once: exact duplicates in the SDE modifierInfo apply once
+            if e.mods.iter().position(|x| x == m).map(|k| !std::ptr::eq(&e.mods[k], m)).unwrap_or(false) {
+                continue;
+            }
+            let (mut modified, mut op) = (modified, op);
+            let mut force_unpen = false;
+            match pyfa_mod_quirk(&e.name, modified, &aid) {
+                Quirk::None => {}
+                Quirk::Skip => continue,
+                Quirk::Target(t) => modified = t,
+                Quirk::Op(o) => op = o,
+                Quirk::PostMulUnpenalised => {
+                    op = 4;
+                    force_unpen = true;
+                }
+                Quirk::Skill(sk) => extra = sk,
+            }
+            let pen = if force_unpen || stackable(modified) || (e.id == bastion && HULL_RESONANCES.contains(&modified)) { "false" } else { "p" };
             let skill = if extra == 0 && (func == 3 || func == 4) {
                 need_self_skill = true;
                 "st".to_string()
@@ -704,6 +767,11 @@ fn generate() -> String {
                     if func >= 5 || op == 9 || dom == 5 || dom == 6 || dom == 0 || dom == 3 {
                         continue;
                     }
+                    let modified = match pyfa_mod_quirk(&e.name, modified, &aid) {
+                        Quirk::Target(t) => t,
+                        Quirk::None => modified,
+                        _ => panic!("unsupported Pyfa quirk kind for skill effect {}", e.name),
+                    };
                     let slot = *src_slot.entry(modifying).or_insert_with(|| {
                         let row: Vec<String> = (0..6).map(|l| lit(skill_eval(&base, &own, modifying, l as f64, &a_def, &a_flags, &a_min, &a_max, amax, &mut Vec::new()))).collect();
                         vals_tab.push(format!("[{}]", row.join(",")));

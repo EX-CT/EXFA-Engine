@@ -71,6 +71,29 @@ modifier data, the generator and engine reproduce Pyfa's behaviour:
 * **Projections.** Projected TD/GD/RTC/Standup WD use Pyfa's per-skill item filters. Burst projectors run at full
   strength. NPC TD drones apply inside maxRange only.
 
+#### Pyfa parity quirks (effects suite 2378/2378)
+Observed behaviour of Pyfa's handlers (eos/effects.py / fit code, GPL-3.0; no Pyfa code used), reproduced because Pyfa
+is the oracle. Modifier-level quirks live in codegen `pyfa_mod_quirk`, the rest in engine `sp_*` / `apply_buff`.
+None of these is a Pyfa-data vs SDE difference. Pyfa's bundled eve.db was compared with the SDE dataset for all 43
+types in the 26 former failures: the only differences (remoteCapacitorImpedance / remoteCapacitorImpedanceBonus absent
+in eve.db on siege/triage/industrial cores and some hulls; Proteus maxSubSystems 4 vs SDE 5) do not change any scored
+value and are listed for eve's pyfa-data-drift decision, not excluded here.
+
+| # | effect(s) | SDE modifierInfo | Pyfa handler (observed) |
+|---|---|---|---|
+| Q1 | skillBonusDroneInterfacing, mining (drones) | Drone Interfacing: +% miningAmount | +% miningDroneAmountPercent; the drone's `mining` handler (passive, any drone state) multiplies miningAmount by pct/100 unless pct is 0 / absent |
+| Q2 | missileDMGBonus, missileDMGBonusPassive | PreMul / ModAdd of the character's missileDamageMultiplier | multiplies the loaded missiles' em/kinetic/explosive/thermal damage (charges requiring Missile Launcher Operation; BCS also Defender Missiles), penalised except from boosters |
+| Q3 | moduleBonusSiegeModule, moduleBonusTriageModule, industrialCoreEffect2 | ModAdd gateScrambleStatus | no gateScrambleStatus line |
+| Q4 | moduleBonusTriageModule | -100% drone em/kin/exp/therm damage | -100% drone damageMultiplier (penalised), damage attributes unchanged |
+| Q5 | shipConsumptionQuantityBonusIndustrialReconfigurationORECapital1 | modules requiring Capital Industrial Reconfiguration | modules requiring Industrial Reconfiguration (so the Capital Industrial Core is not affected) |
+| Q6 | shipBonusDroneShieldHitpointsGF2 | ModAdd drone shieldCapacity | percentage boost |
+| Q7 | subsystemBonusGallentePropulsionWarpSpeed | +% warpSpeedMultiplier | +% baseWarpSpeed |
+| Q8 | structureHiddenArmorHPMultiplier | also scales armor plating armorHpBonus by structurePowerStateArmorPlatingMultiplier | armorHP x hiddenArmorHPMultiplier only |
+| Q9 | shipRoleBonusUpwellHaulersMediumMissileFittingBonus | PreMul cpu/power | multiplyItemAttr (PostMul, unpenalised): changes cpu rounding (2.63, not 2.62) |
+| Q10 | moduleBonusBreacherPodDamageControl | none | active: +% ship breacherPodDamageResistance by breacherPodActivatedDamageReceivedPercentage |
+| Q11 | warfare buff 2474 (Mining Burst: Enhanced Mining Scanner) | +% ship miningScannerUpgrade | forces miningScannerUpgrade to the buff value |
+| Q12 | any effect with duplicated modifierInfo rows (e.g. structureConversionRigBasicBonuses) | rows apply twice | each modifier once |
+
 ## Trade-offs
 * **Rebuild per dataset.** A new SDE needs a recompile (native release ≈ 35 s, wasm32-wasip1 ≈ 24 s, wasm32-unknown-unknown
   release-small ≈ 12 s). `--dataset` is accepted and ignored. `meta` reports the sha256 of the compiled-in dataset.
