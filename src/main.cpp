@@ -1,6 +1,7 @@
 #include <type_traits>
 // eve-dogma-j CLI: stateless FitRequest JSON in -> FitStats JSON out (contract v1).
 #include <poll.h>
+#include <sched.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -290,6 +291,12 @@ int main(int argc, char** argv) {
   std::string dataset, cache;
   bool use_cache = true;
   int threads = (int)std::max(1u, std::thread::hardware_concurrency());
+  {
+    // respect the CPU affinity mask (taskset / cgroup cpusets): no more workers than CPUs we may run on
+    cpu_set_t cs;
+    CPU_ZERO(&cs);
+    if (sched_getaffinity(0, sizeof cs, &cs) == 0 && CPU_COUNT(&cs) > 0) threads = std::min(threads, CPU_COUNT(&cs));
+  }
   long bench_n = 1000;
   auto take = [&](const char* flag, std::string& out) {
     for (size_t i = 0; i < args.size(); i++)
