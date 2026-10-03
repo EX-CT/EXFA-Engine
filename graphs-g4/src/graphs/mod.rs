@@ -253,7 +253,8 @@ pub fn graph(req: &Value) -> Value {
         Ok(f) => f,
         Err(e) => return json!({"error": {"code": e.code, "message": e.message, "path": e.path}}),
     };
-    if let Some(tf) = req.pointer("/target/fit").filter(|v| !v.is_null()) {
+    // contract 0.2 (0397d95): target.fit only validated for graphs that use a target
+    if let Some(tf) = req.pointer("/target/fit").filter(|v| !v.is_null() && matches!(gname, "damage" | "application_profile" | "ewar" | "remote_reps")) {
         let treq: FitRequest = match serde_json::from_value(tf.clone()) {
             Ok(r) => r,
             Err(e) => return err("BAD_REQUEST", e.to_string(), "target.fit"),

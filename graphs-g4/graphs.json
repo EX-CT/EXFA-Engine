@@ -1,6 +1,6 @@
 {
  "spec_version": 1,
- "contract": "CONTRACT-GRAPHS.md revision 0.1",
+ "contract": "CONTRACT-GRAPHS.md revision 0.2",
  "notes": "Declarative graph catalogue (approach G4). Each graph lists its x axes (unit, validity limiter), y series (unit, one formula per x axis) and params (defaults). Formulas are expressions over: x, p.<param>, s.<setting>, ship.<attribute> (modified ship attribute), stat.<path> (round-1 stats output), def names, and kernels (hand-written functions for the parts that are not closed-form).",
  "constants": {
   "AU": 149597870700

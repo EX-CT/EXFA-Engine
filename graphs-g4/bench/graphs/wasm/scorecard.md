@@ -3,7 +3,7 @@
 - cases fully correct: **178/178**
 - sample values correct: **2437/2437** (100.00 %)
 - informational charge ids matching Pyfa: 103/120
-- wall time: 0.55 s
+- wall time: 0.64 s
 
 | graph | cases | ok | total | % |
 |---|---|---|---|---|
