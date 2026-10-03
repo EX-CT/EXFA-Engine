@@ -1,8 +1,8 @@
-# reference: eve-dogma-rs dcd72ec (committed HEAD, built from git archive), variant commit ade19cd
+# reference: eve-dogma-rs c3822c1 (committed HEAD, built from git archive), variant commit d79efc9
 cases: 326  byte-identical (engine name normalised): 326  within tolerance: 326
 leaf values: 99897  differing beyond tolerance: 0
 
-# full parity suite vs the same reference (variant code at ade19cd)
+# full parity suite vs the same reference (variant code at 30a2ab0)
 == bench cases (tools/compare_ref.py)
 cases: 326  byte-identical (engine name normalised): 326  within tolerance: 326
 leaf values: 99897  differing beyond tolerance: 0
@@ -16,7 +16,21 @@ same 1924 err-code-match 1075 diff 0
 converted 652 arrays-in-input 635 ok A 652 diff 0
 == CLI eft
 cli 405 diff 0
+== structured random fits (tools/randfit_ref.py, seeds 51-55 x 600)
+seed 51 requests 600 J rc 0 lines 600 ref rc 0 lines 600 computed 600 same 600 err-code-match 0 diff 0
+seed 52 requests 600 J rc 0 lines 600 ref rc 0 lines 600 computed 600 same 600 err-code-match 0 diff 0
+seed 53 requests 600 J rc 0 lines 600 ref rc 0 lines 600 computed 600 same 600 err-code-match 0 diff 0
+seed 54 requests 600 J rc 0 lines 600 ref rc 0 lines 600 computed 600 same 600 err-code-match 0 diff 0
+seed 55 requests 600 J rc 0 lines 600 ref rc 0 lines 600 computed 600 same 600 err-code-match 0 diff 0
+== own test suite (ctest --test-dir build)
+100% tests passed, 0 tests failed out of 123
 == ref tests/cases + tests/fits (skills 5 and 0, eft --calc)
-requests 793 793 793 diff 0
+requests 799 799 799 diff 0
 eft fits diff 0
 == EVEJ_NO_PRUNE=1 / --threads 1: identical
+== numeric-perturbation fuzz (tools/numfuzz_ref.py, seeds 1-3 x 2000)
+seed 1 lines 2000 2000 same 1738 err-code-match 262 diff 0
+seed 2 lines 2000 2000 same 1748 err-code-match 252 diff 0
+seed 3 lines 2000 2000 same 1733 err-code-match 267 diff 0
+== batch output order under piped, bursty input (tools/batch_order_check.py, 10 runs)
+runs with misordered output: 0/10
