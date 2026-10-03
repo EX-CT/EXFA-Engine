@@ -24,6 +24,7 @@ fn variations_compare_market() {
 
 #[test]
 fn search_without_and_with_jargon() {
+    rpc("pyfa_data_load", json!({"clear": true})); // independent of EVE_DOGMA_PYFA_DATA
     let r = ids(&rpc("market.search", json!({"query": "damage control", "filter": "market"}))["type_ids"]);
     assert!(r.contains(&2048) && !r.contains(&52227), "abyssal items are unpublished in Pyfa");
     let r = ids(&rpc("market.search", json!({"query": "re:^Small Focused", "filter": "market"}))["type_ids"]);
