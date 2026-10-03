@@ -152,6 +152,21 @@ fn gcd(a: u64, b: u64) -> u64 {
 }
 
 pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f64, reload: bool, stagger: bool, t_max_ms: f64) -> CapResult {
+    simulate_ex(capacity, recharge_ms, drains, start_frac, reload, stagger, t_max_ms, true, None)
+}
+
+/// `simulate` with the repeat optimisation switchable and an optional history of (t ms, cap after the changes at t)
+/// (Pyfa `saved_changes`, used by the capacitor graph).
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_ex(
+    capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f64, reload: bool, stagger: bool, t_max_ms: f64, optimize: bool,
+    mut hist: Option<&mut std::collections::BTreeMap<u64, f64>>,
+) -> CapResult {
+    let mut rec = |t: f64, c: f64| {
+        if let Some(h) = hist.as_deref_mut() {
+            h.insert(t.to_bits(), c);
+        }
+    };
     let tau = recharge_ms / 5.0;
     let mut heap = EvHeap::with_capacity(64);
     let mut seq = 0u64;
@@ -256,7 +271,7 @@ pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f
             }
             if t_now == t_wrap {
                 let k = key(&awaiting);
-                if cap >= cap_wrap && k == awaiting_wrap {
+                if optimize && cap >= cap_wrap && k == awaiting_wrap {
                     last_ev = Some(ev);
                     break;
                 }
@@ -286,6 +301,7 @@ pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f
                 };
                 let mut inj = awaiting.remove(pick);
                 cap = (cap - inj.cap_need).min(cap_max);
+                rec(t_now, cap);
                 inj.t = t_now + inj.duration;
                 inj.shot += 1;
                 if inj.clip > 0 && inj.shot % inj.clip == 0 {
@@ -298,6 +314,7 @@ pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f
             }
         }
         cap = (cap - ev.cap_need).min(cap_max);
+        rec(t_now, cap);
         if cap < cap_lowest {
             if cap < 0.0 {
                 ran_out = true;
@@ -315,6 +332,7 @@ pub fn simulate(capacity: f64, recharge_ms: f64, drains: &[Drain], start_frac: f
             let pick = *good.iter().max_by(|&&a, &&b| (-awaiting[a].cap_need).partial_cmp(&-awaiting[b].cap_need).unwrap()).unwrap();
             let mut inj = awaiting.remove(pick);
             cap = (cap - inj.cap_need).min(cap_max);
+            rec(t_now, cap);
             inj.t = t_now + inj.duration;
             inj.shot += 1;
             if inj.clip > 0 && inj.shot % inj.clip == 0 {
