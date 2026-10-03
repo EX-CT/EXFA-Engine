@@ -78,20 +78,23 @@ modifier data, the generator and engine reproduce Pyfa's behaviour:
   is no JSON load at all. Cold start + one calc is about 2–3 ms native. The reference engine needs hundreds of ms to
   load its dataset.
 * The generated source is large (5.4 MB). Fat LTO + codegen-units=1 keep the output compact but make builds slower.
-* Chinese names (`names.zh`, ≈ 330 KB) are compiled in for `search`/`type`. EFT import/export (`eft`, RPC `eft_parse`/`eft_export`) is ported from eve-dogma-rs; mutated types resolve through a build-time mutaplasmid mapping table.
-* Import/export formats (`src/formats.rs`, RPC `format_export` / `format_import`): DNA (+ chat link, alt), ESI JSON,
+* Chinese names (`names.zh`, ≈ 330 KB) are compiled in for `search`/`type`. EFT import/export (`eve-fit-formats::eft`, RPC `eft_parse`/`eft_export`) is ported from eve-dogma-rs; mutated types resolve through a build-time mutaplasmid mapping table.
+* Import/export formats (crate `eve-fit-formats`, outside the engine; RPC `format_export` / `format_import`): DNA (+ chat link, alt), ESI JSON,
   XML (multi-fit), multibuy, EFT option switches and EFT `.cfg`, additions lists / single mutant, ship-stats text.
   Importers reproduce Pyfa's observable behaviour: fit checks (slots, hardpoints, canFitShip*, capital size, rig size,
   subsystem slot, maxGroupFitted; DNA/EFT-cfg one-over leniency), active-state limits, charge validity, item
   publicity as Pyfa's database sees it (Civilian modules public; abyssal/mutated types not), fighter-tube checks.
-  `shipstats` formats the engine's own unrounded stats (`J::to_value_raw`) with a 3-significant-digit k/M/G
-  formatter, at no spool-up.
+  `shipstats` formats unrounded engine stats supplied by the caller (`eve-fit` passes `calc(..).to_value_raw()`,
+  the formats wasm takes `params.stats`) with a 3-significant-digit k/M/G formatter, at no spool-up. Slot and
+  hardpoint counts after subsystems and fighter squadron sizes come from static data (`eve_fit_formats::fitting`),
+  not from the engine.
 
 ## WASM
 * `wasm32-wasip1`: the same CLI binary. Run it with `wasmtime run eve-fit.wasm calc < req.json`. Precompiling with
   `wasmtime compile` gives about 6.6 ms cold.
-* `wasm32-unknown-unknown` (`--lib --profile release-small`): C-ABI exports `alloc`, `dealloc`, `calc(ptr,len)->u64`,
-  `rpc(ptr,len)->u64`. See `examples/node-calc.mjs`.
+* `wasm32-unknown-unknown` (`--lib --profile release-small`): engine `eve-wasm` C-ABI exports `alloc`, `dealloc`,
+  `calc(ptr,len)->u64`, `rpc(ptr,len)->u64` (engine methods only). See `examples/node-calc.mjs`. Formats are a
+  separate module, `eve-fit-formats-wasm` (`alloc`, `dealloc`, `rpc`), see `examples/node-formats.mjs`.
 
 ## Repository note
 The lab repo's branches share no history, so `variant-f` is an **orphan branch** that contains only `variant-f/`.

@@ -1,0 +1,9 @@
+[package]
+name = "eve-fit-model"
+description = "Structured fit input (FitRequest v1 serde types) shared by eve-dogma, eve-fit-formats and tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true

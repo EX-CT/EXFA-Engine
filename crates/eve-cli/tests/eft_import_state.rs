@@ -16,7 +16,7 @@ fn eft_import_module_states_and_weapon_dps_match_pyfa() {
     assert!(cases.len() >= 5);
     for (name, want) in cases {
         let text = std::fs::read_to_string(dir.join(format!("{name}.eft"))).unwrap();
-        let mut req = eve_dogma::eft::parse(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let mut req = eve_fit_formats::eft::parse(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
         let got: Vec<(u64, String)> = req
             .modules
             .iter()

@@ -32,6 +32,7 @@ name = "eve-cli"
 version = "0.1.0"
 dependencies = [
  "eve-dogma",
+ "eve-fit-formats",
  "serde_json",
 ]
 
@@ -41,6 +42,8 @@ version = "0.1.0"
 dependencies = [
  "eve-capsim",
  "eve-dogma-codegen",
+ "eve-fit-model",
+ "eve-sde",
  "itoa",
  "serde",
  "serde_json",
@@ -53,6 +56,37 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "serde_json",
+]
+
+[[package]]
+name = "eve-fit-formats"
+version = "0.1.0"
+dependencies = [
+ "eve-fit-model",
+ "eve-sde",
+ "serde_json",
+]
+
+[[package]]
+name = "eve-fit-formats-wasm"
+version = "0.1.0"
+dependencies = [
+ "eve-fit-formats",
+ "serde_json",
+]
+
+[[package]]
+name = "eve-fit-model"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "eve-sde"
+version = "0.1.0"
+dependencies = [
+ "eve-dogma-codegen",
 ]
 
 [[package]]

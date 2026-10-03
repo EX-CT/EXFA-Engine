@@ -1,4 +1,7 @@
 //! eve-dogma-f CLI — stateless: JSON FitRequest in, JSON FitStats out. The dataset is compiled in.
+//! This tool links the engine (`eve-dogma`) and the fit formats (`eve-fit-formats`); the engine itself takes
+//! structured input only. `serve-stdio` serves both method tables (formats: eft_parse, eft_export, format_import,
+//! format_export).
 use std::io::{BufRead, Read, Write};
 use std::time::Instant;
 
@@ -7,7 +10,7 @@ const USAGE: &str = "eve-dogma-f <command> [args]   (dataset compiled in; --data
 Commands:
   calc [FILE]            FitRequest JSON (file or stdin) -> FitStats JSON
   batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout
-  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|eft_parse|eft_export|search|type|meta\",\"params\":..}
+  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|graph|search|type|meta|eft_parse|eft_export|format_import|format_export\",\"params\":..}
   eft [FILE]             EFT text (file or stdin) -> FitRequest JSON (add --calc to compute, --skills N)
   search QUERY [--limit N] [--kinds ship,module,..]  search types by name (exact > prefix > substring)
   type ID|NAME           show type with base attributes
@@ -28,6 +31,20 @@ fn read_input(file: Option<&String>) -> String {
         }
     }
     s
+}
+
+/// One RPC line: the formats methods go to `eve-fit-formats` (with the engine as stats source for `shipstats`),
+/// everything else to the engine.
+fn rpc(line: &str) -> serde_json::Value {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { return eve_dogma::rpc(line) };
+    let m = v.get("method").and_then(|m| m.as_str()).unwrap_or("calc");
+    if !eve_fit_formats::METHODS.contains(&m) {
+        return eve_dogma::rpc(line);
+    }
+    let id = v.get("id").cloned().unwrap_or(serde_json::Value::Null);
+    let p = v.get("params").cloned().unwrap_or(serde_json::Value::Null);
+    let stats = |r: &eve_dogma::FitRequest| eve_dogma::calc(r).to_value_raw();
+    serde_json::json!({"id": id, "result": eve_fit_formats::rpc_method(m, &p, Some(&stats))})
 }
 
 fn main() {
@@ -77,7 +94,7 @@ fn main() {
             let do_calc = args.iter().any(|a| a == "--calc");
             args.retain(|a| a != "--calc");
             let s = read_input(args.get(1));
-            match eve_dogma::eft::parse(&s) {
+            match eve_fit_formats::eft::parse(&s) {
                 Ok(mut r) => {
                     if let Some(l) = skills {
                         r.character.skills.default_level = l.parse().ok();
@@ -98,7 +115,7 @@ fn main() {
                 if line.trim().is_empty() {
                     continue;
                 }
-                writeln!(out, "{}", serde_json::to_string(&eve_dogma::rpc(&line)).unwrap()).or_pipe();
+                writeln!(out, "{}", serde_json::to_string(&rpc(&line)).unwrap()).or_pipe();
                 out.flush().or_pipe();
             }
         }

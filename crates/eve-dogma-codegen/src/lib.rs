@@ -1,11 +1,13 @@
-//! eve-dogma-codegen: build-time code generator for the `eve-dogma` crate (formerly variant F `build.rs`).
+//! eve-dogma-codegen: build-time code generator (formerly variant F `build.rs`).
 //!
-//! Reads the EXCT dataset (`dataset-<build>.json.gz`, eve-sde-pipeline format v1) and emits
-//! `$OUT_DIR/gen.rs`: static tables (types, attributes, groups, mutaplasmids, …) and, most importantly,
-//! every SDE effect's modifier list compiled into straight-line Rust (`apply_local`, `apply_projected`,
-//! `apply_dbuff`). The runtime never parses or interprets dataset JSON.
+//! Reads the EXCT dataset (`dataset-<build>.json.gz`, eve-sde-pipeline format v1) and emits two files:
+//! - `tables.rs` for `eve-sde`: static tables (types, attributes, groups, names, mutaplasmids, …);
+//! - `effects.rs` for `eve-dogma`: every SDE effect's modifier list compiled into straight-line Rust
+//!   (`apply_local`, `apply_projected`, `apply_skill`, `apply_dbuff`).
 //!
-//! Dataset path: `$EVE_DOGMA_DATASET`, else `../../../data/dataset-3569502.json.gz` relative to `crates/eve-dogma` (EXCT box layout).
+//! The runtime never parses or interprets dataset JSON.
+//!
+//! Dataset path: `$EVE_DOGMA_DATASET`, else `../../../data/dataset-3569502.json.gz` relative to the crate dir (EXCT box layout).
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -157,8 +159,56 @@ struct Eff {
     mods: Vec<[i64; 6]>,
 }
 
-/// Generate `$OUT_DIR/gen.rs`; called from `crates/eve-dogma/build.rs`.
-pub fn run() {
+/// Generate `$OUT_DIR/tables.rs` (static data only; called from `crates/eve-sde/build.rs`).
+pub fn run_tables() {
+    let (tables, _) = split(&generate());
+    write_out("tables.rs", tables);
+}
+
+/// Generate `$OUT_DIR/effects.rs` (compiled effect/skill/buff code over the engine's `Fit`; called from
+/// `crates/eve-dogma/build.rs`). The tables it refers to come from `eve-sde`.
+pub fn run_effects() {
+    let (_, code) = split(&generate());
+    write_out("effects.rs", code);
+}
+
+fn write_out(name: &str, s: String) {
+    let dst = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join(name);
+    std::fs::write(&dst, s).unwrap();
+}
+
+/// Split the generated source into (tables, code): every top-level `pub fn` (with its doc/attribute lines) is code.
+fn split(src: &str) -> (String, String) {
+    let (mut tables, mut code, mut pending) = (String::new(), String::new(), String::new());
+    let mut in_fn = false;
+    for line in src.lines() {
+        if in_fn {
+            code.push_str(line);
+            code.push('\n');
+            if line == "}" {
+                in_fn = false;
+            }
+        } else if line.starts_with("///") || line.starts_with("#[") {
+            pending.push_str(line);
+            pending.push('\n');
+        } else if line.starts_with("pub fn ") {
+            code.push_str(&pending);
+            pending.clear();
+            code.push_str(line);
+            code.push('\n');
+            in_fn = !line.ends_with('}');
+        } else {
+            tables.push_str(&pending);
+            pending.clear();
+            tables.push_str(line);
+            tables.push('\n');
+        }
+    }
+    tables.push_str(&pending);
+    (tables, code)
+}
+
+fn generate() -> String {
     let path = std::env::var("EVE_DOGMA_DATASET").unwrap_or_else(|_| DEFAULT_DATASET.to_string());
     println!("cargo:rerun-if-env-changed=EVE_DOGMA_DATASET");
     println!("cargo:rerun-if-changed={path}");
@@ -811,8 +861,7 @@ pub fn run() {
     arr(&mut out, "CAN_FIT_TYPE_ATTRS", "u16", &ids_named(&|k| format!("canFitShipType{k}"), 11));
     arr(&mut out, "CHARGE_GROUP_ATTRS", "u16", &ids_named(&|k| format!("chargeGroup{k}"), 5));
 
-    let dst = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("gen.rs");
-    std::fs::write(&dst, out).unwrap();
+    out
 }
 
 /// Evaluate attribute `attr` of a skill at level `lvl` with only the skill's own Item-domain modifiers

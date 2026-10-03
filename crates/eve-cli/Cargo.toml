@@ -1,6 +1,6 @@
 [package]
 name = "eve-cli"
-description = "eve-fit command line: calc, batch, serve-stdio, graph, eft, search, type, meta, bench"
+description = "eve-fit command line (engine + formats): calc, batch, serve-stdio, graph, eft, search, type, meta, bench"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,4 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 eve-dogma.workspace = true
+eve-fit-formats.workspace = true
 serde_json.workspace = true

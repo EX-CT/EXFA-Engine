@@ -1,8 +1,8 @@
 //! Minimal EFT text import/export. Adapted from eve-dogma-rs `src/eft.rs` (LGPL-3.0-or-later; written clean-room
 //! there from the public EVE fitting text format), using this crate's compiled data tables.
-use crate::data as d;
-use crate::engine::infer_slot;
-use crate::request::*;
+use eve_sde as d;
+use crate::infer_slot;
+use eve_fit_model::*;
 use std::collections::HashMap;
 
 const CAT_IMPLANT: u32 = 20;
@@ -179,7 +179,7 @@ pub fn parse(text: &str) -> Result<FitRequest, String> {
 }
 
 /// Python `repr(float)` (shortest round-trip, always with a fractional part or exponent).
-pub(crate) fn py_float(x: f64) -> String {
+pub fn py_float(x: f64) -> String {
     if x.is_infinite() {
         return if x > 0.0 { "inf".into() } else { "-inf".into() };
     }
@@ -198,7 +198,7 @@ pub(crate) fn py_float(x: f64) -> String {
 }
 
 /// Pyfa `floatUnerr` (7 significant digits kept).
-pub(crate) fn float_unerr(x: f64) -> f64 {
+pub fn float_unerr(x: f64) -> f64 {
     if x == 0.0 || x.is_infinite() {
         return x;
     }
@@ -278,8 +278,8 @@ impl Default for EftOpts {
 pub fn export_opts(req: &FitRequest, name: &str, o: &EftOpts) -> String {
     let n = |id: u32| type_ix(id).map(|ix| d::type_name(ix).to_string()).unwrap_or_else(|| id.to_string());
     let header = format!("[{}, {}]", n(req.ship.type_id), name);
-    let fit = crate::engine::Fit::build(req).ok();
-    let ship_attr = |attr: u16| fit.as_ref().map(|f| f.get(f.ship, attr)).unwrap_or(0.0);
+    let fit = crate::fitting::StaticFit::new(req);
+    let ship_attr = |attr: u16| fit.as_ref().map(|f| f.ship_attr(attr)).unwrap_or(0.0);
     let mut muts: Vec<Mutation> = Vec::new();
     let mut sections: Vec<String> = Vec::new();
     // modules
@@ -357,8 +357,7 @@ pub fn export_opts(req: &FitRequest, name: &str, o: &EftOpts) -> String {
         ["Light Fighter", "Structure Light Fighter", "Heavy Fighter", "Structure Heavy Fighter", "Support Fighter", "Structure Support Fighter"];
     let mod_sq = |i: usize| -> Option<f64> {
         let f = fit.as_ref()?;
-        let k = (0..f.items.len()).find(|&k| f.items[k].kind == crate::engine::Kind::Fighter && f.items[k].req_index == Some(i))?;
-        Some(f.get(k, d::a::fighterSquadronMaxSize))
+        f.fighter_attr(i, d::a::fighterSquadronMaxSize)
     };
     let mut fighters: Vec<(usize, String, String)> = req
         .fighters

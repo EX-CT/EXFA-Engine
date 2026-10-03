@@ -1,7 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/eve-dogma-codegen", "crates/eve-capsim", "crates/eve-dogma", "crates/eve-cli", "crates/eve-wasm"]
-default-members = ["crates/eve-dogma-codegen", "crates/eve-capsim", "crates/eve-dogma", "crates/eve-cli"]
+members = [
+    "crates/eve-dogma-codegen", "crates/eve-sde", "crates/eve-fit-model", "crates/eve-capsim", "crates/eve-dogma",
+    "crates/eve-fit-formats", "crates/eve-cli", "crates/eve-wasm", "crates/eve-fit-formats-wasm",
+]
+default-members = [
+    "crates/eve-dogma-codegen", "crates/eve-sde", "crates/eve-fit-model", "crates/eve-capsim", "crates/eve-dogma",
+    "crates/eve-fit-formats", "crates/eve-cli",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,6 +19,9 @@ repository = "https://github.com/EX-CT/eve-dogma"
 eve-capsim = { path = "crates/eve-capsim" }
 eve-dogma = { path = "crates/eve-dogma" }
 eve-dogma-codegen = { path = "crates/eve-dogma-codegen" }
+eve-sde = { path = "crates/eve-sde" }
+eve-fit-model = { path = "crates/eve-fit-model" }
+eve-fit-formats = { path = "crates/eve-fit-formats" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 itoa = "1"

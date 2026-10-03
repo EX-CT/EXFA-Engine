@@ -1,10 +1,10 @@
 //! Fit text/JSON formats besides EFT: DNA (+ chat link), ESI fitting JSON, EVE client XML, multibuy.
 //! Output layout follows the formats as Pyfa writes them (behaviour verified against Pyfa-generated cases in
 //! eve-dogma-bench `formats-suite`; no Pyfa code is used here).
-use crate::data as d;
+use eve_sde as d;
 use crate::eft;
-use crate::engine::infer_slot;
-use crate::request::*;
+use crate::infer_slot;
+use eve_fit_model::*;
 use serde_json::Value;
 
 const CAT_CHARGE: u32 = 8;
@@ -40,15 +40,12 @@ pub fn num_charges(module: u32, charge: u32) -> u64 {
 
 /// Fighter squadron size as written by the formats: requested size if below the (modified) maximum, else the maximum.
 fn fighter_amounts(req: &FitRequest) -> Vec<u64> {
-    let fit = crate::engine::Fit::build(req).ok();
+    let fit = crate::fitting::StaticFit::new(req);
     req.fighters
         .iter()
         .enumerate()
         .map(|(fi, f)| {
-            let modmax = fit.as_ref().and_then(|ft| {
-                let k = (0..ft.items.len()).find(|&k| ft.items[k].kind == crate::engine::Kind::Fighter && ft.items[k].req_index == Some(fi))?;
-                Some(ft.get(k, d::a::fighterSquadronMaxSize))
-            });
+            let modmax = fit.as_ref().and_then(|ft| ft.fighter_attr(fi, d::a::fighterSquadronMaxSize));
             let maxsq = modmax.or_else(|| base_attr(f.type_id, d::a::fighterSquadronMaxSize)).unwrap_or(0.0);
             match f.quantity {
                 Some(q) if q > 0 && (q as f64) < maxsq => q as u64,
@@ -403,7 +400,7 @@ fn can_be_active(t: u32) -> bool {
 }
 
 /// State an imported module gets: active when it can be activated, unless it is one of the online-only kinds.
-pub(crate) fn import_state(t: u32) -> State {
+pub fn import_state(t: u32) -> State {
     if can_be_active(t) {
         let effs = effect_names(t);
         if effs.iter().any(|e| ONLINE_ONLY_EFFECTS.contains(e)) {
@@ -515,8 +512,8 @@ struct Limits {
 fn limits(ship: u32, subs: &[ModuleReq]) -> Limits {
     let mut req: FitRequest = serde_json::from_str(&format!("{{\"schema_version\":1,\"ship\":{{\"type_id\":{ship}}}}}")).unwrap();
     req.modules = subs.to_vec();
-    let fit = crate::engine::Fit::build(&req).ok();
-    let g = |a: u16| fit.as_ref().map(|f| f.get(f.ship, a)).or_else(|| base_attr(ship, a)).unwrap_or(0.0);
+    let fit = crate::fitting::StaticFit::new(&req);
+    let g = |a: u16| fit.as_ref().map(|f| f.ship_attr(a)).or_else(|| base_attr(ship, a)).unwrap_or(0.0);
     Limits {
         slots: vec![
             (Slot::Low, g(d::a::lowSlots) as i64),

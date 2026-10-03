@@ -17,27 +17,39 @@ tables. The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.m
 
 ## Workspace
 
-| crate | what | from (variant F) |
+| crate | what | depends on |
 |---|---|---|
-| `crates/eve-dogma-codegen` | build-time generator: dataset → `gen.rs` (tables + effect code) | `build.rs` |
-| `crates/eve-capsim` | capacitor simulator (+ Pyfa `round`) | `src/capsim.rs` |
-| `crates/eve-dogma` | engine core, stats, formats (EFT/DNA/ESI/XML/…), graphs, JSON-RPC dispatch | `src/*` |
-| `crates/eve-cli` | binary `eve-fit` (calc, batch, serve-stdio, graph, graph-batch, eft, search, type, meta, bench) | `src/main.rs` |
-| `crates/eve-wasm` | wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `calc`, `rpc`) | `src/wasm.rs` |
+| `crates/eve-dogma-codegen` | build-time generator: dataset → `tables.rs` (for eve-sde) + `effects.rs` (for eve-dogma) | — |
+| `crates/eve-sde` | static data compiled in: types, attributes, groups, names (en/zh), mutaplasmids, … (no engine code) | (build: codegen) |
+| `crates/eve-fit-model` | structured fit input: `FitRequest` v1 serde types | serde |
+| `crates/eve-capsim` | capacitor simulator (+ Pyfa `round`) | — |
+| `crates/eve-dogma` | **engine**: core, stats, graphs, JSON-RPC (calc, graph, graph_specs, search, type, meta); structured input only | eve-sde, eve-fit-model, eve-capsim |
+| `crates/eve-fit-formats` | fit formats: EFT (+cfg, mutations), DNA (+alt, link), ESI JSON, XML, multibuy, ship-stats text, item lists, auto-detect; RPC eft_parse, eft_export, format_import, format_export | eve-sde, eve-fit-model (**not** eve-dogma) |
+| `crates/eve-cli` | binary `eve-fit` (calc, batch, serve-stdio, graph, graph-batch, eft, search, type, meta, bench): links engine + formats | eve-dogma, eve-fit-formats |
+| `crates/eve-wasm` | engine wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `calc`, `rpc`) | eve-dogma |
+| `crates/eve-fit-formats-wasm` | formats wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `rpc`), for the frontend | eve-fit-formats |
 
-This first split follows existing code boundaries only, with byte-identical output. Further crates from docs/20
-(eve-stats, eve-formats, eve-graphs, eve-fit-model, eve-rpc, …) need `Fit` internals made public first and come
-next.
+```
+eve-fit-model ──┬──────────────► eve-fit-formats ──► eve-fit-formats-wasm
+eve-sde ────────┤                        │
+                └──► eve-dogma ──┬───────┴──► eve-cli (eve-fit)
+eve-capsim ──────────►┘          └──► eve-wasm
+eve-dogma-codegen (build-time) ──► eve-sde, eve-dogma
+```
+
+Fit formats are not part of the engine (architecture ruling 2026-10-03): the engine takes the structured fit and the
+skills input and only calculates. What moved out of `eve-dogma`: [docs/FORMATS-SPLIT.md](docs/FORMATS-SPLIT.md).
+CI checks the boundary (`cargo tree`: no eve-dogma under eve-fit-formats, no formats under eve-dogma / eve-wasm).
 
 ## Build & run
 
 ```bash
-export EVE_DOGMA_DATASET=/abs/path/dataset-3569502.json.gz   # default ../../../data/… relative to crates/eve-dogma
+export EVE_DOGMA_DATASET=/abs/path/dataset-3569502.json.gz   # default ../../../data/… relative to crates/eve-sde, crates/eve-dogma
 cargo build --release
 ./target/release/eve-fit calc < request.json > response.json
 ./target/release/eve-fit batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
 # EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)
-./target/release/eve-fit serve-stdio                                   # JSONL RPC: calc | graph | search | type | meta | eft_parse | eft_export | format_export | format_import
+./target/release/eve-fit serve-stdio                                   # JSONL RPC: calc | graph | search | type | meta (engine) + eft_parse | eft_export | format_export | format_import (formats)
 ./target/release/eve-fit meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
 ```
 
@@ -50,8 +62,10 @@ intended output change.
 rustup target add wasm32-wasip1 wasm32-unknown-unknown
 cargo build --release --target wasm32-wasip1 -p eve-cli                                  # CLI as WASI module
 wasmtime run target/wasm32-wasip1/release/eve-fit.wasm calc < request.json
-cargo build --profile release-small --target wasm32-unknown-unknown -p eve-wasm          # C-ABI exports
+cargo build --profile release-small --target wasm32-unknown-unknown -p eve-wasm          # engine C-ABI exports
 node crates/eve-wasm/examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_wasm.wasm < request.json
+cargo build --profile release-small --target wasm32-unknown-unknown -p eve-fit-formats-wasm   # formats C-ABI exports
+node crates/eve-fit-formats-wasm/examples/node-formats.mjs target/wasm32-unknown-unknown/release-small/eve_fit_formats_wasm.wasm < rpc.jsonl
 ```
 
 ### CI
@@ -88,7 +102,8 @@ is used.
 
 ### Import / export formats (Pyfa parity)
 
-RPC `format_export {fit, name, format, options}` with `format` = `eft` | `dna` | `esi` | `xml` | `multibuy` |
+Crate `eve-fit-formats` (served by `eve-fit serve-stdio` and the `eve-fit-formats-wasm` `rpc` export, not by the
+engine). RPC `format_export {fit, name, format, options}` with `format` = `eft` | `dna` | `esi` | `xml` | `multibuy` |
 `shipstats`, and `format_import {text, format, path?}` with `format` = `auto` | `eft` | `eftcfg` | `dna` |
 `dna_alt` | `dna_link` | `esi` | `xml` (`auto` follows Pyfa's detection order and also recognises additions lists
 and single mutated items). Against the eve-dogma-bench `formats-suite` (Pyfa-generated round trips): all export

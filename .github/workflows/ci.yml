@@ -39,11 +39,19 @@ jobs:
           echo "EVE_DOGMA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
       - name: Build native (eve-fit)
         run: cargo build --release --locked
-      - name: Build WASM (wasip1 CLI, unknown-unknown C ABI)
+      - name: Build WASM (wasip1 CLI, unknown-unknown C ABI engine + formats)
         run: |
           cargo build --release --locked --target wasm32-wasip1 -p eve-cli
-          cargo build --profile release-small --locked --target wasm32-unknown-unknown -p eve-wasm
-          ls -l target/wasm32-wasip1/release/eve-fit.wasm target/wasm32-unknown-unknown/release-small/eve_wasm.wasm
+          cargo build --profile release-small --locked --target wasm32-unknown-unknown -p eve-wasm -p eve-fit-formats-wasm
+          ls -l target/wasm32-wasip1/release/eve-fit.wasm target/wasm32-unknown-unknown/release-small/eve_wasm.wasm \
+                target/wasm32-unknown-unknown/release-small/eve_fit_formats_wasm.wasm
+      - name: Crate boundary (engine has no formats, formats has no engine)
+        run: |
+          cargo tree --locked -e normal -p eve-fit-formats | tee /tmp/ff.tree
+          cargo tree --locked -e normal -p eve-dogma | tee /tmp/ed.tree
+          cargo tree --locked -e normal -p eve-wasm | tee /tmp/ew.tree
+          if grep -E "eve-dogma v" /tmp/ff.tree; then echo "::error::eve-fit-formats depends on the engine"; exit 1; fi
+          if grep -E "eve-fit-formats v" /tmp/ed.tree /tmp/ew.tree; then echo "::error::engine depends on eve-fit-formats"; exit 1; fi
       - name: Test
         run: cargo test --release --locked --workspace
       - name: WASM C-ABI test (node, byte-identical to native)
@@ -58,6 +66,13 @@ jobs:
           done
           echo "- wasm32-unknown-unknown C ABI: $n/4 byte-identical to native" >> "$GITHUB_STEP_SUMMARY"
           [ $n = 4 ]
+      - name: Formats WASM C-ABI test (node, byte-identical to the CLI)
+        run: |
+          node crates/eve-fit-formats-wasm/examples/node-formats.mjs target/wasm32-unknown-unknown/release-small/eve_fit_formats_wasm.wasm \
+            < ci/formats-wasm/requests.jsonl > /tmp/fw.out
+          ./target/release/eve-fit serve-stdio < ci/formats-wasm/requests.jsonl > /tmp/fn.out
+          cmp /tmp/fw.out /tmp/fn.out
+          echo "- formats wasm C ABI: $(wc -l < /tmp/fw.out) RPC responses byte-identical to the CLI" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: engine
@@ -65,6 +80,7 @@ jobs:
             target/release/eve-fit
             target/wasm32-wasip1/release/eve-fit.wasm
             target/wasm32-unknown-unknown/release-small/eve_wasm.wasm
+            target/wasm32-unknown-unknown/release-small/eve_fit_formats_wasm.wasm
 
   suites:
     needs: build

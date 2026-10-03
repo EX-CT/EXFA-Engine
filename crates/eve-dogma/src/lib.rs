@@ -1,11 +1,12 @@
-//! eve-dogma — EVE Online dogma engine (EXCT Rust mainline, formerly variant F). Engine core + stats + formats + graphs + RPC.
+//! eve-dogma — EVE Online dogma engine (EXCT Rust mainline, formerly variant F). Engine core + stats + graphs + RPC.
+//!
+//! Input is the structured fit (`eve-fit-model` FitRequest) only. Fit text formats (EFT, DNA, ESI, XML, …) live in
+//! the separate `eve-fit-formats` crate; the `eve-fit` CLI links both.
 //!
 //! The SDE dataset is compiled into this crate by `build.rs`: static tables plus generated Rust code for every
 //! effect's modifiers. `calc(request) -> stats` is pure: no I/O, no clocks, no global state, no data loading.
 pub use eve_capsim as capsim;
 pub mod data;
-pub mod eft;
-pub mod formats;
 pub mod graphs;
 pub mod engine;
 pub mod j;
@@ -145,114 +146,6 @@ pub fn type_info(key: &str) -> Value {
            "capacity": data::type_capacity(ix), "slot": engine::infer_slot(ix), "attributes": attrs, "effects": effects})
 }
 
-fn opt(p: &Value, k: &str, default: bool) -> bool {
-    p.get("options").and_then(|o| o.get(k)).and_then(|v| v.as_bool()).unwrap_or(default)
-}
-
-/// `format_export {fit, name, format, options}` -> `{"text"}`; formats eft, dna, esi, xml, multibuy.
-fn format_export(p: &Value) -> Value {
-    let r = match serde_json::from_value::<FitRequest>(p.get("fit").cloned().unwrap_or(Value::Null)) {
-        Ok(r) => r,
-        Err(e) => return json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
-    };
-    let name = p.get("name").and_then(|n| n.as_str()).unwrap_or("EXCT fit");
-    let text = match p.get("format").and_then(|f| f.as_str()).unwrap_or("eft") {
-        "eft" => eft::export_opts(&r, name, &eft::EftOpts {
-            implants: opt(p, "implants", true),
-            mutations: opt(p, "mutations", true),
-            loaded_charges: opt(p, "loaded_charges", true),
-            boosters: opt(p, "boosters", true),
-            cargo: opt(p, "cargo", true),
-        }),
-        "dna" => formats::dna_export(&r, name, opt(p, "formatting", false)),
-        "esi" => match formats::esi_export(&r, name, opt(p, "charges", true), opt(p, "implants", true), opt(p, "boosters", true)) {
-            Ok(t) => t,
-            Err(e) => return json!({"error": {"code": "EXPORT_ERROR", "message": e}}),
-        },
-        "xml" => formats::xml_export(&[(&r, name)]),
-        "multibuy" => formats::multibuy_export(&r, &formats::MultibuyOpts {
-            loaded_charges: opt(p, "loaded_charges", true),
-            cargo: opt(p, "cargo", true),
-            implants: opt(p, "implants", true),
-            boosters: opt(p, "boosters", true),
-        }),
-        "shipstats" => {
-            let mut r2 = r.clone();
-            r2.options.include_attributes = Some("all".into());
-            // Pyfa's stats copy uses its default spool-up (none), not the request's spool settings
-            r2.options.default_spool = Some(request::Spool { kind: request::SpoolType::SpoolScale, amount: 0.0 });
-            for m in r2.modules.iter_mut() {
-                m.spool = None;
-            }
-            let st: Value = calc(&r2).to_value_raw();
-            if st.get("error").is_some() {
-                return st;
-            }
-            formats::shipstats_export(&r, name, &st)
-        }
-        f => return json!({"error": {"code": "UNSUPPORTED_FORMAT", "message": f}}),
-    };
-    json!({"text": text})
-}
-
-fn imported_json(f: &formats::Imported) -> Value {
-    let mut v = serde_json::to_value(&f.req).unwrap_or(Value::Null);
-    if let Value::Object(o) = &mut v {
-        o.insert("name".into(), json!(f.name));
-        o.insert("notes".into(), json!(f.notes));
-    }
-    v
-}
-
-/// `format_import {text, format, path?}` -> `{"kind", "fits": [FitRequest + name/notes]}`;
-/// formats eft, dna, dna_alt, esi, xml, auto (Pyfa's detection order).
-fn format_import(p: &Value) -> Value {
-    let text = p.get("text").and_then(|t| t.as_str()).unwrap_or("");
-    let path = p.get("path").and_then(|t| t.as_str());
-    let mut fmt = p.get("format").and_then(|f| f.as_str()).unwrap_or("auto").to_string();
-    if fmt == "auto" {
-        match formats::detect(text, path) {
-            Some(f) => fmt = f.to_string(),
-            None => {
-                return match formats::items_import(text) {
-                    Some((kind, items)) => json!({"kind": kind, "items": items.iter().map(|(t, n, m)| json!({"type_id": t, "amount": n, "mutation": m})).collect::<Vec<_>>()}),
-                    None => json!({"error": {"code": "UNRECOGNIZED_INPUT", "message": "format not recognised"}}),
-                }
-            }
-        }
-    }
-    let one = |r: Result<formats::Imported, String>, kind: &str| match r {
-        Ok(f) => json!({"kind": kind, "fits": [imported_json(&f)]}),
-        Err(e) => json!({"error": {"code": "IMPORT_ERROR", "message": e}}),
-    };
-    match fmt.as_str() {
-        "eft" => one(formats::eft_import(text), "EFT"),
-        "dna" => one(formats::dna_import(text, None, false), "DNA"),
-        "dna_alt" => {
-            let s = text.find("DNA:").map(|i| &text[i + 4..]).unwrap_or(text);
-            let s = s.split_whitespace().next().unwrap_or("");
-            one(formats::dna_import(s, None, true), "DNA")
-        }
-        "dna_link" => match formats::dna_link(text) {
-            Some((dna, name)) => one(formats::dna_import(&dna, Some(&name), false), "DNA"),
-            None => json!({"error": {"code": "IMPORT_ERROR", "message": "bad fitting link"}}),
-        },
-        "esi" => one(formats::esi_import(text), "JSON"),
-        "eftcfg" => {
-            let stem = path.map(|p| p.rsplit('/').next().unwrap_or(p)).and_then(|f| f.split('.').next()).unwrap_or("");
-            match formats::eftcfg_import(text, stem) {
-                Ok(v) => json!({"kind": "EFT Config", "fits": v.iter().map(imported_json).collect::<Vec<_>>()}),
-                Err(e) => json!({"error": {"code": "IMPORT_ERROR", "message": e}}),
-            }
-        }
-        "xml" => match formats::xml_import(text) {
-            Ok(v) => json!({"kind": "XML", "fits": v.iter().map(imported_json).collect::<Vec<_>>()}),
-            Err(e) => json!({"error": {"code": "IMPORT_ERROR", "message": e}}),
-        },
-        f => json!({"error": {"code": "UNSUPPORTED_FORMAT", "message": f}}),
-    }
-}
-
 /// JSONL RPC line: {"id","method","params"} -> {"id","result"}
 pub fn rpc(line: &str) -> Value {
     let v: Value = match serde_json::from_str(line) {
@@ -266,18 +159,8 @@ pub fn rpc(line: &str) -> Value {
             Ok(r) => serde_json::to_value(calc(&r)).unwrap_or(Value::Null),
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },
-        "eft_parse" => match eft::parse(p.get("text").and_then(|t| t.as_str()).unwrap_or("")) {
-            Ok(r) => serde_json::to_value(r).unwrap_or(Value::Null),
-            Err(e) => json!({"error": {"code": "EFT_PARSE", "message": e}}),
-        },
-        "eft_export" => match serde_json::from_value::<FitRequest>(p.get("fit").cloned().unwrap_or(Value::Null)) {
-            Ok(r) => json!({"text": eft::export(&r, p.get("name").and_then(|n| n.as_str()).unwrap_or("EXCT fit"))}),
-            Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
-        },
-        "format_export" => format_export(&p),
         "graph" => graphs::graph(&p),
         "graph_specs" => graphs::specs_json(),
-        "format_import" => format_import(&p),
         "search" => {
             let kinds: Option<Vec<String>> = match p.get("kinds") {
                 Some(Value::Array(a)) => Some(a.iter().filter_map(|k| k.as_str().map(|s| s.to_lowercase())).collect()),

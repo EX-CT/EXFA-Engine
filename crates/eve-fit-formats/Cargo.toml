@@ -1,0 +1,11 @@
+[package]
+name = "eve-fit-formats"
+description = "EVE fit formats (EFT, DNA, ESI JSON, XML, multibuy, ship stats text): text <-> structured FitRequest; no engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+eve-fit-model.workspace = true
+eve-sde.workspace = true
+serde_json.workspace = true

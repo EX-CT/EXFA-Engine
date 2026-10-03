@@ -3,7 +3,7 @@
 use super::cycles::{self, Schedule};
 use super::Ctx;
 use crate::data as d;
-use crate::eft::float_unerr;
+use super::cycles::float_unerr;
 use crate::engine::{Fit, Kind};
 use crate::request::{Spool, SpoolType, State};
 use crate::stats::{range_factor, spoolup};

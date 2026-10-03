@@ -1,0 +1,13 @@
+[package]
+name = "eve-fit-formats-wasm"
+description = "C-ABI WebAssembly exports (alloc, dealloc, rpc) of eve-fit-formats for the web frontend; no engine inside"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+eve-fit-formats.workspace = true
+serde_json.workspace = true

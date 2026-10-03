@@ -200,8 +200,18 @@ pub fn fighter_infinite(abs: &[Ability]) -> Vec<(u32, Schedule)> {
         .collect()
 }
 
+/// Pyfa `floatUnerr` (7 significant digits kept).
 pub fn float_unerr(x: f64) -> f64 {
-    crate::eft::float_unerr(x)
+    if x == 0.0 || x.is_infinite() {
+        return x;
+    }
+    let k = 7 - x.abs().log10().ceil() as i32;
+    if k >= 0 {
+        format!("{:.*}", k as usize, x).parse().unwrap_or(x)
+    } else {
+        let p = 10f64.powi(-k);
+        (x / p).round_ties_even() * p
+    }
 }
 
 /// Attribute id by name, memoised (the data table lookup is a linear scan).
