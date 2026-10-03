@@ -862,6 +862,98 @@ fn generate() -> String {
     arr(&mut out, "MARKET_GROUP_IDS", "u32", &mgl.iter().map(|g| g.0).collect::<Vec<_>>());
     arr(&mut out, "MARKET_GROUP_PARENT", "u32", &mgl.iter().map(|g| g.1).collect::<Vec<_>>());
 
+    // lookups (ext/rpc, Pyfa item stats): radius (0 = absent in the SDE; Pyfa shows 1.0), the Traits tab rendered
+    // like Pyfa's `traits.display`, and the English description when the dataset carries one (`descriptions`)
+    {
+        let mut rad: Vec<String> = Vec::new();
+        for (id, t) in &tl {
+            if let Some(r) = t["radius"].as_f64().filter(|r| *r != 0.0) {
+                rad.push(format!("({id}, {r:?})"));
+            }
+        }
+        arr(&mut out, "TYPE_RADIUS", "(u32, f64)", &rad);
+        let units = &d["units"];
+        let tname = |id: &str| types.get(id).and_then(|t| t["name"].as_str()).unwrap_or(id).to_string();
+        let strip = |s: &str| {
+            let mut o = String::new();
+            let mut tag = false;
+            for c in s.chars() {
+                match c {
+                    '<' => tag = true,
+                    '>' if tag => tag = false,
+                    _ if !tag => o.push(c),
+                    _ => {}
+                }
+            }
+            o
+        };
+        let line = |b: &Value| {
+            let text = strip(b["text"].as_str().unwrap_or(""));
+            match b["bonus"].as_f64() {
+                None => format!("\u{2022} {text}"),
+                Some(x) => {
+                    let mut n = format!("{x:.6}");
+                    while n.contains('.') && (n.ends_with('0') || n.ends_with('.')) {
+                        n.pop();
+                    }
+                    let unit = u(&b["unit"]).and_then(|k| units[k.to_string()]["display"].as_str()).unwrap_or("");
+                    format!("{n}{unit} {text}")
+                }
+            }
+        };
+        let lines = |a: &Value| {
+            let mut v: Vec<&Value> = a.as_array().map(|x| x.iter().collect()).unwrap_or_default();
+            v.sort_by_key(|b| b["importance"].as_i64().unwrap_or(0));
+            v.iter().map(|b| line(b)).collect::<Vec<_>>().join("<br />\n")
+        };
+        let mut tids: Vec<(u32, String)> = Vec::new();
+        if let Some(tr) = d["traits"].as_object() {
+            for (k, t) in tr {
+                let mut secs: Vec<String> = Vec::new();
+                if let Some(sk) = t["skills"].as_object() {
+                    let mut sl: Vec<(String, &Value)> = sk.iter().map(|(sid, b)| (tname(sid), b)).collect();
+                    sl.sort_by(|a, b| a.0.cmp(&b.0));
+                    for (n, b) in sl {
+                        secs.push(format!("<b>{n} bonuses (per skill level):</b><br />\n{}", lines(b)));
+                    }
+                }
+                for (key, head) in [("role", "Role Bonus:"), ("misc", "Misc bonus:")] {
+                    if t[key].as_array().is_some_and(|a| !a.is_empty()) {
+                        secs.push(format!("<b>{head}</b><br />\n{}", lines(&t[key])));
+                    }
+                }
+                tids.push((k.parse().unwrap(), secs.join("<br />\n<br />\n")));
+            }
+        }
+        tids.sort();
+        let (tb, toff) = blob(&tids.iter().map(|x| x.1.clone()).collect::<Vec<_>>());
+        writeln!(out, "pub static TRAITS_HTML: &str = {tb:?};").unwrap();
+        arr(&mut out, "TRAITS_IDS", "u32", &tids.iter().map(|x| x.0).collect::<Vec<_>>());
+        arr(&mut out, "TRAITS_OFF", "u32", &toff);
+        // English descriptions: gzip of [u32 LE id, u32 LE byte length, UTF-8 text]* in id order, written next to the
+        // generated source and embedded with include_bytes! (decoded lazily by eve-dogma's `lookup`)
+        let mut dids: Vec<(u32, String)> = d["descriptions"]
+            .as_object()
+            .map(|o| o.iter().filter_map(|(k, v)| Some((k.parse().ok()?, v.as_str()?.to_string()))).collect())
+            .unwrap_or_default();
+        dids.sort();
+        writeln!(out, "pub const HAS_DESCRIPTIONS: bool = {};", d["descriptions"].is_object()).unwrap();
+        let mut raw = Vec::new();
+        for (id, t) in &dids {
+            raw.extend_from_slice(&id.to_le_bytes());
+            raw.extend_from_slice(&(t.len() as u32).to_le_bytes());
+            raw.extend_from_slice(t.as_bytes());
+        }
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        std::io::Write::write_all(&mut gz, &raw).unwrap();
+        if let Ok(od) = std::env::var("OUT_DIR") {
+            std::fs::write(std::path::Path::new(&od).join("descriptions.bin.gz"), gz.finish().unwrap()).unwrap();
+            writeln!(out, "pub static DESCRIPTIONS_GZ: &[u8] = include_bytes!(concat!(env!(\"OUT_DIR\"), \"/descriptions.bin.gz\"));").unwrap();
+        } else {
+            writeln!(out, "pub static DESCRIPTIONS_GZ: &[u8] = &[];").unwrap();
+        }
+    }
+
     // fighter default abilities (Pyfa default: standard attack on; abilities before it on except MWD/evasive/MJD)
     let mut fdef = Vec::new();
     let mut fdef_ab = Vec::new();

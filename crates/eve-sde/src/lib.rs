@@ -211,3 +211,23 @@ pub fn type_count() -> usize {
 pub fn type_id_at(ix: usize) -> u32 {
     TYPE_IDS[ix]
 }
+
+/// Radius as Pyfa shows it: the SDE value, or 1.0 when the SDE has none.
+pub fn type_radius(id: u32) -> f64 {
+    TYPE_RADIUS.binary_search_by_key(&id, |x| x.0).map(|i| TYPE_RADIUS[i].1).unwrap_or(1.0)
+}
+
+fn sparse_text(ids: &[u32], off: &[u32], blob: &'static str, id: u32) -> Option<&'static str> {
+    let i = ids.binary_search(&id).ok()?;
+    Some(&blob[off[i] as usize..off[i + 1] as usize])
+}
+
+/// The Traits tab of a type (Pyfa `traits.display` form), if it has traits.
+pub fn type_traits_html(id: u32) -> Option<&'static str> {
+    sparse_text(&TRAITS_IDS, &TRAITS_OFF, TRAITS_HTML, id)
+}
+
+
+pub fn market_group_ids() -> &'static [u32] {
+    &MARKET_GROUP_IDS
+}

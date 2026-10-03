@@ -118,6 +118,9 @@ jobs:
         run: |
           gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
           echo "EVE_DOGMA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
+          # Pyfa-derived data (GPL-3.0, never compiled in): loaded at run time for market.search jargon / names.resolve
+          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'presets-pyfa-*.json' -D _data
+          echo "EVE_DOGMA_PYFA_DATA=$(ls $PWD/_data/presets-pyfa-*.json | head -1)" >> "$GITHUB_ENV"
       - uses: bytecodealliance/actions/wasmtime/setup@v1
         if: matrix.mode == 'wasm'
       - name: Engine command

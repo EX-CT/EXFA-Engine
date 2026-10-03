@@ -13,6 +13,8 @@ pub mod j;
 pub mod price;
 pub mod prov;
 pub mod batch;
+pub mod lookup;
+pub mod pyre;
 pub mod request;
 pub mod stats;
 
@@ -174,9 +176,13 @@ pub fn type_info(key: &str) -> Value {
             json!({"id": data::EFF_IDS[ei], "name": data::eff_name(ei), "default": x & 1 != 0})
         })
         .collect();
-    json!({"type_id": data::TYPE_IDS[ix], "name": data::type_name(ix), "name_zh": data::type_name_zh(ix), "group": data::group_name(t.group), "group_id": t.group,
+    let mut v = json!({"type_id": data::TYPE_IDS[ix], "name": data::type_name(ix), "name_zh": data::type_name_zh(ix), "group": data::group_name(t.group), "group_id": t.group,
            "category_id": t.category, "published": data::type_published(ix), "mass": data::type_mass(ix), "volume": data::type_volume(ix),
-           "capacity": data::type_capacity(ix), "slot": engine::infer_slot(ix), "attributes": attrs, "effects": effects})
+           "capacity": data::type_capacity(ix), "slot": engine::infer_slot(ix), "attributes": attrs, "effects": effects});
+    if let Value::Object(o) = &mut v {
+        lookup::type_extra(ix, o);
+    }
+    v
 }
 
 /// RPC `prices_load` (docs/23 §5.3): set the session market snapshot (L4) from `{"path"}`, `{"snapshot"}`, `{"isk"}`,
@@ -239,6 +245,15 @@ pub fn rpc(line: &str) -> Value {
             search_kinds(p.get("query").and_then(|q| q.as_str()).unwrap_or(""), p.get("limit").and_then(|l| l.as_u64()).unwrap_or(20) as usize, kinds.as_deref())
         }
         "type" => type_info(&p.get("id").map(|x| x.to_string().trim_matches('"').to_string()).unwrap_or_default()),
+        "item.variations" => lookup::item_variations(&p),
+        "item.compare" => lookup::item_compare(&p),
+        "market.group" => lookup::market_group(&p),
+        "market.search" => lookup::market_search(&p),
+        "implant_sets.list" => lookup::implant_sets(&p),
+        "character.import_evemon" => lookup::import_evemon(&p),
+        "names.resolve" => lookup::names_resolve(&p),
+        "pyfa_data_load" => lookup::pyfa_data_load(&p),
+        "pyfa_data_status" => lookup::pyfa_data_status(),
         "meta" => meta(),
         m => json!({"error": {"code": "UNKNOWN_METHOD", "message": m}}),
     };

@@ -12,7 +12,7 @@ Commands:
   batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout (a BatchRequest line -> one BatchResponse line)
   batch --request FILE|- BatchRequest JSON (docs/23: fits / variants / product / sweep) -> BatchResponse JSON
   optimize [FILE]        OptimizeRequest JSON (docs/21) -> ranked fits
-  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|batch|prices_load|version|sde_override|optimize|graph|search|type|meta|eft_parse|eft_export|format_import|format_export\",\"params\":..}
+  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|batch|prices_load|version|sde_override|optimize|graph|search|type|meta|eft_parse|eft_export|format_import|format_export|fits.backup|item.variations|item.compare|market.group|market.search|implant_sets.list|character.import_evemon|names.resolve|pyfa_data_load|pyfa_data_status\",\"params\":..}
   eft [FILE]             EFT text (file or stdin) -> FitRequest JSON (add --calc to compute, --skills N)
   search QUERY [--limit N] [--kinds ship,module,..]  search types by name (exact > prefix > substring)
   type ID|NAME           show type with base attributes
@@ -23,7 +23,9 @@ Commands:
 Global options (before the command):
   --sde FILE.edp         SDE pack override (docs/22 §2.4); load failure -> SDE_LOAD_FAILED
   --prices FILE          market price table for this process (eve-price-snapshot v1 file, {\"isk\":{..}} or
-                         {\"<type_id>\": isk}); price layer L4, see eve-fit-docs docs/23 §5";
+                         {\"<type_id>\": isk}); price layer L4, see eve-fit-docs docs/23 §5
+  --pyfa-data FILE       Pyfa-derived data (eve-sde-pipeline presets-pyfa-*.json, GPL-3.0; also EVE_DOGMA_PYFA_DATA):
+                         search jargon for market.search, renamed-item conversions for names.resolve";
 
 /// JSONL batch line: a FitRequest (calc) or a BatchRequest (has "batch_version").
 fn calc_or_batch(line: &str) -> String {
@@ -91,6 +93,11 @@ fn main() {
     if let Some(path) = take_flag(&mut args, "--sde") {
         if let Err(e) = eve_dogma::prov::load_pack_path(&path) {
             fail(e);
+        }
+    }
+    if let Some(path) = take_flag(&mut args, "--pyfa-data") {
+        if let Err(e) = eve_dogma::lookup::load_pyfa_data(&path) {
+            fail(serde_json::json!({"error": {"code": "BAD_PYFA_DATA", "message": e}}));
         }
     }
     if let Some(path) = take_flag(&mut args, "--prices") {

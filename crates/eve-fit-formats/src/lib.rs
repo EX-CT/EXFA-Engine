@@ -36,7 +36,7 @@ pub fn infer_slot(ty: usize) -> Option<Slot> {
 pub type StatsFn<'a> = &'a dyn Fn(&FitRequest) -> Value;
 
 /// JSON-RPC methods served by this crate.
-pub const METHODS: [&str; 4] = ["eft_parse", "eft_export", "format_import", "format_export"];
+pub const METHODS: [&str; 5] = ["eft_parse", "eft_export", "format_import", "format_export", "fits.backup"];
 
 fn opt(p: &Value, k: &str, default: bool) -> bool {
     p.get("options").and_then(|o| o.get(k)).and_then(|v| v.as_bool()).unwrap_or(default)
@@ -189,8 +189,26 @@ pub fn rpc_method(method: &str, p: &Value, stats: Option<StatsFn>) -> Option<Val
         "eft_export" => eft_export(p),
         "format_export" => format_export(p, stats),
         "format_import" => format_import(p),
+        "fits.backup" => fits_backup(p),
         _ => return None,
     })
+}
+
+/// `fits.backup {fits: [{name, fit}]}` -> `{"xml"}`: every fit in one EVE client fitting XML document (Pyfa
+/// Port.backupFits = exportXml of all fits).
+pub fn fits_backup(p: &Value) -> Value {
+    let Some(list) = p.get("fits").and_then(|f| f.as_array()) else {
+        return json!({"error": {"code": "BAD_REQUEST", "message": "fits.backup needs fits: [{name, fit}]"}});
+    };
+    let mut reqs = Vec::new();
+    for (i, e) in list.iter().enumerate() {
+        match serde_json::from_value::<FitRequest>(e.get("fit").cloned().unwrap_or(Value::Null)) {
+            Ok(r) => reqs.push((r, e.get("name").and_then(|n| n.as_str()).unwrap_or("EXCT fit").to_string())),
+            Err(err) => return json!({"error": {"code": "BAD_REQUEST", "message": format!("fits[{i}]: {err}")}}),
+        }
+    }
+    let refs: Vec<(&FitRequest, &str)> = reqs.iter().map(|(r, n)| (r, n.as_str())).collect();
+    json!({"xml": formats::xml_export(&refs)})
 }
 
 /// JSONL RPC line `{"id","method","params"}` -> `{"id","result"}` for the formats methods (WASM / tools without the
