@@ -3,6 +3,7 @@
 //! selectors those generated calls use, plus lazy memoised evaluation.
 //!
 //! Semantics follow the reference engine eve-dogma-rs (LGPL-3.0-or-later), which this file is derived from.
+use std::collections::BTreeMap;
 use crate::data::{self as d, a, e};
 use crate::request::{FitRequest, ModuleReq, Slot, Spool, State};
 use std::cell::Cell;
@@ -68,8 +69,16 @@ const NONE: u32 = u32::MAX;
 pub struct AMod {
     pub op: i8,
     pub pen: bool,
+    /// Pyfa skill-level scaling of a ship bonus attribute (skill effect `...SkillLevelPreMul...Ship`): Pyfa has no
+    /// such modifier (it passes `skill=` instead), so `options.sources` attributes ship bonuses to the skill
+    pub lvl: bool,
     pub src: Src,
+    /// provenance (options.sources): item index, FOLDED | published-skill index, or NONE
+    pub from: u32,
 }
+
+/// `AMod::from` marker for folded (compiled) skill modifiers; low bits = index into PUBLISHED_SKILLS
+pub const FOLDED: u32 = 0x8000_0000;
 
 pub struct Slot_ {
     pub base: f64,
@@ -151,6 +160,9 @@ pub struct Fit {
     /// active AB/MWD modules (Pyfa runs them in module order: each reads ship mass after its own and earlier
     /// prop modules' massAddition, not later ones)
     pub props: Vec<u32>,
+    /// provenance of the modifiers being registered (options.sources)
+    cur_from: u32,
+    cur_lvl: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -305,9 +317,14 @@ impl Fit {
 
     #[inline]
     fn push(&mut self, t: usize, attr: u16, op: i8, pen: bool, src: Src) {
+        self.push_from(t, attr, op, pen, src, self.cur_from)
+    }
+
+    #[inline]
+    fn push_from(&mut self, t: usize, attr: u16, op: i8, pen: bool, src: Src, from: u32) {
         let s = self.ensure(t, attr);
         let k = self.mods.len() as u32;
-        self.mods.push((AMod { op, pen, src }, self.slots[s].head));
+        self.mods.push((AMod { op, pen, lvl: self.cur_lvl, src, from }, self.slots[s].head));
         self.slots[s].head = k;
         self.slots[s].n += 1;
     }
@@ -345,7 +362,7 @@ impl Fit {
         if self.restrict && (t == self.ship || t == self.char) {
             return;
         }
-        self.push(t, modified, op, pen, Src::Attr { item: src as u32, attr: sa });
+        self.push_from(t, modified, op, pen, Src::Attr { item: src as u32, attr: sa }, src as u32);
     }
     pub fn m_other(&mut self, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
         let it = &self.items[i];
@@ -431,6 +448,12 @@ impl Fit {
     #[inline]
     pub fn c_item(&mut self, t: usize, modified: u16, op: i8, v: f64) {
         self.push(t, modified, op, false, Src::Const(v));
+    }
+    /// folded skill modifier of a ship bonus attribute by the skill level (see `AMod::lvl`)
+    pub fn c_lvl(&mut self, t: usize, modified: u16, op: i8, v: f64) {
+        self.cur_lvl = true;
+        self.push(t, modified, op, false, Src::Const(v));
+        self.cur_lvl = false;
     }
     pub fn c_ship_loc(&mut self, modified: u16, op: i8, v: f64) {
         for k in 0..self.ship_items.len() {
@@ -884,6 +907,8 @@ impl Fit {
             ext_drains: Vec::new(),
             ext_ecm: Vec::new(),
             props: Vec::new(),
+            cur_from: NONE,
+            cur_lvl: false,
         };
         let ship = fit.new_item(req.ship.type_id, Kind::Ship, Loc::Ship, "/ship/type_id")?;
         fit.ship = ship;
@@ -1157,6 +1182,7 @@ impl Fit {
                 continue;
             }
             let state = self.effective_state(i);
+            self.cur_from = i as u32;
             let src_cat = self.items[i].category;
             let p = !EXEMPT_CATEGORIES.contains(&src_cat);
             let n_static = self.items[i].effs.len();
@@ -1191,10 +1217,12 @@ impl Fit {
                 }
             }
         }
+        self.cur_from = NONE;
         self.register_projectors(req);
         if n <= 2 {
             self.apply_folded_skills();
         }
+        self.cur_from = NONE;
         self.register_buffs(req);
     }
 
@@ -1221,11 +1249,134 @@ impl Fit {
         }
     }
 
+    /// options.sources (bench draft 1.11, Pyfa "Affected by" = ModifiedAttributeDict.getAfflictions, used entries):
+    /// `sources[target][attr]` = sorted "<source>:<type_id>:<Pyfa Operator>" and the inverse `dependants[source]` =
+    /// sorted "<target>/<attr>" (non-fit sources keyed "<class>.<type_id>"). Targets: ship, modules.<i>, drones.<i>.
+    pub fn sources(&self) -> (BTreeMap<String, BTreeMap<String, Vec<String>>>, BTreeMap<String, Vec<String>>) {
+        let mut targets: Vec<(String, usize)> = vec![("ship".into(), self.ship)];
+        for (i, it) in self.items.iter().enumerate() {
+            match (it.kind, it.req_index) {
+                (Kind::Module, Some(r)) if it.loc == Loc::Ship => targets.push((format!("modules.{r}"), i)),
+                (Kind::Drone, Some(r)) if it.owned => targets.push((format!("drones.{r}"), i)),
+                _ => {}
+            }
+        }
+        let mut src: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+        let mut dep: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
+        for (tkey, t) in &targets {
+            for &(attr, s) in &self.items[*t].dyn_attrs {
+                let slot = &self.slots[s as usize];
+                let mut entries: std::collections::BTreeSet<String> = Default::default();
+                let mut cur = slot.head;
+                for _ in 0..slot.n {
+                    let (m, next) = &self.mods[cur as usize];
+                    cur = *next;
+                    if let Some((key, tid)) = self.pyfa_afflictor(m) {
+                        let v = self.src_value(&m.src);
+                        let (opn, used) = match m.op {
+                            -1 => ("PREASSIGN", v != slot.base),
+                            7 => ("FORCE", true),
+                            2 | 3 => ("PREINCREASE", v != 0.0),
+                            6 => ("MULTIPLY", v != 0.0),
+                            1 | 5 => ("MULTIPLY", v != 0.0 && v != 1.0),
+                            _ => ("MULTIPLY", v != 1.0),
+                        };
+                        if !used {
+                            continue;
+                        }
+                        entries.insert(format!("{key}:{tid}:{opn}"));
+                        let dk = if key.starts_with("modules.") || key.starts_with("drones.") || key.starts_with("fighters.") || key == "ship" || key == "mode" {
+                            key.clone()
+                        } else {
+                            format!("{key}.{tid}")
+                        };
+                        let an = d::attr_name(attr).map(String::from).unwrap_or_else(|| attr.to_string());
+                        dep.entry(dk).or_default().insert(format!("{tkey}/{an}"));
+                    }
+                }
+                if !entries.is_empty() {
+                    let an = d::attr_name(attr).map(String::from).unwrap_or_else(|| attr.to_string());
+                    src.entry(tkey.clone()).or_default().insert(an, entries.into_iter().collect());
+                }
+            }
+        }
+        (src, dep.into_iter().map(|(k, v)| (k, v.into_iter().collect())).collect())
+    }
+
+    /// Pyfa afflictor (source key, type id) of a modifier, or None when Pyfa has no such modifier.
+    fn pyfa_afflictor(&self, m: &AMod) -> Option<(String, u32)> {
+        if m.lvl || m.from == NONE {
+            return None;
+        }
+        if m.from & FOLDED != 0 {
+            return Some(("skill".into(), d::PUBLISHED_SKILLS[(m.from & !FOLDED) as usize]));
+        }
+        let f = m.from as usize;
+        let it = &self.items[f];
+        let key = |i: usize| -> Option<String> {
+            let it = &self.items[i];
+            let r = it.req_index?;
+            Some(match it.kind {
+                Kind::Module => format!("modules.{r}"),
+                Kind::Drone => format!("drones.{r}"),
+                Kind::Fighter => format!("fighters.{r}"),
+                _ => return None,
+            })
+        };
+        Some(match it.kind {
+            Kind::Skill => {
+                // instantiated skill: its ship-bonus level scaling is not a Pyfa modifier
+                if matches!(m.src, Src::Attr { attr: 280, .. }) && m.op == 0 {
+                    return None;
+                }
+                ("skill".into(), it.type_id)
+            }
+            Kind::Ship => {
+                // ship bonus scaled by a skill level: Pyfa passes skill=..., the afflictor is the skill
+                if let Src::Attr { item, attr } | Src::AttrScaled { item, attr, .. } = m.src {
+                    if let Some(sk) = self.level_skill(item as usize, attr) {
+                        return Some(("skill".into(), sk));
+                    }
+                }
+                ("ship".into(), it.type_id)
+            }
+            Kind::Module | Kind::Drone | Kind::Fighter => (key(f)?, it.type_id),
+            // charge effects run with the module as Pyfa's modifier
+            Kind::Charge => {
+                let p = it.parent?;
+                (key(p)?, self.items[p].type_id)
+            }
+            Kind::Mode => ("mode".into(), it.type_id),
+            Kind::Implant => ("implant".into(), it.type_id),
+            Kind::Booster => ("booster".into(), it.type_id),
+            Kind::Char => ("character".into(), it.type_id),
+            Kind::Beacon | Kind::Projected => return None,
+        })
+    }
+
+    /// Skill whose level scales (i, attr) (a `lvl` modifier on it), if any.
+    fn level_skill(&self, i: usize, attr: u16) -> Option<u32> {
+        let s = self.slot_of(i, attr)? as usize;
+        let slot = &self.slots[s];
+        let mut cur = slot.head;
+        for _ in 0..slot.n {
+            let (m, next) = &self.mods[cur as usize];
+            cur = *next;
+            let lvl = m.lvl || (m.op == 0 && matches!(m.src, Src::Attr { attr: 280, .. }) && m.from != NONE && m.from & FOLDED == 0 && self.items[m.from as usize].kind == Kind::Skill);
+            if lvl {
+                return Some(if m.from & FOLDED != 0 { d::PUBLISHED_SKILLS[(m.from & !FOLDED) as usize] } else { self.items[m.from as usize].type_id });
+            }
+        }
+        None
+    }
+
     fn apply_folded_skills(&mut self) {
         let folded = std::mem::take(&mut self.folded);
         for &(k, l) in &folded {
+            self.cur_from = FOLDED | k as u32;
             d::apply_skill(self, k as usize, l as usize);
         }
+        self.cur_from = NONE;
         self.folded = folded;
     }
 

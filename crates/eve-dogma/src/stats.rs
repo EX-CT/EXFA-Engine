@@ -1136,6 +1136,13 @@ impl Fit {
         if !self.warnings.is_empty() {
             out.push_kv("warnings".into(), jv!(self.warnings.clone()));
         }
+        if req.options.sources {
+            let (src, dep) = self.sources();
+            let sl = |v: Vec<String>| J::A(v.into_iter().map(J::Str).collect());
+            let sj = src.into_iter().map(|(t, m)| (Key::Owned(t), J::O(m.into_iter().map(|(a, v)| (Key::Owned(a), sl(v))).collect()))).collect();
+            out.push_kv("sources".into(), J::O(sj));
+            out.push_kv("dependants".into(), J::O(dep.into_iter().map(|(k, v)| (Key::Owned(k), sl(v))).collect()));
+        }
         match req.options.include_attributes.as_deref() {
             Some("ship") => {
                 out.push_kv("attributes".into(), jv!({"ship": self.dump_attrs(ship)}));

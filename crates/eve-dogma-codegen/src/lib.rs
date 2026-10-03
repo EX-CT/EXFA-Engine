@@ -782,6 +782,7 @@ fn generate() -> String {
                     let skill = if extra == 0 && (func == 3 || func == 4) { *sid } else { extra };
                     let args = format!("{modified}, {op}, SKILL_VALS[{slot}][l]");
                     let call = match (dom, func) {
+                        (1, 0) if modifying == 280 && op == 0 => format!("f.c_lvl(f.ship, {args});"),
                         (1, 0) | (4, 0) => format!("f.c_item(f.ship, {args});"),
                         (1, 1) | (4, 1) => format!("f.c_ship_loc({args});"),
                         (1, 2) | (4, 2) => format!("f.c_ship_group({extra}, {args});"),
