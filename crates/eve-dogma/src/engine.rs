@@ -72,6 +72,8 @@ pub struct AMod {
     /// Pyfa skill-level scaling of a ship bonus attribute (skill effect `...SkillLevelPreMul...Ship`): Pyfa has no
     /// such modifier (it passes `skill=` instead), so `options.sources` attributes ship bonuses to the skill
     pub lvl: bool,
+    /// registered through a ship LocationModifier (Pyfa: fit.modules filters, which never include the ship)
+    pub loc: bool,
     pub src: Src,
     /// provenance (options.sources): item index, FOLDED | published-skill index, or NONE
     pub from: u32,
@@ -163,6 +165,7 @@ pub struct Fit {
     /// provenance of the modifiers being registered (options.sources)
     cur_from: u32,
     cur_lvl: bool,
+    cur_loc: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -324,7 +327,7 @@ impl Fit {
     fn push_from(&mut self, t: usize, attr: u16, op: i8, pen: bool, src: Src, from: u32) {
         let s = self.ensure(t, attr);
         let k = self.mods.len() as u32;
-        self.mods.push((AMod { op, pen, lvl: self.cur_lvl, src, from }, self.slots[s].head));
+        self.mods.push((AMod { op, pen, lvl: self.cur_lvl, loc: self.cur_loc, src, from }, self.slots[s].head));
         self.slots[s].head = k;
         self.slots[s].n += 1;
     }
@@ -374,10 +377,12 @@ impl Fit {
         if self.restrict {
             return;
         }
+        self.cur_loc = true;
         for k in 0..self.ship_items.len() {
             let t = self.ship_items[k] as usize;
             self.m_item(t, modified, op, i, sa, pen);
         }
+        self.cur_loc = false;
     }
     pub fn m_ship_group(&mut self, g: u32, modified: u16, op: i8, i: usize, sa: u16, pen: bool) {
         if self.restrict {
@@ -456,10 +461,12 @@ impl Fit {
         self.cur_lvl = false;
     }
     pub fn c_ship_loc(&mut self, modified: u16, op: i8, v: f64) {
+        self.cur_loc = true;
         for k in 0..self.ship_items.len() {
             let t = self.ship_items[k] as usize;
             self.c_item(t, modified, op, v);
         }
+        self.cur_loc = false;
     }
     pub fn c_ship_group(&mut self, g: u32, modified: u16, op: i8, v: f64) {
         for k in range_of(&self.by_group, g) {
@@ -909,6 +916,7 @@ impl Fit {
             props: Vec::new(),
             cur_from: NONE,
             cur_lvl: false,
+            cur_loc: false,
         };
         let ship = fit.new_item(req.ship.type_id, Kind::Ship, Loc::Ship, "/ship/type_id")?;
         fit.ship = ship;
@@ -1263,14 +1271,40 @@ impl Fit {
         }
         let mut src: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         let mut dep: BTreeMap<String, std::collections::BTreeSet<String>> = BTreeMap::new();
+        // Pyfa keeps these character attributes in fit.extraAttributes; the oracle reports them under the ship
+        // (SDE character attribute, Pyfa name)
+        const EXTRA: [(&str, &str); 3] =
+            [("droneControlDistance", "droneControlRange"), ("maxActiveDrones", "maxActiveDrones"), ("maxLockedTargets", "maxTargetsLockedFromSkills")];
+        let mut slots_of: Vec<(&String, u16, u32, Option<&str>)> = Vec::new();
         for (tkey, t) in &targets {
             for &(attr, s) in &self.items[*t].dyn_attrs {
+                // Pyfa's location / group filters skip items without the attribute (e.g. Thermodynamics:
+                // `'heatDamage' in mod.item.attributes`)
+                if *t != self.ship && d::type_attr(self.items[*t].ty, attr).is_none() {
+                    continue;
+                }
+                slots_of.push((tkey, attr, s, None));
+            }
+            if *t == self.ship {
+                for &(attr, s) in &self.items[self.char].dyn_attrs {
+                    if let Some(x) = EXTRA.iter().find(|x| d::attr_name(attr) == Some(x.0)) {
+                        slots_of.push((tkey, attr, s, Some(x.1)));
+                    }
+                }
+            }
+        }
+        for (tkey, attr, s, alias) in slots_of {
+            let is_ship = tkey == "ship";
+            {
                 let slot = &self.slots[s as usize];
                 let mut entries: std::collections::BTreeSet<String> = Default::default();
                 let mut cur = slot.head;
                 for _ in 0..slot.n {
                     let (m, next) = &self.mods[cur as usize];
                     cur = *next;
+                    if m.loc && is_ship && alias.is_none() {
+                        continue;
+                    }
                     if let Some((key, tid)) = self.pyfa_afflictor(m) {
                         let v = self.src_value(&m.src);
                         let (opn, used) = match m.op {
@@ -1290,12 +1324,12 @@ impl Fit {
                         } else {
                             format!("{key}.{tid}")
                         };
-                        let an = d::attr_name(attr).map(String::from).unwrap_or_else(|| attr.to_string());
+                        let an = alias.map(String::from).or_else(|| d::attr_name(attr).map(String::from)).unwrap_or_else(|| attr.to_string());
                         dep.entry(dk).or_default().insert(format!("{tkey}/{an}"));
                     }
                 }
                 if !entries.is_empty() {
-                    let an = d::attr_name(attr).map(String::from).unwrap_or_else(|| attr.to_string());
+                    let an = alias.map(String::from).or_else(|| d::attr_name(attr).map(String::from)).unwrap_or_else(|| attr.to_string());
                     src.entry(tkey.clone()).or_default().insert(an, entries.into_iter().collect());
                 }
             }

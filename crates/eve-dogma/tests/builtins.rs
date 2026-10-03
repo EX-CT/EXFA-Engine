@@ -45,3 +45,18 @@ fn character_implants_and_alpha_clone() {
     assert!(eve_dogma::data::HAS_ALPHA_CLONE);
     assert_ne!(calc(a)["targeting"], calc(o)["targeting"]);
 }
+
+#[test]
+fn attribute_sources_and_dependants() {
+    // Rifter + gyrostabilizer: Pyfa "Affected by" (bench draft 1.11 src_* / dep_*)
+    let q = json!({"schema_version": 1, "ship": {"type_id": 587}, "options": {"sources": true}, "character": {"skills": {"default_level": 5}},
+        "modules": [{"type_id": 2889, "charge_type_id": 185, "state": "active"}, {"type_id": 519, "state": "online"}]});
+    let r = calc(q);
+    let dm = r["sources"]["modules.0"]["damageMultiplier"].as_array().unwrap();
+    assert!(dm.contains(&json!("modules.1:519:MULTIPLY")));
+    assert!(dm.iter().all(|x| !x.as_str().unwrap().starts_with("ship:")), "ship bonuses are attributed to their skill");
+    assert!(r["sources"]["modules.0"]["falloff"].as_array().unwrap().contains(&json!("skill:3329:MULTIPLY")));
+    assert!(r["sources"]["ship"].get("heatDamage").is_none());
+    assert!(r["dependants"]["modules.1"].as_array().unwrap().contains(&json!("modules.0/damageMultiplier")));
+    assert!(r["sources"]["ship"]["droneControlRange"].is_array());
+}
