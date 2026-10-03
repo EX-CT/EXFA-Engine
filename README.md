@@ -76,7 +76,9 @@ node crates/eve-fit-formats-wasm/examples/node-formats.mjs target/wasm32-unknown
 `.github/workflows/ci.yml`: native + both WASM targets; then, native and wasip1, every suite at its pinned
 eve-dogma-bench ref (`ci/run_suites.sh`) against the minimum scores in `ci/gate.json` (bench 1.9.0 331/331, EFT
 1.8.0 326/326, cap-suite 150/150, mutated-suite 93/93 + EFT 93/93 / 99/99, formats-suite 4779/4779, graphs 0.2
-178/178), plus the round-1 batch output sha256 (`ci/round1.sha256`). Locally:
+178/178), plus the round-1 batch output sha256 (`ci/round1.sha256`). Unit tests run first: `eve-fit-formats`
+(`crates/eve-fit-formats/tests/roundtrip.rs`: per format import→export and export→import round trips and error
+paths), `eve-optimizer` property tests, then the whole workspace. Locally:
 `BENCH=/path/to/eve-dogma-bench ci/run_suites.sh native ./target/release/eve-fit`.
 
 ### Bench

@@ -1,0 +1,29 @@
+[Tristan, esf_mutations]
+
+[Empty Low slot]
+[Empty Low slot]
+[Empty Low slot]
+
+Warp Scrambler II [1]
+[Empty Med slot]
+[Empty Med slot]
+
+[Empty High slot]
+[Empty High slot]
+[Empty High slot]
+
+[Empty Rig slot]
+[Empty Rig slot]
+[Empty Rig slot]
+
+
+Hobgoblin II x2
+Hobgoblin II x1 [2]
+
+
+[1] Warp Scrambler II
+  Unstable Warp Scrambler Mutaplasmid
+  capacitorNeed 7.5, cpu 30.0, maxRange 10500.0
+[2] Hobgoblin II
+  Exigent Light Drone Firepower Mutaplasmid
+  armorHP 110.0, damageMultiplier 2.2, falloff 2100.0, hp 250.0, maxRange 2200.0, maxVelocity 3500.0, shieldCapacity 62.0, trackingSpeed 2.3

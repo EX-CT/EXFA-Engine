@@ -63,6 +63,7 @@ dependencies = [
 name = "eve-fit-formats"
 version = "0.1.0"
 dependencies = [
+ "eve-dogma",
  "eve-fit-model",
  "eve-sde",
  "serde_json",

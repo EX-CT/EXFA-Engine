@@ -52,6 +52,8 @@ jobs:
           cargo tree --locked -e normal -p eve-wasm | tee /tmp/ew.tree
           if grep -E "eve-dogma v" /tmp/ff.tree; then echo "::error::eve-fit-formats depends on the engine"; exit 1; fi
           if grep -E "eve-fit-formats v" /tmp/ed.tree /tmp/ew.tree; then echo "::error::engine depends on eve-fit-formats"; exit 1; fi
+      - name: Formats unit tests (every format - import/export round trips, error paths)
+        run: cargo test --release --locked -p eve-fit-formats --test roundtrip
       - name: Test
         run: cargo test --release --locked --workspace
       - name: WASM C-ABI test (node, byte-identical to native)
