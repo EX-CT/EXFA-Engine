@@ -279,6 +279,68 @@
      }
     }
    }
+  },
+  "damage": {
+   "title": "Damage Stats",
+   "pyfa": "fitDamageStats",
+   "axes": {
+    "distance_m": {
+     "unit": "m",
+     "valid": "x >= 0"
+    },
+    "time_s": {
+     "unit": "s",
+     "valid": "x >= 0 && x <= 2500"
+    },
+    "tgt_speed_mps": {
+     "unit": "m/s",
+     "valid": "x >= 0"
+    },
+    "tgt_sig_m": {
+     "unit": "m",
+     "valid": "x > 0"
+    }
+   },
+   "params": {
+    "distance_m": null,
+    "time_s": null,
+    "tgt_speed_mps": null,
+    "tgt_speed_pct": 100,
+    "atk_speed_mps": null,
+    "atk_speed_pct": 0,
+    "atk_angle_deg": 90,
+    "tgt_angle_deg": 90
+   },
+   "defs": {},
+   "series": {
+    "dps": {
+     "unit": "HP/s",
+     "by_axis": {
+      "distance_m": "dmg_dps(p.time_s, x, null(), null())",
+      "time_s": "dmg_dps(x, p.distance_m, null(), null())",
+      "tgt_speed_mps": "dmg_dps(p.time_s, p.distance_m, x, null())",
+      "tgt_sig_m": "dmg_dps(p.time_s, p.distance_m, null(), x)"
+     }
+    },
+    "volley": {
+     "unit": "HP",
+     "by_axis": {
+      "distance_m": "dmg_volley(p.time_s, x, null(), null())",
+      "time_s": "dmg_volley(x, p.distance_m, null(), null())",
+      "tgt_speed_mps": "dmg_volley(p.time_s, p.distance_m, x, null())",
+      "tgt_sig_m": "dmg_volley(p.time_s, p.distance_m, null(), x)"
+     }
+    },
+    "damage": {
+     "unit": "HP",
+     "by_axis": {
+      "distance_m": "dmg_damage(p.time_s, x, null(), null())",
+      "time_s": "dmg_damage(x, p.distance_m, null(), null())",
+      "tgt_speed_mps": "dmg_damage(p.time_s, p.distance_m, x, null())",
+      "tgt_sig_m": "dmg_damage(p.time_s, p.distance_m, null(), x)"
+     }
+    }
+   }
   }
  },
  "source_tables": {

@@ -21,7 +21,7 @@ const GROUPS: [(&str, usize); 6] = [
 ];
 
 fn attr(fit: &Fit, i: usize, n: &str) -> f64 {
-    d::attr_by_name(n).map(|a| fit.get(i, a)).unwrap_or(0.0)
+    super::cycles::an(n).map(|a| fit.get(i, a)).unwrap_or(0.0)
 }
 fn has_eff(fit: &Fit, i: usize, n: &str) -> bool {
     fit.items[i].effects().any(|(ei, _)| d::eff_name(ei) == n)
@@ -48,7 +48,7 @@ fn sources(fit: &Fit) -> Vec<Src> {
                 2 => attr(fit, i, "structureDamageAmount"),
                 _ => {
                     let m = if g == "Ancillary Remote Armor Repairer" && it.charge.is_some() {
-                        d::attr_by_name("chargedArmorDamageMultiplier").filter(|&a| fit.has(i, a)).map(|a| fit.get(i, a)).unwrap_or(1.0)
+                        super::cycles::an("chargedArmorDamageMultiplier").filter(|&a| fit.has(i, a)).map(|a| fit.get(i, a)).unwrap_or(1.0)
                     } else {
                         1.0
                     };
@@ -143,7 +143,7 @@ pub fn rr(ctx: &Ctx, mode: u8, time: Option<f64>, dist: Option<f64>) -> Option<f
             for s in &srcs {
                 let Some(sch) = schedule(fit, s, anc_reload, owner_reload, true) else { continue };
                 let shots = if s.drone { 0.0 } else { fit.num_shots(s.i) as f64 };
-                let charged_mult = d::attr_by_name("chargedArmorDamageMultiplier").filter(|&a| fit.has(s.i, a)).map(|a| fit.get(s.i, a)).unwrap_or(1.0);
+                let charged_mult = super::cycles::an("chargedArmorDamageMultiplier").filter(|&a| fit.has(s.i, a)).map(|a| fit.get(s.i, a)).unwrap_or(1.0);
                 let reduced = s.anc_armor && fit.items[s.i].charge.is_some() && !anc_reload;
                 let (mut now, mut nonstop, mut since_reload) = (0.0f64, 0.0f64, 0.0f64);
                 // rps: value of the last cycle segment starting at or before t (0 in gaps); total: amounts landed <= t

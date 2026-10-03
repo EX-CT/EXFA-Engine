@@ -43,7 +43,7 @@ impl Schedule {
 }
 
 fn attr(fit: &Fit, i: usize, n: &str) -> f64 {
-    d::attr_by_name(n).map(|a| fit.get(i, a)).unwrap_or(0.0)
+    an(n).map(|a| fit.get(i, a)).unwrap_or(0.0)
 }
 
 /// Module schedule. `reload_override` None = owner's factor_reload (forced on for capacitor boosters).
@@ -93,4 +93,127 @@ pub fn drone(fit: &Fit, i: usize) -> Option<Schedule> {
         return None;
     }
     Some(Schedule::single(Cyc { active: c, inactive: 0.0, qty: f64::INFINITY, reload: false }))
+}
+
+/// Fighter ability (all abilities of the squadron take part in refuel planning, active or not).
+#[derive(Clone, Debug)]
+pub struct Ability {
+    pub eid: u32,
+    pub prefix: &'static str,
+    pub cycle: f64,
+    pub shots: f64,
+    pub has_charges: bool,
+}
+
+pub const FIGHTER_ABILITIES: [(&str, &str, bool); 8] = [
+    ("fighterAbilityMissiles", "fighterAbilityMissiles", true),
+    ("fighterAbilityEnergyNeutralizer", "fighterAbilityEnergyNeutralizer", false),
+    ("fighterAbilityStasisWebifier", "fighterAbilityStasisWebifier", false),
+    ("fighterAbilityWarpDisruption", "fighterAbilityWarpDisruption", false),
+    ("fighterAbilityECM", "fighterAbilityECM", false),
+    ("fighterAbilityEvasiveManeuvers", "fighterAbilityEvasiveManeuvers", false),
+    ("fighterAbilityAttackM", "fighterAbilityAttackMissile", false),
+    ("fighterAbilityLaunchBomb", "fighterAbilityLaunchBomb", true),
+];
+
+pub fn fighter_abilities(fit: &Fit, i: usize) -> Vec<Ability> {
+    let role = attr(fit, i, "fighterSquadronRole") as i64;
+    let shots_role = match role {
+        2 => 12.0,
+        4 => 6.0,
+        5 => 3.0,
+        _ => 0.0,
+    };
+    let mut v = Vec::new();
+    for (ename, prefix, charges) in FIGHTER_ABILITIES {
+        let Some(eid) = fit.items[i].effects().find(|(ei, _)| d::eff_name(*ei) == ename).map(|(ei, _)| d::EFF_IDS[ei]) else { continue };
+        v.push(Ability { eid, prefix, cycle: attr(fit, i, &format!("{prefix}Duration")), shots: if charges { shots_role } else { 0.0 }, has_charges: charges });
+    }
+    v
+}
+
+fn fighter_reload(fit: &Fit, i: usize, ab: &Ability, spent: f64) -> f64 {
+    let rearm = match attr(fit, i, "fighterSquadronRole") as i64 {
+        2 => 4000.0,
+        4 => 6000.0,
+        5 => 20000.0,
+        _ => 0.0,
+    };
+    attr(fit, i, "fighterRefuelingTime") + if ab.has_charges { rearm * spent.max(ab.shots) } else { 0.0 }
+}
+
+/// Per-ability schedules with refuels (Pyfa getCycleParametersPerEffect semantics).
+pub fn fighter_with_reload(fit: &Fit, i: usize, abs: &[Ability], factor_reload: bool) -> Vec<(u32, Schedule)> {
+    let inf = |a: &Ability| (a.eid, Schedule::single(Cyc { active: a.cycle, inactive: 0.0, qty: f64::INFINITY, reload: false }));
+    let valid: Vec<&Ability> = abs.iter().filter(|a| a.cycle > 0.0).collect();
+    let limited: Vec<&Ability> = valid.iter().copied().filter(|a| a.shots > 0.0).collect();
+    if !factor_reload || limited.is_empty() {
+        return valid.iter().map(|a| inf(a)).collect();
+    }
+    let ml = limited.iter().copied().min_by(|x, y| (x.cycle * x.shots).partial_cmp(&(y.cycle * y.shots)).unwrap()).unwrap();
+    let to_refuel = ml.cycle * ml.shots;
+    let plan: Vec<(f64, Option<f64>)> = valid
+        .iter()
+        .map(|a| {
+            if a.eid == ml.eid {
+                (ml.shots, None)
+            } else {
+                let full = float_unerr(to_refuel / a.cycle).trunc();
+                let extra = float_unerr(to_refuel - full * a.cycle);
+                (full, if extra == 0.0 { None } else { Some(extra) })
+            }
+        })
+        .collect();
+    let refuel = valid
+        .iter()
+        .zip(&plan)
+        .map(|(a, (n, ex))| fighter_reload(fit, i, a, n + ex.is_some() as u8 as f64))
+        .fold(f64::MIN, f64::max);
+    valid
+        .iter()
+        .zip(&plan)
+        .map(|(a, (n, ex))| {
+            let mut seq = Vec::new();
+            match ex {
+                Some(extra) => {
+                    if *n > 0.0 {
+                        seq.push(Cyc { active: a.cycle, inactive: 0.0, qty: *n, reload: false });
+                    }
+                    seq.push(Cyc { active: *extra, inactive: refuel, qty: 1.0, reload: true });
+                }
+                None => {
+                    if n - 1.0 > 0.0 {
+                        seq.push(Cyc { active: a.cycle, inactive: 0.0, qty: n - 1.0, reload: false });
+                    }
+                    seq.push(Cyc { active: a.cycle, inactive: refuel, qty: 1.0, reload: true });
+                }
+            }
+            (a.eid, Schedule { seq, repeat: f64::INFINITY })
+        })
+        .collect()
+}
+
+pub fn fighter_infinite(abs: &[Ability]) -> Vec<(u32, Schedule)> {
+    abs.iter()
+        .filter(|a| a.shots == 0.0 && a.cycle > 0.0)
+        .map(|a| (a.eid, Schedule::single(Cyc { active: a.cycle, inactive: 0.0, qty: f64::INFINITY, reload: false })))
+        .collect()
+}
+
+pub fn float_unerr(x: f64) -> f64 {
+    crate::eft::float_unerr(x)
+}
+
+/// Attribute id by name, memoised (the data table lookup is a linear scan).
+pub fn an(name: &str) -> Option<u16> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static M: OnceLock<Mutex<HashMap<String, Option<u16>>>> = OnceLock::new();
+    let m = M.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(v) = m.lock().unwrap().get(name) {
+        return *v;
+    }
+    let v = d::attr_by_name(name);
+    m.lock().unwrap().insert(name.to_string(), v);
+    v
 }

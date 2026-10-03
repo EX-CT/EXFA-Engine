@@ -32,6 +32,11 @@ pub fn call(ctx: &mut Ctx, name: &str, a: &[Option<f64>]) -> Result<Option<f64>,
         }
         "rr_rps" => super::rr::rr(ctx, 0, a.first().copied().flatten(), a.get(1).copied().flatten()),
         "rr_total" => super::rr::rr(ctx, 1, a.first().copied().flatten(), a.get(1).copied().flatten()),
+        "dmg_dps" | "dmg_volley" | "dmg_damage" => {
+            let mode = match name { "dmg_dps" => 0, "dmg_volley" => 1, _ => 2 };
+            let g = |k: usize| a.get(k).copied().flatten();
+            super::dmg::damage(ctx, mode, g(0), g(1), g(2), g(3))?
+        }
         n if n.starts_with("sum_sources_") => Some(sources(ctx, &n[12..], false)?),
         n if n.starts_with("stack_sources_") => Some(sources(ctx, &n[14..], true)?),
         _ => return Err(format!("unknown kernel '{name}'")),
@@ -114,7 +119,7 @@ pub fn stack_mult(mults: &[f64]) -> f64 {
 
 /// Pyfa module optimal range / falloff (first non-zero of the range-like / falloff-like attributes).
 pub fn module_range(fit: &crate::engine::Fit, i: usize) -> (f64, f64) {
-    let g = |n: &str| d::attr_by_name(n).map(|a| fit.get(i, a)).unwrap_or(0.0);
+    let g = |n: &str| super::cycles::an(n).map(|a| fit.get(i, a)).unwrap_or(0.0);
     let mut opt = 0.0;
     for n in ["maxRange", "shieldTransferRange", "powerTransferRange", "energyDestabilizationRange", "empFieldRange", "ecmBurstRange", "warpScrambleRange", "cargoScanRange", "shipScanRange", "surveyScanRange"] {
         opt = g(n);
@@ -123,7 +128,7 @@ pub fn module_range(fit: &crate::engine::Fit, i: usize) -> (f64, f64) {
         }
     }
     if opt != 0.0 && d::type_name(fit.items[i].ty).to_lowercase().contains("burst projector") {
-        opt -= fit.get(fit.ship, d::attr_by_name("radius").unwrap_or(0));
+        opt -= fit.get(fit.ship, super::cycles::an("radius").unwrap_or(0));
     }
     let mut fo = 0.0;
     for n in ["falloffEffectiveness", "falloff", "shipScanFalloff"] {
@@ -149,7 +154,7 @@ pub struct ItemEnv<'a> {
 impl super::expr::Env for ItemEnv<'_> {
     fn var(&mut self, name: &str) -> Result<Option<f64>, String> {
         if let Some(a) = name.strip_prefix("a.") {
-            return Ok(Some(d::attr_by_name(a).map(|x| self.fit.get(self.i, x)).unwrap_or(0.0)));
+            return Ok(Some(super::cycles::an(a).map(|x| self.fit.get(self.i, x)).unwrap_or(0.0)));
         }
         match name {
             "cycle_s" => Ok(Some(self.cycle_s)),
@@ -203,7 +208,7 @@ fn sources(ctx: &mut Ctx, table: &str, stack: bool) -> Result<f64, String> {
                 "inf" => (f64::INFINITY, 0.0),
                 "doomsday" => {
                     let (o, f) = module_range(fit, i);
-                    ((o + d::attr_by_name("doomsdayAOERange").map(|a| fit.get(i, a)).unwrap_or(0.0)).max(0.0), f)
+                    ((o + super::cycles::an("doomsdayAOERange").map(|a| fit.get(i, a)).unwrap_or(0.0)).max(0.0), f)
                 }
                 _ => module_range(fit, i),
             };

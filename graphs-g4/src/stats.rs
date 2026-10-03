@@ -119,9 +119,17 @@ impl Fit {
     /// Missile range like Pyfa: acceleration phase, flight-time bonus from ship radius, whole-second
     /// interpolation, FoF limit, centre-to-surface correction.
     pub(crate) fn missile_range(&self, c: usize) -> f64 {
+        match self.missile_range_data(c) {
+            None => 0.0,
+            Some((lo, hi, chance)) => lo * (1.0 - chance) + hi * chance,
+        }
+    }
+
+    /// (lower range, higher range, chance of the higher one), surface distances.
+    pub(crate) fn missile_range_data(&self, c: usize) -> Option<(f64, f64, f64)> {
         let v = self.get(c, a::maxVelocity);
         if v == 0.0 {
-            return 0.0;
+            return None;
         }
         let radius = self.get(self.ship, a::radius);
         let flight = float_unerr(self.get(c, a::explosionDelay) / 1000.0 + radius / v);
@@ -142,8 +150,7 @@ impl Fit {
         }
         lo = (lo - radius).max(0.0);
         hi = (hi - radius).max(0.0);
-        let chance = flight - lt;
-        lo * (1.0 - chance) + hi * chance
+        Some((lo, hi, flight - lt))
     }
 
     pub(crate) fn raw_cycle_ms(&self, i: usize) -> f64 {

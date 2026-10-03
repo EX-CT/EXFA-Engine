@@ -5,6 +5,7 @@
 //! Behaviour follows Pyfa's graph getters as described in CONTRACT-GRAPHS.md; no Pyfa code is used.
 pub mod expr;
 pub mod cycles;
+pub mod dmg;
 pub mod kernels;
 pub mod rr;
 
