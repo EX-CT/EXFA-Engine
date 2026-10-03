@@ -161,7 +161,7 @@ pub struct Environment {
     pub system_security: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resists {
     #[serde(default)]
     pub em: f64,
@@ -171,6 +171,10 @@ pub struct Resists {
     pub kinetic: f64,
     #[serde(default)]
     pub explosive: f64,
+    /// Pyfa builtin damage pattern by raw name (`DamagePattern.getBuiltinList`, e.g. "[NPC][Asteroid]Guristas");
+    /// resolved by the engine from the runtime Pyfa data (bench draft 1.11 `dpb_*`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builtin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -189,6 +193,10 @@ pub struct TargetProfile {
     pub max_velocity: Option<f64>,
     #[serde(default)]
     pub radius: Option<f64>,
+    /// Pyfa builtin target profile by raw name (`TargetProfile.getBuiltinList`); resolved by the engine from the
+    /// runtime Pyfa data (bench draft 1.11 `tpb_*`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builtin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

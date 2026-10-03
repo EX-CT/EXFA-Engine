@@ -299,6 +299,10 @@ struct PyfaData {
     jargon: HashMap<String, Vec<String>>,
     /// old name -> current name
     conversions: HashMap<String, String>,
+    /// builtin damage patterns: raw name -> amounts [em, thermal, kinetic, explosive]
+    damage_patterns: HashMap<String, [f64; 4]>,
+    /// builtin target profiles: raw name -> resists [em, thermal, kinetic, explosive], sig, velocity, radius
+    target_profiles: HashMap<String, ([f64; 4], Option<f64>, Option<f64>, Option<f64>)>,
     source: Option<String>,
 }
 
@@ -349,8 +353,20 @@ fn pyfa_from_value(v: &Value) -> Result<PyfaData, String> {
             }
         }
     }
-    if pd.jargon.is_empty() && pd.conversions.is_empty() {
-        return Err("no jargon.items or conversions.items in the Pyfa data file".into());
+    let f = |x: &Value, k: &str| x.get(k).and_then(|v| v.as_f64());
+    // builtin damage patterns / target profiles (eve-sde-pipeline presets-pyfa, from Pyfa DamagePattern /
+    // TargetProfile getBuiltinList): patterns carry Pyfa's raw amounts, profiles resist fractions
+    for it in v.pointer("/damage_patterns/items").and_then(|x| x.as_array()).into_iter().flatten() {
+        let (Some(name), Some(a)) = (it.get("name").and_then(|x| x.as_str()), it.get("amounts")) else { continue };
+        pd.damage_patterns.insert(name.to_string(), [f(a, "em").unwrap_or(0.0), f(a, "thermal").unwrap_or(0.0), f(a, "kinetic").unwrap_or(0.0), f(a, "explosive").unwrap_or(0.0)]);
+    }
+    for it in v.pointer("/target_profiles/items").and_then(|x| x.as_array()).into_iter().flatten() {
+        let Some(name) = it.get("name").and_then(|x| x.as_str()) else { continue };
+        let r = [f(it, "em").unwrap_or(0.0), f(it, "thermal").unwrap_or(0.0), f(it, "kinetic").unwrap_or(0.0), f(it, "explosive").unwrap_or(0.0)];
+        pd.target_profiles.insert(name.to_string(), (r, f(it, "signature_radius"), f(it, "max_velocity"), f(it, "radius")));
+    }
+    if pd.jargon.is_empty() && pd.conversions.is_empty() && pd.damage_patterns.is_empty() && pd.target_profiles.is_empty() {
+        return Err("no jargon, conversions, damage_patterns or target_profiles items in the Pyfa data file".into());
     }
     Ok(pd)
 }
@@ -375,7 +391,7 @@ pub fn pyfa_data_load(p: &Value) -> Value {
     };
     match r {
         Ok(pd) => {
-            let out = json!({"ok": true, "jargon": pd.jargon.len(), "conversions": pd.conversions.len()});
+            let out = json!({"ok": true, "jargon": pd.jargon.len(), "conversions": pd.conversions.len(), "damage_patterns": pd.damage_patterns.len(), "target_profiles": pd.target_profiles.len()});
             *pyfa_data().write().unwrap() = pd;
             out
         }
@@ -385,7 +401,37 @@ pub fn pyfa_data_load(p: &Value) -> Value {
 
 pub fn pyfa_data_status() -> Value {
     let pd = pyfa_data().read().unwrap();
-    json!({"loaded": pd.source.is_some() || !pd.jargon.is_empty(), "source": pd.source, "jargon": pd.jargon.len(), "conversions": pd.conversions.len()})
+    json!({"loaded": pd.source.is_some() || !pd.jargon.is_empty() || !pd.damage_patterns.is_empty(), "source": pd.source, "jargon": pd.jargon.len(), "conversions": pd.conversions.len(), "damage_patterns": pd.damage_patterns.len(), "target_profiles": pd.target_profiles.len()})
+}
+
+/// Resolve `damage_pattern.builtin` / `target_profile.builtin` (bench draft 1.11) against the runtime Pyfa data.
+/// Returns None when the request names no builtin; Err((path, message)) for an unknown name.
+pub fn resolve_builtins(req: &crate::FitRequest) -> Option<Result<crate::FitRequest, (String, String)>> {
+    let dpn = req.damage_pattern.as_ref().and_then(|d| d.builtin.clone());
+    let tpn = req.target_profile.as_ref().and_then(|t| t.builtin.clone());
+    if dpn.is_none() && tpn.is_none() {
+        return None;
+    }
+    let pd = pyfa_data().read().unwrap();
+    let hint = if pd.damage_patterns.is_empty() && pd.target_profiles.is_empty() { " (no Pyfa data loaded: --pyfa-data / EVE_DOGMA_PYFA_DATA / pyfa_data_load)" } else { "" };
+    let mut r = req.clone();
+    if let Some(n) = dpn {
+        let Some(a) = pd.damage_patterns.get(&n) else { return Some(Err(("damage_pattern/builtin".into(), format!("unknown builtin damage pattern '{n}'{hint}")))) };
+        r.damage_pattern = Some(crate::request::Resists { em: a[0], thermal: a[1], kinetic: a[2], explosive: a[3], builtin: None });
+    }
+    if let Some(n) = tpn {
+        let Some((a, sig, vel, rad)) = pd.target_profiles.get(&n) else { return Some(Err(("target_profile/builtin".into(), format!("unknown builtin target profile '{n}'{hint}")))) };
+        let t = r.target_profile.get_or_insert_with(Default::default);
+        t.em = a[0];
+        t.thermal = a[1];
+        t.kinetic = a[2];
+        t.explosive = a[3];
+        t.signature_radius = *sig;
+        t.max_velocity = *vel;
+        t.radius = *rad;
+        t.builtin = None;
+    }
+    Some(Ok(r))
 }
 
 // ---------------------------------------------------------------------------------------------------- search

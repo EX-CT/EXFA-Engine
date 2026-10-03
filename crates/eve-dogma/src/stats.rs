@@ -388,7 +388,7 @@ impl Fit {
 
         // ---------------- offense
         let tp = req.target_profile.clone().unwrap_or_default();
-        let tp_res = Resists { em: tp.em, thermal: tp.thermal, kinetic: tp.kinetic, explosive: tp.explosive };
+        let tp_res = Resists { em: tp.em, thermal: tp.thermal, kinetic: tp.kinetic, explosive: tp.explosive, builtin: None };
         let default_spool = req.options.default_spool.unwrap_or(Spool { kind: SpoolType::SpoolScale, amount: 1.0 });
         let mut weapons = Vec::new();
         let mut w_vol = Dmg::default();
@@ -555,7 +555,7 @@ impl Fit {
         });
 
         // ---------------- defense
-        let dp = req.damage_pattern.unwrap_or(Resists { em: 25.0, thermal: 25.0, kinetic: 25.0, explosive: 25.0 });
+        let dp = req.damage_pattern.clone().unwrap_or(Resists { em: 25.0, thermal: 25.0, kinetic: 25.0, explosive: 25.0, builtin: None });
         let dp_tot = (dp.em + dp.thermal + dp.kinetic + dp.explosive).max(1e-12);
         let res4 = |x: [u16; 4]| -> [f64; 4] { [g(ship, x[0]), g(ship, x[1]), g(ship, x[2]), g(ship, x[3])] };
         let effectivify = |amount: f64, r: [f64; 4]| {

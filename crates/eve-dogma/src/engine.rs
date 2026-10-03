@@ -1437,7 +1437,7 @@ impl Fit {
             return;
         }
         let disable = req.options.rah.as_deref() == Some("disable");
-        let dp = req.damage_pattern.unwrap_or(crate::request::Resists { em: 25.0, thermal: 25.0, kinetic: 25.0, explosive: 25.0 });
+        let dp = req.damage_pattern.clone().unwrap_or(crate::request::Resists { em: 25.0, thermal: 25.0, kinetic: 25.0, explosive: 25.0, builtin: None });
         let pattern = [dp.em, dp.thermal, dp.kinetic, dp.explosive];
         let ship = self.ship;
         for m in rahs {

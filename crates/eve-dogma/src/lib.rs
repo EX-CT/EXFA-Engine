@@ -31,6 +31,15 @@ pub fn calc(req: &FitRequest) -> j::J {
 /// `calc` with batch price layers (docs/23 §5.2): `variant` = L1 overrides, `batch_wide` = L2 overrides listed after
 /// the fit's own, `batch_prices` = batch-wide injected table (the fit's own wins per type), `force` = emit the block.
 pub fn calc_priced(req: &FitRequest, variant: &[request::PriceOverride], batch_wide: &[request::PriceOverride], batch_prices: Option<&request::Prices>, force: bool) -> j::J {
+    let resolved;
+    let req = match lookup::resolve_builtins(req) {
+        None => req,
+        Some(Ok(r)) => {
+            resolved = r;
+            &resolved
+        }
+        Some(Err((path, m))) => return jv!({"error": {"code": "UNKNOWN_BUILTIN", "message": m, "path": path}}),
+    };
     let want = force || !variant.is_empty() || !batch_wide.is_empty() || batch_prices.is_some() || price::wanted(req);
     let ctx = if want {
         match price::Ctx::from_request(req, variant, batch_wide, batch_prices) {
