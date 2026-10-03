@@ -1,0 +1,61 @@
+{
+ "variant": "G4-c01",
+ "cases": 111,
+ "cases_fully_correct": 111,
+ "values_correct": 1843,
+ "values_total": 1843,
+ "accuracy": 1.0,
+ "info_charge_ids": {
+  "ok": 103,
+  "total": 120
+ },
+ "groups": {
+  "application_profile": {
+   "ok": 120,
+   "total": 120,
+   "cases": 10
+  },
+  "capacitor": {
+   "ok": 164,
+   "total": 164,
+   "cases": 11
+  },
+  "damage": {
+   "ok": 828,
+   "total": 828,
+   "cases": 48
+  },
+  "ewar": {
+   "ok": 168,
+   "total": 168,
+   "cases": 10
+  },
+  "lock_time": {
+   "ok": 78,
+   "total": 78,
+   "cases": 6
+  },
+  "mobility": {
+   "ok": 253,
+   "total": 253,
+   "cases": 9
+  },
+  "remote_reps": {
+   "ok": 87,
+   "total": 87,
+   "cases": 6
+  },
+  "shield_regen": {
+   "ok": 54,
+   "total": 54,
+   "cases": 4
+  },
+  "warp_time": {
+   "ok": 91,
+   "total": 91,
+   "cases": 7
+  }
+ },
+ "wall_s": 0.7107436950027477,
+ "time": "2026-10-03T08:22:00+0800"
+}
