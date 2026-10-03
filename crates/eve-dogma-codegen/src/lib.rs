@@ -40,7 +40,10 @@ fn lit(v: f64) -> String {
 /// SDE effects with modifierInfo for which Pyfa (eos/effects.py) has no handler class: Pyfa applies nothing for them
 /// (fitting-relevant module/charge/implant/ship effects only; skill effects are handled by the skill folding;
 /// security-status ship bonuses are applied by Pyfa's fit code and stay).
-const PYFA_NO_HANDLER: [&str; 14] = [
+const PYFA_NO_HANDLER: [&str; 16] = [
+    "skillNaniteInterfacingRepairTime2",
+    // see PYFA_SKILL_NOOP (skill items with attribute overrides go through apply_local)
+    "skillBonusSupportFightersShield",
     "shadowBarrageDmgMultiplierWithDamageMultiplierPostPercentBarrageDmgMutator",
     "shadowBarrageFalloffWithFalloffPostPercentBarrageFalloffMutator",
     "ammoInfluenceEntityFlyRange",
@@ -67,6 +70,11 @@ fn pyfa_cat(name: &str, cat: u32) -> u32 {
         _ => cat,
     }
 }
+/// Skill effects whose Pyfa handler reads an attribute the skill does not have, so Pyfa applies nothing:
+/// skillBonusSupportFightersShield boosts by the skill's `shieldBonus` (absent) instead of the SDE's
+/// shieldCapacityBonus, i.e. Support Fighters gives no fighter shield bonus in Pyfa.
+/// skillNaniteInterfacingRepairTime2 has no Pyfa handler class at all.
+const PYFA_SKILL_NOOP: [&str; 2] = ["skillBonusSupportFightersShield", "skillNaniteInterfacingRepairTime2"];
 const PYFA_DEFAULT_GROUP_MUL: [&str; 8] = [
     "fighterAbilityEvasiveManeuvers",
     "industrialCoreEffect2",
@@ -405,6 +413,9 @@ fn generate() -> String {
         (eid("entosisLink"), "f.sp_entosis(i, p);"),
         (eid("microJumpPortalDrive"), "f.sp_mjfg(i, p);"),
         (eid("emergencyHullEnergizer"), "f.sp_ehe(i, p);"),
+        (eid("jumpPortalPassengerBonusModAddSkill"), "f.sp_conduit_passengers(i);"),
+        (eid("subsystemBonusBlackOpsJumpPassenger"), "f.sp_force_from_charge(i, &[a::isBlackOpsJumpPortalPassenger, a::isBlackOpsJumpConduitPassenger]);"),
+        (eid("modifyJumpConduitPassengerRequired"), "f.sp_force_from_charge(i, &[a::jumpConduitPassengerRequiredAttributeID]);"),
     ]
     .into_iter()
     .collect();
@@ -681,6 +692,9 @@ fn generate() -> String {
             let mut body = String::new();
             let mut src_slot: BTreeMap<u32, usize> = BTreeMap::new();
             for e in &effs {
+                if PYFA_SKILL_NOOP.contains(&e.name.as_str()) {
+                    continue;
+                }
                 let mut eb = String::new();
                 for m in &e.mods {
                     let (func, dom, modified, modifying, op, extra) = (m[0], m[1], m[2] as u32, m[3] as u32, m[4], m[5] as u32);

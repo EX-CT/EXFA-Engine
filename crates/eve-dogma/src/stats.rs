@@ -943,6 +943,9 @@ impl Fit {
                 let dr: Vec<J> =
                     drones.iter().map(|&i| jv!({"drone_index": self.items[i].req_index, "attributes": self.dump_attrs(i)})).collect();
                 m.push_kv("drones".into(), J::A(dr));
+                let fi: Vec<J> =
+                    fighters.iter().map(|&i| jv!({"fighter_index": self.items[i].req_index, "attributes": self.dump_attrs(i)})).collect();
+                m.push_kv("fighters".into(), J::A(fi));
                 out.push_kv("attributes".into(), J::O(m));
             }
             _ => {}

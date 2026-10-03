@@ -52,6 +52,8 @@ pub enum Loc {
 #[derive(Debug, Clone, Copy)]
 pub enum Src {
     Attr { item: u32, attr: u16 },
+    /// attribute value times a constant (Pyfa handlers that scale a source attribute by a skill level)
+    AttrScaled { item: u32, attr: u16, k: f64 },
     Const(f64),
     /// AB/MWD: 1 + speedFactor/100 * speedBoostFactor / ship mass (PostMul)
     Prop { module: u32 },
@@ -385,7 +387,7 @@ impl Fit {
         }
         for k in range_of(&self.by_skill, s) {
             let t = self.by_skill[k].1 as usize;
-            if self.items[t].owned {
+            if self.owner_target(t) {
                 self.m_item(t, modified, op, i, sa, pen);
             }
         }
@@ -417,7 +419,7 @@ impl Fit {
         for k in range_of(&self.by_skill, s) {
             let t = self.by_skill[k].1 as usize;
             let it = &self.items[t];
-            if (it.owned || it.loc == Loc::Char) && it.kind != Kind::Skill {
+            if (self.owner_target(t) || it.loc == Loc::Char) && it.kind != Kind::Skill {
                 self.m_item(t, modified, op, i, sa, pen);
             }
         }
@@ -449,10 +451,19 @@ impl Fit {
             }
         }
     }
+    /// Targets of owner-required-skill modifiers: the character's charges, drones and fighters.
+    /// Fitted modules also require skills like Drones / Missile Launcher Operation, but Pyfa
+    /// (the reference) applies these modifiers only to charges, drones and fighters, e.g. Drone
+    /// Durability raises drone hp, not the hp of a Drone Damage Amplifier.
+    #[inline]
+    fn owner_target(&self, t: usize) -> bool {
+        let it = &self.items[t];
+        it.owned && matches!(it.kind, Kind::Charge | Kind::Drone | Kind::Fighter)
+    }
     pub fn c_owner_skill(&mut self, s: u32, modified: u16, op: i8, v: f64) {
         for k in range_of(&self.by_skill, s) {
             let t = self.by_skill[k].1 as usize;
-            if self.items[t].owned {
+            if self.owner_target(t) {
                 self.c_item(t, modified, op, v);
             }
         }
@@ -469,7 +480,7 @@ impl Fit {
         for k in range_of(&self.by_skill, s) {
             let t = self.by_skill[k].1 as usize;
             let it = &self.items[t];
-            if (it.owned || it.loc == Loc::Char) && it.kind != Kind::Skill {
+            if (self.owner_target(t) || it.loc == Loc::Char) && it.kind != Kind::Skill {
                 self.c_item(t, modified, op, v);
             }
         }
@@ -671,6 +682,31 @@ impl Fit {
         self.push(ship, a::signatureRadius, 6, p && !d::attr_stackable(a::signatureRadius), Src::Attr { item: i as u32, attr: a::signatureRadiusBonusPercent });
     }
     /// emergency hull energizer: hull resonances x hull*DamageResonance ("postMul" penalty group)
+    /// Carrier/supercarrier jumpPortalPassengerBonusModAddSkill: Pyfa's handler (eos/effects.py Effect12098,
+    /// behaviour only) adds conduitPassengerBonusModAdd x the Capital Jump Portal Generation level to
+    /// conduitJumpPassengerCount; the bonus attribute is itself already per-level (skill effect), so a
+    /// level-5 pilot gets 5 + 25 x 5 = 130 passengers (Pyfa quirk, kept on purpose like the others).
+    pub fn sp_conduit_passengers(&mut self, i: usize) {
+        const CAPITAL_JUMP_PORTAL_GENERATION: u32 = 83094;
+        let lvl = match self.skill_levels.binary_search_by_key(&CAPITAL_JUMP_PORTAL_GENERATION, |x| x.0) {
+            Ok(k) => self.skill_levels[k].1.min(5) as f64,
+            Err(_) => 0.0,
+        };
+        let ship = self.ship;
+        self.push(ship, a::conduitJumpPassengerCount, 2, false, Src::AttrScaled { item: i as u32, attr: a::conduitPassengerBonusModAdd, k: lvl });
+    }
+    /// Pyfa handlers for subsystemBonusBlackOpsJumpPassenger / modifyJumpConduitPassengerRequired (eos/effects.py,
+    /// behaviour only) force the item's own attribute to its *charge's* value instead of copying it to the ship
+    /// as the SDE modifier does; without a charge that is 0 (Pyfa None).
+    pub fn sp_force_from_charge(&mut self, i: usize, attrs: &[u16]) {
+        for &t in attrs {
+            let src = match self.items[i].charge {
+                Some(c) => Src::Attr { item: c as u32, attr: t },
+                None => Src::Const(0.0),
+            };
+            self.push(i, t, 7, false, src);
+        }
+    }
     pub fn sp_ehe(&mut self, i: usize, p: bool) {
         let ship = self.ship;
         for (t, s) in [
@@ -1449,6 +1485,7 @@ impl Fit {
                     self.get(item as usize, attr)
                 }
             }
+            Src::AttrScaled { item, attr, k } => self.get(item as usize, attr) * k,
             Src::Const(v) => v,
             Src::Prop { module } => {
                 let mut m = self.get(self.ship, a::mass);
@@ -1514,7 +1551,7 @@ impl Fit {
             let (m, next) = &self.mods[cur as usize];
             cur = *next;
             let src_item = match m.src {
-                Src::Attr { item, .. } => Some(item as usize),
+                Src::Attr { item, .. } | Src::AttrScaled { item, .. } => Some(item as usize),
                 Src::Prop { module } => Some(module as usize),
                 _ => None,
             };
