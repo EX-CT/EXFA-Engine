@@ -96,15 +96,25 @@ pub fn parse(text: &str) -> Result<FitRequest, String> {
         if line.starts_with("[Empty") {
             continue;
         }
+        // Pyfa writes "/OFFLINE" before the " [N]" reference; accept either order
+        let (line, mref0) = mut_ref(line);
         let (line, offline) = match line.strip_suffix("/OFFLINE").or_else(|| line.strip_suffix("/offline")) {
             Some(l) => (l.trim(), true),
             None => (line, false),
         };
-        let (line, mref) = mut_ref(line);
-        let mutation = match mref {
-            Some(n) => Some(muts.get(&n).cloned().ok_or(format!("mutation [{n}] not defined"))?),
-            None => None,
+        let (line, mref) = match mref0 {
+            Some(n) => (line, Some(n)),
+            None => mut_ref(line),
         };
+        // Pyfa importEft: a reference without a block gives the plain base item; the item line (not the block
+        // header) names the base type
+        let line_base = d::type_by_name(line.rsplit_once(" x").filter(|(_, q)| q.trim().parse::<u32>().is_ok()).map(|(n, _)| n).unwrap_or(line).splitn(2, ',').next().unwrap_or("").trim());
+        let mutation = mref.and_then(|n| muts.get(&n).cloned()).map(|mut m| {
+            if let Some(b) = line_base {
+                m.base_type_id = b;
+            }
+            m
+        });
         // "Name xN" => drone / fighter / cargo
         if let Some(pos) = line.rfind(" x") {
             if let Ok(n) = line[pos + 2..].trim().parse::<u32>() {
@@ -318,9 +328,10 @@ pub fn export_opts(req: &FitRequest, name: &str, o: &EftOpts) -> String {
     };
     let dfull = |dr: &DroneReq| match &dr.mutation {
         Some(mu) => {
+            // Pyfa MutatedMixin.fullName: "<DynamicItem.shortName> <base name>" unless the short name is the full one
             let muta = mu.mutaplasmid_type_id.map(n).unwrap_or_default();
-            let short = muta.split(' ').next().unwrap_or("").to_string();
-            format!("{short} {}", n(mu.base_type_id))
+            let short = muta_short_name(&muta);
+            if short != muta { format!("{short} {}", n(mu.base_type_id)) } else { n(dr.type_id) }
         }
         None => n(dr.type_id),
     };
@@ -375,12 +386,26 @@ pub fn export_opts(req: &FitRequest, name: &str, o: &EftOpts) -> String {
     // implants, boosters (sorted by slot, stable)
     let slot_of = |id: u32, attr: u16| type_ix(id).and_then(|ix| d::type_attr(ix, attr)).unwrap_or(0.0);
     let mut chr: Vec<String> = Vec::new();
-    let mut imps: Vec<u32> = req.implants.clone();
+    // implants / boosters whose slot is already taken by an earlier entry are ignored by Pyfa (not exported)
+    let first_wins = |ids: Vec<u32>, attr: u16| -> Vec<u32> {
+        let mut seen: Vec<f64> = Vec::new();
+        ids.into_iter()
+            .filter(|&t| match type_ix(t).and_then(|ix| d::type_attr(ix, attr)) {
+                Some(sl) if seen.contains(&sl) => false,
+                Some(sl) => {
+                    seen.push(sl);
+                    true
+                }
+                None => true,
+            })
+            .collect()
+    };
+    let mut imps: Vec<u32> = first_wins(req.implants.clone(), d::a::implantness);
     imps.sort_by(|a, b| slot_of(*a, d::a::implantness).partial_cmp(&slot_of(*b, d::a::implantness)).unwrap());
     if !imps.is_empty() && o.implants {
         chr.push(imps.iter().map(|&i| n(i)).collect::<Vec<_>>().join("\n"));
     }
-    let mut boos: Vec<u32> = req.boosters.iter().map(|b| b.type_id).collect();
+    let mut boos: Vec<u32> = first_wins(req.boosters.iter().map(|b| b.type_id).collect(), ATTR_BOOSTERNESS);
     boos.sort_by(|a, b| slot_of(*a, ATTR_BOOSTERNESS).partial_cmp(&slot_of(*b, ATTR_BOOSTERNESS)).unwrap());
     if !boos.is_empty() && o.boosters {
         chr.push(boos.iter().map(|&i| n(i)).collect::<Vec<_>>().join("\n"));
@@ -417,4 +442,29 @@ pub fn export_opts(req: &FitRequest, name: &str, o: &EftOpts) -> String {
         sections.push(ml.join("\n"));
     }
     format!("{header}\n\n{}", sections.join("\n\n\n"))
+}
+
+/// Pyfa `DynamicItem.shortName` (eos/gamedata.py): mutagrade keyword, or "<grade> <type>" for drone mutaplasmids,
+/// with "Glorified " shortened to "Gl. ".
+fn muta_short_name(full: &str) -> String {
+    let mut name = full.to_string();
+    for kw in ["Decayed", "Glorified Decayed", "Gravid", "Glorified Gravid", "Unstable", "Glorified Unstable", "Radical", "Glorified Radical"] {
+        if name.starts_with(&format!("{kw} ")) {
+            name = kw.to_string();
+        }
+    }
+    // re.match(r'(?P<mutagrade>(Glorified )?\S+) (?P<dronetype>\S+) Drone (?P<mutatype>\S+) Mutaplasmid', name)
+    let w: Vec<&str> = name.split(' ').collect();
+    let try_at = |o: usize| -> Option<String> {
+        if w.len() > o + 4 && w[..=o + 1].iter().all(|x| !x.is_empty()) && w[o + 2] == "Drone" && !w[o + 3].is_empty() && w[o + 4].starts_with("Mutaplasmid") {
+            Some(format!("{} {}", w[..=o].join(" "), w[o + 3]))
+        } else {
+            None
+        }
+    };
+    let m = if w.first() == Some(&"Glorified") { try_at(1).or_else(|| try_at(0)) } else { try_at(0) };
+    if let Some(m) = m {
+        name = m;
+    }
+    name.replace("Glorified ", "Gl. ")
 }

@@ -377,7 +377,12 @@ fn main() {
         let mut body = String::new();
         let mut need_self_skill = false;
         for m in &e.mods {
-            let (func, dom, modified, modifying, op, extra) = (m[0], m[1], m[2] as u32, m[3] as u32, m[4], m[5] as u32);
+            let (func, dom, modified, modifying, op, mut extra) = (m[0], m[1], m[2] as u32, m[3] as u32, m[4], m[5] as u32);
+            // Pyfa effect 2791 handler filters charges on Missile Launcher Operation (3319), not the SDE's
+            // Acceleration Control (3452), so the Exile / Mindflood side effect raises missile explosion radius
+            if e.name == "boosterMissileExplosionCloudPenaltyFixed" && extra == 3452 {
+                extra = 3319;
+            }
             if func >= 5 || op == 9 || dom == 5 || dom == 6 || modified == skip_attr {
                 continue;
             }

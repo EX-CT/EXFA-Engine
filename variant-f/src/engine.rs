@@ -872,12 +872,31 @@ impl Fit {
             it.fighter_abilities = f.abilities.clone().unwrap_or_else(|| d::fighter_default_abilities(f.type_id).to_vec());
             it.req_index = Some(i);
         }
+        // Pyfa HandledImplantList / HandledBoosterList.append: an entry whose implantness / boosterness slot is
+        // already taken by an earlier entry is ignored completely (mutated-suite contract §3.1).
+        let slot_of_type = |t: u32, attr: u16| d::type_index(t).and_then(|ix| d::type_attr(ix, attr));
+        let mut taken: Vec<f64> = Vec::new();
         for (i, imp) in req.implants.iter().enumerate() {
+            if let Some(sl) = slot_of_type(*imp, a::implantness) {
+                if taken.contains(&sl) {
+                    fit.warnings.push(format!("implants/{i}: implant slot {sl} already taken, ignored (Pyfa)"));
+                    continue;
+                }
+                taken.push(sl);
+            }
             let idx = fit.new_item(*imp, Kind::Implant, Loc::Char, &format!("/implants/{i}"))?;
             fit.items[idx].owned = false;
             fit.items[idx].req_index = Some(i);
         }
+        taken.clear();
         for (i, b) in req.boosters.iter().enumerate() {
+            if let Some(sl) = slot_of_type(b.type_id, a::boosterness) {
+                if taken.contains(&sl) {
+                    fit.warnings.push(format!("boosters/{i}: booster slot {sl} already taken, ignored (Pyfa)"));
+                    continue;
+                }
+                taken.push(sl);
+            }
             let idx = fit.new_item(b.type_id, Kind::Booster, Loc::Char, &format!("/boosters/{i}"))?;
             fit.items[idx].owned = false;
             fit.items[idx].booster_side_effects = b.side_effects.clone();
