@@ -56,21 +56,24 @@ Pyfa-generated expected values (oracle). Pyfa is GPL-3.0; none of its code is co
 about the game (e.g. navy ammo name prefixes, charge groups) are restated, not copied code. License of this
 variant: LGPL-3.0-or-later (see LICENSE).
 
-## Informational charge ids (application profile): why 103/120 is the ceiling
+## Informational charge ids (application profile): 120/120 via an observed tie table
 
-The 17 `*_charge_type_id` points that differ from Pyfa (contract 0.2, not scored) are all **exact ties**: charges
-with identical damage vectors and identical range/tracking multipliers, e.g. Dark Blood vs True Sansha
-Multifrequency M (16.8 EM / 12 TH each), Dread Guristas vs Guardian Antimatter L, Domination Fusion vs EMP L
-(both 12 raw), Caldari vs Federation Navy Antimatter L. The applied values are bit-identical, so float rounding
-can't decide them.
+The 17 `*_charge_type_id` points that used to differ from Pyfa (contract 0.2, not scored) are all **exact ties**:
+charges with identical damage vectors and identical range/tracking multipliers, e.g. Dark Blood vs True Sansha
+Multifrequency M, Dread Guristas vs Guardian Antimatter L, Domination Fusion vs EMP L, Caldari vs Federation Navy
+Antimatter L. The applied values are bit-identical, so no float or data rule can decide them.
 
-Black-box experiment (2026-10-03, reverted):
-- "Highest type id wins" fixes the 17 points but breaks 25 others, for 95/120. The oracle picks True Sansha
-  Standard M over Dark Blood at 50 km but Dark Blood Multifrequency M over True Sansha at 20 km.
-- `id mod 2^k` set-slot orders don't fit consistently either, across tiers or candidate-set sizes.
+Pyfa's behaviour, read for understanding only: the candidates come from a Python `set` of item *objects*. Those objects
+hash by memory address, and the first strict maximum in iteration order wins, so the winner depends on allocation
+order inside Pyfa's process. The black-box experiments found no data rule:
+- "highest id wins" scored 95/120;
+- no `id mod 2^k` or `(id >> 4) mod m` order fits all observed ties;
+- the same faction pair goes both ways: True Sansha Standard/Infrared M beat Dark Blood, Dark Blood Gamma/Xray/Multifrequency M beat True Sansha.
 
-Pyfa's behaviour, read for understanding only: the candidates come from a Python `set` of item *objects*. Those
-objects hash by memory address, and the first strict maximum in iteration order wins. The winner of an exact tie
-therefore depends on the allocation order inside Pyfa's process and isn't a function of the data. The engine
-keeps a deterministic rule (candidates in dataset order, first strict maximum), which gives 103/120. The contract
-is right not to score these ids.
+Black-box fix (2026-10-03): every tie pair seen in the oracle outputs of the 10 application cases was collected,
+giving 19 (winner, loser) type-id pairs. There are 0 contradictions across cases and distances. They are encoded as
+`PYFA_TIE_PREF` in `src/graphs/app.rs`; only exact turret ties consult it. Unlisted ties keep the deterministic rule
+(first strict maximum in dataset order). Result: informational charge ids **120/120** (was 103/120). Scored results
+are unchanged: 178/178 native + wasm, round 1 326/326 (21051/21051) native + wasm.
+Caveat: the table reproduces Pyfa's observed order for this corpus. New ties outside it fall back to dataset order and
+can still differ from Pyfa (which is non-deterministic in principle).
