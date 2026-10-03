@@ -20,7 +20,11 @@ fail=0
 note() { echo "$1" | tee -a "$OUT/summary.md"; }
 # round-1 corpus, batch output sha256 (pure refactors must not change a byte)
 for f in "$T"/b18/cases/*.json; do python3 -c "import json,sys;print(json.dumps(json.load(open(sys.argv[1]))))" "$f"; done > "$OUT/round1.jsonl"
-sha=$($E batch < "$OUT/round1.jsonl" | sha256sum | cut -d' ' -f1)
+$E batch < "$OUT/round1.jsonl" > "$OUT/round1.out.jsonl"
+sha=$(sha256sum < "$OUT/round1.out.jsonl" | cut -d' ' -f1)
+# additive output changes: with the new stats-ext keys stripped, the output must still be the base bytes
+base=$(python3 ci/strip_keys.py $(grep -v '^#' ci/round1-new-keys.txt) < "$OUT/round1.out.jsonl" | sha256sum | cut -d' ' -f1)
+if [ "$base" = "$(cat ci/round1-base.sha256)" ]; then note "- round-1 minus new keys ($(grep -v '^#' ci/round1-new-keys.txt | tr '\n' ' ')) sha256 $base = ci/round1-base.sha256 (pre-existing output byte-identical)"; else note "- round-1 minus new keys sha256 $base != ci/round1-base.sha256 (a pre-existing field changed)"; fail=1; fi
 want=$(cat ci/round1.sha256)
 if [ "$sha" = "$want" ]; then note "- round-1 batch sha256 $sha (unchanged)"; else note "- round-1 batch sha256 $sha != ci/round1.sha256 $want (output changed: update ci/round1.sha256 only for an intended output change)"; fail=1; fi
 (cd "$T/b19" && python3 run.py --name "$NAME" --cmd "$E calc" --batch-cmd "$E batch" --batch-repeat 1 --latency-n 3 > "$OUT/b19.log" 2>&1)

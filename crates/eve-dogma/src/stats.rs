@@ -866,6 +866,41 @@ impl Fit {
             "control_range_m": g(ch, a::droneControlDistance),
         });
 
+        // ---------------- mining (Pyfa Fit.calculatemining; contract draft 1.10 stats-ext `mining`)
+        let mining = {
+            let waste = |i: usize, yps: f64| {
+                let ch = (g(i, a::miningWasteProbability) / 100.0).clamp(0.0, 1.0);
+                yps * (1.0 + ch * g(i, a::miningWastedVolumeMultiplier))
+            };
+            let (mut m_y, mut m_d) = (0.0f64, 0.0f64);
+            for &i in &modules {
+                if !active(i) {
+                    continue;
+                }
+                let amount = g(i, a::miningAmount);
+                let cyc = self.avg_cycle_ms(i, factor_reload);
+                let yps = if amount != 0.0 && cyc > 0.0 { amount / (cyc / 1000.0) } else { 0.0 };
+                m_d += waste(i, yps);
+                m_y += yps + yps * g(i, a::miningCritChance) * g(i, a::miningCritBonusYield);
+            }
+            let (mut d_y, mut d_d) = (0.0f64, 0.0f64);
+            for &i in &drones {
+                // Pyfa: a mining drone stack yields `amount` (whole stack) once any drone of it is active
+                if self.items[i].active_count == 0 || !self.has(i, a::miningAmount) {
+                    continue;
+                }
+                let cyc = if self.items[i].charge.is_some() {
+                    g(i, a::missileLaunchDuration)
+                } else {
+                    [a::speed, a::duration, a::durationHighisGood].iter().map(|&x| g(i, x)).find(|&x| x != 0.0).unwrap_or(0.0).max(0.0)
+                };
+                let yps = if cyc > 0.0 { g(i, a::miningAmount) * self.items[i].quantity as f64 / (cyc / 1000.0) } else { 0.0 };
+                d_y += yps;
+                d_d += waste(i, yps);
+            }
+            jv!({"modules_m3_s": m_y, "drones_m3_s": d_y, "total_m3_s": m_y + d_y, "modules_drain_m3_s": m_d, "drones_drain_m3_s": d_d})
+        };
+
         let mut out = Vec::<(Key, J)>::new();
         out.push_kv(
             "meta".into(),
@@ -881,6 +916,7 @@ impl Fit {
         out.push_kv("navigation".into(), navigation);
         out.push_kv("targeting".into(), targeting);
         out.push_kv("drones".into(), drones_j);
+        out.push_kv("mining".into(), mining);
         out.push_kv("modules".into(), J::A(module_rows));
         if req.options.validate {
             out.push_kv("violations".into(), J::A(self.validate(cpu_used, pg_used, calib_used, bw_used)));
