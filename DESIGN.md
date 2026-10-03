@@ -109,7 +109,7 @@ Python's `round(cap, 1)` (exact, ties to even).
 * Byte-for-byte reference fidelity was chosen over independent re-derivation from Pyfa. Every value matches
   Pyfa wherever the reference does (all bench 1.8.0 values today, 326/326 cases). The cost is that J inherits any
   divergence the reference has, and that new reference features must be ported (done up to eve-dogma-rs
-  60de0b9, contract revision 1.4.3: incl. overheat-before-module application order and breacher pods, which are
+  c3822c1, contract revision 1.4.3: incl. overheat-before-module application order and breacher pods, which are
   pending for bench 1.9.0).
 * The binary cache costs about 110 ms once per dataset and ~20 MB of disk. It can be disabled.
 * The lazy evaluator only computes what the stats need. A full attribute dump (`type`) goes through the same
@@ -145,8 +145,8 @@ and is licensed LGPL-3.0-or-later. No Pyfa source was copied. Pyfa was used only
 behind the bench's expected values.
 
 ## Contract notes / open questions
-* `type_by_name` with duplicate names: J picks the smallest published type id. The reference's choice among
-  duplicates is unspecified (hash-order dependent).
+* `type_by_name` with duplicate names: the smallest published type id wins, else the smallest id (the reference
+  uses the same rule since 7e24406).
 * BAD_REQUEST message texts differ from serde's (for example, no "at line 1 column N"). The error codes are
   identical.
 * `meta.engine` = `eve-dogma-j 0.1.0`.

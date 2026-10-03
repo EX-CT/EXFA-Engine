@@ -79,8 +79,9 @@ These are accepted by the coordinator. None of them affect calc outputs.
 
 * `BAD_REQUEST` messages: the error **codes** and paths match the reference, but the message text is J's own
   wording rather than serde's.
-* Duplicate type names in `type_by_name`-style lookups (EFT parsing, search) resolve to the smallest published
-  type id.
+* Duplicate type names in `type_by_name`-style lookups (EFT parsing, `type`) resolve to the smallest published
+  type id, else the smallest id. Since eve-dogma-rs 7e24406 the reference uses the same rule (all 213 duplicate
+  names give identical `type` responses), so this is no longer a difference.
 * `meta.engine` is `eve-dogma-j 0.1.0`.
 * Structs sent as JSON arrays (serde's sequence form) are accepted since a203c98. Requests are normalised on the
   error path only, so the fast path is unchanged. `tools/arrconv_ref.py` checks this against the reference.
