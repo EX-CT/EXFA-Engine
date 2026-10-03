@@ -2,11 +2,11 @@
 resolver = "2"
 members = [
     "crates/eve-dogma-codegen", "crates/eve-sde", "crates/eve-fit-model", "crates/eve-capsim", "crates/eve-dogma",
-    "crates/eve-fit-formats", "crates/eve-cli", "crates/eve-wasm", "crates/eve-fit-formats-wasm",
+    "crates/eve-fit-formats", "crates/eve-cli", "crates/eve-wasm", "crates/eve-fit-formats-wasm", "crates/eve-optimizer",
 ]
 default-members = [
     "crates/eve-dogma-codegen", "crates/eve-sde", "crates/eve-fit-model", "crates/eve-capsim", "crates/eve-dogma",
-    "crates/eve-fit-formats", "crates/eve-cli",
+    "crates/eve-fit-formats", "crates/eve-cli", "crates/eve-optimizer",
 ]
 
 [workspace.package]
@@ -22,6 +22,7 @@ eve-dogma-codegen = { path = "crates/eve-dogma-codegen" }
 eve-sde = { path = "crates/eve-sde" }
 eve-fit-model = { path = "crates/eve-fit-model" }
 eve-fit-formats = { path = "crates/eve-fit-formats" }
+eve-optimizer = { path = "crates/eve-optimizer" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 itoa = "1"

@@ -25,8 +25,9 @@ tables. The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.m
 | `crates/eve-capsim` | capacitor simulator (+ Pyfa `round`) | — |
 | `crates/eve-dogma` | **engine**: core, stats, graphs, JSON-RPC (calc, graph, graph_specs, search, type, meta); structured input only | eve-sde, eve-fit-model, eve-capsim |
 | `crates/eve-fit-formats` | fit formats: EFT (+cfg, mutations), DNA (+alt, link), ESI JSON, XML, multibuy, ship-stats text, item lists, auto-detect; RPC eft_parse, eft_export, format_import, format_export | eve-sde, eve-fit-model (**not** eve-dogma) |
-| `crates/eve-cli` | binary `eve-fit` (calc, batch, serve-stdio, graph, graph-batch, eft, search, type, meta, bench): links engine + formats | eve-dogma, eve-fit-formats |
-| `crates/eve-wasm` | engine wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `calc`, `rpc`) | eve-dogma |
+| `crates/eve-optimizer` | skill-based fit optimizer (eve-fit-docs docs/21 v1): `optimize`, `Evaluator` trait, RPC `optimize` | eve-dogma, eve-fit-model |
+| `crates/eve-cli` | binary `eve-fit` (calc, batch, serve-stdio, optimize, graph, graph-batch, eft, search, type, meta, bench): links engine + formats + optimizer | eve-dogma, eve-fit-formats, eve-optimizer |
+| `crates/eve-wasm` | engine wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `calc`, `rpc` incl. `optimize`) | eve-dogma, eve-optimizer |
 | `crates/eve-fit-formats-wasm` | formats wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `rpc`), for the frontend | eve-fit-formats |
 
 ```
@@ -50,7 +51,8 @@ cargo install --path crates/eve-cli --locked                       # installs th
 ./target/release/eve-fit calc < request.json > response.json
 ./target/release/eve-fit batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
 # EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)
-./target/release/eve-fit serve-stdio                                   # JSONL RPC: calc | graph | search | type | meta (engine) + eft_parse | eft_export | format_export | format_import (formats)
+./target/release/eve-fit serve-stdio                                   # JSONL RPC: calc | graph | search | type | meta (engine) + optimize + eft_parse | eft_export | format_export | format_import (formats)
+./target/release/eve-fit optimize request.json                         # OptimizeRequest (eve-fit-docs docs/21) -> ranked fits
 ./target/release/eve-fit meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
 ```
 
@@ -100,6 +102,21 @@ EWAR source tables, remote-rep and damage time lines, application, application p
 contract 0.2 (178 cases / 2 437 values) **178/178, 2 437/2 437**; contract 0.1 (111 / 1 843) **111/111,
 1 843/1 843** — native and WASM (wasip1) alike, `bench/graphs/README.md`. Behaviour follows the contract and Pyfa's graph outputs as oracle; no Pyfa (GPL) code
 is used.
+
+### Optimizer (docs/21 v1)
+
+`eve-fit optimize FILE` / RPC `{"method":"optimize","params":OptimizeRequest}` (serve-stdio and the eve-wasm `rpc`
+export). Objective = one metric or a weighted sum (`dps`, `volley`, `ehp`, `tank`, `max_velocity`, `align_time`,
+`applied_dps`, `price`, or any JSON pointer into FitStats); constraints = character skills (or `ignore`), meta level /
+meta groups, cap stable, metric floors/ceilings, price budget; search over high/mid/low/rig racks, charges and one
+drone stack, with `keep`, candidate pools `variations` | `group` | `all_fittable` and include/exclude lists.
+Deterministic: candidates are pruned by one-module probes (best by constraints and best by objective, two stages over
+variation families), a beam of `limits.beam` builds the fit rig → high → low → mid, then local search (single swaps,
+emptying a slot, charges, drones, pair swaps) runs until no improvement or `max_evaluations` / `time_ms`. Skills
+missing for the part of the fit the search cannot change (hull, implants, kept modules) are reported as a warning and
+do not make results infeasible. Errors `OPT_NO_FEASIBLE` (closest fits returned with their violations),
+`OPT_BAD_METRIC`, `OPT_MISSING_PRICE`; `clone: "alpha"` → `UNSUPPORTED` (planned for 1.0). Not yet: dominated-candidate
+filtering, several drone stacks, subsystems/T3 modes, the bench optimizer suite.
 
 ### Import / export formats (Pyfa parity)
 

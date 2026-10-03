@@ -602,6 +602,9 @@ fn generate() -> String {
     writeln!(out, "pub static TYPE_NAMES_ZH: &str = {zb:?};").unwrap();
     arr(&mut out, "TYPE_NAME_ZH_OFF", "u32", &zoff);
     arr(&mut out, "TYPE_META_LEVEL", "i16", &tl.iter().map(|(_, t)| t["meta_level"].as_i64().unwrap_or(-1)).collect::<Vec<_>>());
+    // optimizer candidate sets: SDE meta group (0 = none) and variation parent (0 = none)
+    arr(&mut out, "TYPE_META_GROUP", "u16", &tl.iter().map(|(_, t)| t["meta_group"].as_u64().unwrap_or(0)).collect::<Vec<_>>());
+    arr(&mut out, "TYPE_VARIATION_PARENT", "u32", &tl.iter().map(|(_, t)| t["variation_parent"].as_u64().unwrap_or(0)).collect::<Vec<_>>());
     // EFT export (Pyfa exportDrones DRONE_ORDER): drone market group -> sort rank; a type without its own market
     // group uses its variation parent's (Pyfa Market.getMarketGroupByItem parentcheck).
     {

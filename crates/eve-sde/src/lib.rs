@@ -168,6 +168,16 @@ pub fn type_name_zh(ix: usize) -> Option<&'static str> {
     let s = &TYPE_NAMES_ZH[TYPE_NAME_ZH_OFF[ix] as usize..TYPE_NAME_ZH_OFF[ix + 1] as usize];
     if s.is_empty() { None } else { Some(s) }
 }
+/// SDE meta group id (1 tech1, 2 tech2, 3 storyline, 4 faction, 5 officer, 6 deadspace, ...), None = not set.
+pub fn type_meta_group(ix: usize) -> Option<u16> {
+    let v = TYPE_META_GROUP[ix];
+    if v == 0 { None } else { Some(v) }
+}
+/// SDE variation parent type id (the T1 item a variant belongs to), None = not set.
+pub fn type_variation_parent(ix: usize) -> Option<u32> {
+    let v = TYPE_VARIATION_PARENT[ix];
+    if v == 0 { None } else { Some(v) }
+}
 pub fn type_meta_level(ix: usize) -> Option<i16> {
     let v = TYPE_META_LEVEL[ix];
     if v < 0 { None } else { Some(v) }

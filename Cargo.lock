@@ -33,6 +33,7 @@ version = "0.1.0"
 dependencies = [
  "eve-dogma",
  "eve-fit-formats",
+ "eve-optimizer",
  "serde_json",
 ]
 
@@ -83,6 +84,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eve-optimizer"
+version = "0.1.0"
+dependencies = [
+ "eve-dogma",
+ "eve-fit-model",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eve-sde"
 version = "0.1.0"
 dependencies = [
@@ -94,6 +105,7 @@ name = "eve-wasm"
 version = "0.1.0"
 dependencies = [
  "eve-dogma",
+ "eve-optimizer",
  "serde_json",
 ]
 

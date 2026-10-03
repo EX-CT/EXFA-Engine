@@ -10,7 +10,8 @@ const USAGE: &str = "eve-dogma-f <command> [args]   (dataset compiled in; --data
 Commands:
   calc [FILE]            FitRequest JSON (file or stdin) -> FitStats JSON
   batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout
-  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|graph|search|type|meta|eft_parse|eft_export|format_import|format_export\",\"params\":..}
+  optimize [FILE]        OptimizeRequest JSON (docs/21) -> ranked fits
+  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|optimize|graph|search|type|meta|eft_parse|eft_export|format_import|format_export\",\"params\":..}
   eft [FILE]             EFT text (file or stdin) -> FitRequest JSON (add --calc to compute, --skills N)
   search QUERY [--limit N] [--kinds ship,module,..]  search types by name (exact > prefix > substring)
   type ID|NAME           show type with base attributes
@@ -38,6 +39,11 @@ fn read_input(file: Option<&String>) -> String {
 fn rpc(line: &str) -> serde_json::Value {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { return eve_dogma::rpc(line) };
     let m = v.get("method").and_then(|m| m.as_str()).unwrap_or("calc");
+    if m == "optimize" {
+        let id = v.get("id").cloned().unwrap_or(serde_json::Value::Null);
+        let p = v.get("params").cloned().unwrap_or(serde_json::Value::Null);
+        return serde_json::json!({"id": id, "result": eve_optimizer::optimize_value(&p)});
+    }
     if !eve_fit_formats::METHODS.contains(&m) {
         return eve_dogma::rpc(line);
     }
@@ -72,6 +78,18 @@ fn main() {
             }
         }
         "batch" => batch(&mut out, eve_dogma::calc_json),
+        "optimize" => {
+            let s = read_input(args.get(1));
+            let res = match serde_json::from_str::<serde_json::Value>(&s) {
+                Ok(p) => eve_optimizer::optimize_value(&p),
+                Err(e) => serde_json::json!({"error": {"code": "BAD_JSON", "message": e.to_string()}}),
+            };
+            writeln!(out, "{}", serde_json::to_string_pretty(&res).unwrap()).or_pipe();
+            out.flush().or_pipe();
+            if res.get("results").is_none() {
+                std::process::exit(2);
+            }
+        }
         "graph-batch" => batch(&mut out, eve_dogma::graphs::graph_json),
         "graph-specs" => {
             writeln!(out, "{}", eve_dogma::graphs::SPEC_JSON.trim()).or_pipe();

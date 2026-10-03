@@ -1,7 +1,7 @@
 //! Minimal C-ABI exports for wasm32-unknown-unknown (no wasm-bindgen needed).
 //!
 //! JS: `const p = alloc(n)`; write UTF-8 request bytes at p; `const r = calc(p, n)` (BigInt: ptr<<32 | len);
-//! read the response; `dealloc(ptr, len)` both buffers.
+//! read the response; `dealloc(ptr, len)` both buffers. `rpc` also serves `optimize` (eve-optimizer).
 use std::alloc::{alloc as raw_alloc, dealloc as raw_dealloc, Layout};
 
 #[no_mangle]
@@ -32,5 +32,13 @@ pub unsafe extern "C" fn calc(ptr: *const u8, len: usize) -> u64 {
 #[no_mangle]
 pub unsafe extern "C" fn rpc(ptr: *const u8, len: usize) -> u64 {
     let s = std::str::from_utf8(std::slice::from_raw_parts(ptr, len)).unwrap_or("");
+    // optimize lives in eve-optimizer (on top of the engine); everything else is the engine's rpc
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
+        if v.get("method").and_then(|m| m.as_str()) == Some("optimize") {
+            let p = v.get("params").cloned().unwrap_or(serde_json::Value::Null);
+            let r = serde_json::json!({"id": v.get("id").cloned().unwrap_or(serde_json::Value::Null), "result": eve_optimizer::optimize_value(&p)});
+            return out(serde_json::to_string(&r).unwrap());
+        }
+    }
     out(serde_json::to_string(&eve_dogma::rpc(s)).unwrap())
 }
