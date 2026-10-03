@@ -32,12 +32,12 @@ pub struct Market {
 
 static MARKET: RwLock<Option<Arc<Market>>> = RwLock::new(None);
 
-/// Embedded release snapshot (docs/22 §3.1): eve-market-prices `prices-jita44-20261003T063856Z`.
-pub const EMBEDDED_SNAPSHOT: &[u8] = include_bytes!("../data/prices-jita44-20261003T063856Z.json.gz");
+/// Embedded release snapshot (docs/22 §3.1): eve-market-prices `prices-jita44-20261003T070857Z`.
+pub const EMBEDDED_SNAPSHOT: &[u8] = include_bytes!("../data/prices-jita44-20261003T070857Z.json.gz");
 /// Identity of the embedded snapshot, for provenance without parsing it (checked by a test against the bytes).
-pub const EMBEDDED_ID: &str = "jita44-20261003T063856Z";
-pub const EMBEDDED_TIME: &str = "2026-10-03T06:38:56Z";
-pub const EMBEDDED_HASH: &str = "sha256:3dd62f6c96950d859f9eda484ae28dad269d838a9cb0f443f9a08439f566e234";
+pub const EMBEDDED_ID: &str = "jita44-20261003T070857Z";
+pub const EMBEDDED_TIME: &str = "2026-10-03T07:08:57Z";
+pub const EMBEDDED_HASH: &str = "sha256:279683ddd539f0577589d9f88759627244cf2b7c7488755fcf409ffa007a7f3b";
 static EMBEDDED: std::sync::OnceLock<Option<Arc<Market>>> = std::sync::OnceLock::new();
 
 pub fn embedded() -> Option<Arc<Market>> {
@@ -87,6 +87,36 @@ pub fn parse_bytes(b: &[u8]) -> Result<serde_json::Value, PriceError> {
     serde_json::from_slice(&raw).map_err(|e| bad("BAD_PRICES", format!("JSON: {e}")))
 }
 
+/// `x` rounded to 12 significant digits (the snapshot's band_max form, bench d22/README).
+pub fn sig12(x: f64) -> f64 {
+    format!("{x:.11e}").parse().unwrap_or(x)
+}
+
+/// docs/22 §4.5 load-time check of one snapshot entry against the pricing rule (bench d22/README):
+/// orders with price <= 0 / non-finite are dropped, so p0 > 0; band_max = p0×(1+band) at 12 significant digits;
+/// the price is the 12-digit mean rounded half-even to 0.01 and then clamped into [p0, band_max], so
+/// p0 <= price <= band_max holds exactly, and an unclamped price is a whole number of cents.
+/// Tolerances only absorb binary representation: 1e-12 relative on band_max, 1e-6 cent on cent alignment.
+pub fn entry_violation(price: f64, p0: f64, band_max: f64, band: Option<f64>, exact: bool) -> Option<String> {
+    if !(p0 > 0.0) {
+        return Some(format!("p0 {p0} must be > 0 (orders priced <= 0 are dropped)"));
+    }
+    if let Some(b) = band {
+        let want = sig12(p0 * (1.0 + b));
+        if (band_max - want).abs() > 1e-12 * want {
+            return Some(format!("band_max {band_max} != p0×(1+band) at 12 digits {want}"));
+        }
+    }
+    if !(p0 <= price && price <= band_max) {
+        return Some(format!("price {price} outside [p0 {p0}, band_max {band_max}]"));
+    }
+    let cents = price * 100.0;
+    if exact && price != p0 && price != band_max && (cents - cents.round()).abs() > 1e-6 * cents.max(1.0) {
+        return Some(format!("price {price} is not rounded to 0.01 ISK"));
+    }
+    None
+}
+
 /// Read a `--prices` / `prices_load` file.
 pub fn read_file(path: &str) -> Result<Market, PriceError> {
     let b = std::fs::read(path).map_err(|e| bad("BAD_PRICES", format!("{path}: {e}")))?;
@@ -109,17 +139,22 @@ pub fn market_from_value(v: &serde_json::Value) -> Result<Market, PriceError> {
             return Err(inv(format!("content_hash {want} != computed {got}")));
         }
         let types = obj.get("types").and_then(|t| t.as_object()).ok_or_else(|| inv("snapshot has no types object".into()))?;
+        let rule = obj.get("rule");
+        let band = rule.and_then(|r| r.get("band")).and_then(|b| b.as_f64());
+        let exact = rule.and_then(|r| r.get("exact")).and_then(|b| b.as_bool()).unwrap_or(true);
         for (k, e) in types {
-            let id: u32 = k.parse().map_err(|_| inv(format!("types key {k:?} is not a type id")))?;
+            let id: u32 = k.parse().map_err(|_| inv(format!("types[{k:?}]: key is not a type id")))?;
             let f = |n: &str| e.get(n).and_then(|x| x.as_f64()).filter(|x| x.is_finite() && *x >= 0.0);
             let (Some(price), Some(p0), Some(bmax), Some(u), Some(uc), Some(o), Some(oc), Some(ot)) =
                 (f("price"), f("p0"), f("band_max"), f("units"), f("units_considered"), f("orders"), f("orders_considered"), f("orders_total"))
             else {
                 return Err(inv(format!("types[{k}]: missing or non-finite field")));
             };
-            let tol = (1e-9 * bmax).max(0.005);
-            if !(p0 - tol <= price && price <= bmax + tol && 0.0 < u && u <= uc && 0.0 < o && o <= oc && oc <= ot) {
-                return Err(inv(format!("types[{k}]: §4.5 invariant broken")));
+            if let Some(msg) = entry_violation(price, p0, bmax, band, exact) {
+                return Err(inv(format!("types[{k}]: {msg}")));
+            }
+            if !(0.0 < u && u <= uc && 0.0 < o && o <= oc && oc <= ot) {
+                return Err(inv(format!("types[{k}]: units/orders counts out of order")));
             }
             m.isk.insert(id, price);
         }

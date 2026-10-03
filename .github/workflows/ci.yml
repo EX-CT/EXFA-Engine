@@ -139,7 +139,7 @@ jobs:
       # eve3's no-regression gate (eve-dogma-bench pending-1.11 tools/check_no_regress.py, baseline bench/baselines/f.json,
       # maintained by eve3 and only ever raised): per-suite pass counts must not drop and no case id that passed in the
       # baseline may fail; new failures elsewhere are allowed. Blocking.
-      - name: No-regression gate (bench pending-1.11, baselines/f.json)
+      - name: No-regression gate (bench pending-1.11 tip, baselines/f.json; core, ext, ext_rpc, batch, effects, sde, price_inject, graphs, cap, mutated, formats)
         if: matrix.mode == 'native'
         run: |
           git clone -q --depth 1 -b pending-1.11 https://github.com/EX-CT/eve-dogma-bench _nrg_bench

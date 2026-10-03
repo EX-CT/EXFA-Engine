@@ -185,6 +185,16 @@ fn embedded_snapshot_identity_and_jcs() {
     assert_eq!(m.id.as_deref(), Some(eve_dogma::price::EMBEDDED_ID));
     assert_eq!(m.time.as_deref(), Some(eve_dogma::price::EMBEDDED_TIME));
     assert_eq!(m.hash.as_deref(), Some(eve_dogma::price::EMBEDDED_HASH));
+    // every entry passes the d22/README rule invariants (half-even cents, clamp, 12-digit band_max, p0 > 0)
+    assert_eq!(m.isk.len(), 9178);
+    use eve_dogma::price::entry_violation as ev;
+    assert!(ev(4.2, 4.0, 4.2, Some(0.05), true).is_none());
+    assert!(ev(4.21, 4.0, 4.2, Some(0.05), true).is_some()); // above band_max: not clamped
+    assert!(ev(3.99, 4.0, 4.2, Some(0.05), true).is_some()); // below p0
+    assert!(ev(4.105, 4.0, 4.2, Some(0.05), true).is_some()); // not rounded to cents
+    assert!(ev(0.004, 0.004, 0.0042, Some(0.05), true).is_none()); // sub-cent, clamped to p0
+    assert!(ev(4.1, 4.0, 4.20000001, Some(0.05), true).is_some()); // band_max not at 12 digits
+    assert!(ev(0.0, 0.0, 0.0, Some(0.05), true).is_some()); // p0 <= 0 orders are dropped
     use eve_dogma::prov::es_number as es;
     assert_eq!(es(1240000.0), "1240000");
     assert_eq!(es(4988.83), "4988.83");
@@ -197,6 +207,9 @@ fn embedded_snapshot_identity_and_jcs() {
     assert_eq!(out["provenance"]["price_source"], "snapshot");
     assert_eq!(out["provenance"]["sde_build"], 3569502);
     assert_eq!(line(&out["price"], "ship", 0)["source"], "snapshot");
+    let out = calc(&json!({"ship":{"type_id":587},"prices":{"isk":{"587":5.0}}}));
+    assert_eq!(out["provenance"]["price_source"], "request");
+    assert_eq!(out["provenance"]["snapshot_time"], serde_json::Value::Null); // null under request (docs/22 §2.3)
     let out = calc(&json!({"ship":{"type_id":587},"prices":{"use_snapshot":false}}));
     assert_eq!(out["provenance"]["price_source"], "none");
     assert_eq!(out["price"]["complete"], false);
