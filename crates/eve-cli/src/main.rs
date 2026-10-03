@@ -9,14 +9,31 @@ const USAGE: &str = "eve-dogma-f <command> [args]   (dataset compiled in; --data
 
 Commands:
   calc [FILE]            FitRequest JSON (file or stdin) -> FitStats JSON
-  batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout
+  batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout (a BatchRequest line -> one BatchResponse line)
+  batch --request FILE|- BatchRequest JSON (docs/23: fits / variants / product / sweep) -> BatchResponse JSON
   optimize [FILE]        OptimizeRequest JSON (docs/21) -> ranked fits
-  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|optimize|graph|search|type|meta|eft_parse|eft_export|format_import|format_export\",\"params\":..}
+  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|batch|prices_load|optimize|graph|search|type|meta|eft_parse|eft_export|format_import|format_export\",\"params\":..}
   eft [FILE]             EFT text (file or stdin) -> FitRequest JSON (add --calc to compute, --skills N)
   search QUERY [--limit N] [--kinds ship,module,..]  search types by name (exact > prefix > substring)
   type ID|NAME           show type with base attributes
   meta                   compiled dataset info
-  bench [FILE] [-n N]    time N calculations of a request";
+  bench [FILE] [-n N]    time N calculations of a request
+
+Global options:
+  --prices FILE          market price table for this process (eve-price-snapshot v1 file, {\"isk\":{..}} or
+                         {\"<type_id>\": isk}); price layer L4, see eve-fit-docs docs/23 §5";
+
+/// JSONL batch line: a FitRequest (calc) or a BatchRequest (has "batch_version").
+fn calc_or_batch(line: &str) -> String {
+    if line.contains("\"batch_version\"") {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if v.get("batch_version").is_some() {
+                return serde_json::to_string(&eve_dogma::batch::run(&v)).unwrap_or_default();
+            }
+        }
+    }
+    eve_dogma::calc_json(line)
+}
 
 fn read_input(file: Option<&String>) -> String {
     let mut s = String::new();
@@ -64,6 +81,22 @@ fn main() {
         args.drain(p..(p + 2).min(args.len()));
         v
     };
+    if let Some(path) = take_flag(&mut args, "--prices") {
+        let v = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).map_err(|e| e.to_string()))
+            .unwrap_or_else(|e| {
+                eprintln!("error: --prices {path}: {e}");
+                std::process::exit(2)
+            });
+        match eve_dogma::price::market_from_value(&v) {
+            Ok(m) => eve_dogma::price::set_market(Some(m)),
+            Err(e) => {
+                eprintln!("error: --prices {path}: {} {}", e.code, e.message);
+                std::process::exit(2)
+            }
+        }
+    }
     let cmd = args.first().cloned().unwrap_or_default();
     let stdout = std::io::stdout();
     let mut out = std::io::BufWriter::new(stdout.lock());
@@ -77,7 +110,18 @@ fn main() {
                 std::process::exit(2);
             }
         }
-        "batch" => batch(&mut out, eve_dogma::calc_json),
+        "batch" => {
+            if let Some(f) = take_flag(&mut args, "--request") {
+                let res = eve_dogma::batch_json(&read_input(Some(&f)));
+                writeln!(out, "{res}").or_pipe();
+                out.flush().or_pipe();
+                if res.starts_with("{\"error\"") {
+                    std::process::exit(2);
+                }
+            } else {
+                batch(&mut out, calc_or_batch)
+            }
+        }
         "optimize" => {
             let s = read_input(args.get(1));
             let res = match serde_json::from_str::<serde_json::Value>(&s) {

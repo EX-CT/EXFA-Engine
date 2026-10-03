@@ -10,6 +10,8 @@ pub mod data;
 pub mod graphs;
 pub mod engine;
 pub mod j;
+pub mod price;
+pub mod batch;
 pub mod request;
 pub mod stats;
 
@@ -17,10 +19,32 @@ use serde_json::{json, Value};
 
 pub use request::FitRequest;
 
-/// Compute full fit statistics for one request.
+/// Compute full fit statistics for one request (plus the `price` block when the request has price inputs,
+/// `options.price`, or a market snapshot is loaded; docs/23 §6.1).
 pub fn calc(req: &FitRequest) -> j::J {
+    calc_priced(req, &[], &[], None, false)
+}
+
+/// `calc` with batch price layers (docs/23 §5.2): `variant` = L1 overrides, `batch_wide` = L2 overrides listed after
+/// the fit's own, `batch_prices` = batch-wide injected table (the fit's own wins per type), `force` = emit the block.
+pub fn calc_priced(req: &FitRequest, variant: &[request::PriceOverride], batch_wide: &[request::PriceOverride], batch_prices: Option<&request::Prices>, force: bool) -> j::J {
+    let want = force || !variant.is_empty() || !batch_wide.is_empty() || batch_prices.is_some() || price::wanted(req);
+    let ctx = if want {
+        match price::Ctx::from_request(req, variant, batch_wide, batch_prices) {
+            Ok(c) => Some(c),
+            Err(e) => return jv!({"error": {"code": e.code, "message": e.message, "path": "price_overrides"}}),
+        }
+    } else {
+        None
+    };
     match engine::Fit::build(req) {
-        Ok(fit) => fit.compute_stats(req),
+        Ok(fit) => {
+            let mut out = fit.compute_stats(req);
+            if let (Some(c), j::J::O(o)) = (ctx, &mut out) {
+                o.push(("price".into(), price::block(req, &c)));
+            }
+            out
+        }
         Err(e) => jv!({"error": {"code": e.code, "message": e.message, "path": e.path}}),
     }
 }
@@ -147,6 +171,41 @@ pub fn type_info(key: &str) -> Value {
            "capacity": data::type_capacity(ix), "slot": engine::infer_slot(ix), "attributes": attrs, "effects": effects})
 }
 
+/// RPC `prices_load` (docs/23 §5.3): set the session market snapshot (L4) from `{"path"}`, `{"snapshot"}`, `{"isk"}`,
+/// or clear it with `{"clear": true}`.
+fn prices_load(p: &Value) -> Value {
+    if p.get("clear").and_then(|c| c.as_bool()) == Some(true) {
+        price::set_market(None);
+        return json!({"ok": true, "types": 0});
+    }
+    let v = if let Some(path) = p.get("path").and_then(|x| x.as_str()) {
+        match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|s| serde_json::from_str::<Value>(&s).map_err(|e| e.to_string())) {
+            Ok(v) => v,
+            Err(e) => return json!({"error": {"code": "BAD_PRICES", "message": format!("{path}: {e}")}}),
+        }
+    } else if let Some(s) = p.get("snapshot") {
+        s.clone()
+    } else if p.get("isk").is_some() {
+        p.clone()
+    } else {
+        return json!({"error": {"code": "BAD_PRICES", "message": "prices_load needs path, snapshot or isk"}});
+    };
+    match price::market_from_value(&v) {
+        Ok(m) => {
+            let n = m.isk.len();
+            let t = m.time.clone();
+            price::set_market(Some(m));
+            json!({"ok": true, "types": n, "market_time": t})
+        }
+        Err(e) => json!({"error": {"code": e.code, "message": e.message}}),
+    }
+}
+
+/// Batch (docs/23): JSON in, JSON out.
+pub fn batch_json(s: &str) -> String {
+    batch::run_json(s)
+}
+
 /// JSONL RPC line: {"id","method","params"} -> {"id","result"}
 pub fn rpc(line: &str) -> Value {
     let v: Value = match serde_json::from_str(line) {
@@ -161,6 +220,8 @@ pub fn rpc(line: &str) -> Value {
             Ok(r) => serde_json::to_value(calc(&r)).unwrap_or(Value::Null),
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },
+        "batch" | "calc_batch" => batch::run(&p),
+        "prices_load" => prices_load(&p),
         "graph" => graphs::graph(&p),
         "graph_specs" => graphs::specs_json(),
         "search" => {

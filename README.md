@@ -53,6 +53,8 @@ cargo install --path crates/eve-cli --locked                       # installs th
 # EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)
 ./target/release/eve-fit serve-stdio                                   # JSONL RPC: calc | graph | search | type | meta (engine) + optimize + eft_parse | eft_export | format_export | format_import (formats)
 ./target/release/eve-fit optimize request.json                         # OptimizeRequest (eve-fit-docs docs/21) -> ranked fits
+./target/release/eve-fit batch --request batch.json                    # BatchRequest (eve-fit-docs docs/23) -> BatchResponse
+./target/release/eve-fit --prices prices.json calc fit.json            # price table / eve-price-snapshot -> "price" block
 ./target/release/eve-fit meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
 ```
 

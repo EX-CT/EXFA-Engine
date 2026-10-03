@@ -231,6 +231,9 @@ pub struct Options {
     /// when a consumer formats the numbers itself (e.g. the formats layer's ship-stats text).
     #[serde(default, skip_serializing_if = "is_false")]
     pub full_precision: bool,
+    /// Emit the `price` block (docs/23 §6) even without price inputs.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub price: bool,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -250,6 +253,7 @@ impl Default for Options {
             validate: true,
             cap_sim: CapSimOpts::default(),
             full_precision: false,
+            price: false,
         }
     }
 }
@@ -294,4 +298,39 @@ pub struct FitRequest {
     pub overrides: Vec<Override>,
     #[serde(default)]
     pub options: Options,
+    /// Price overrides (docs/23 §5.1): by type / market group (incl. children) / group / category, fixed or multiplier.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub price_overrides: Vec<PriceOverride>,
+    /// Injected price table (docs/23 §5.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prices: Option<Prices>,
+}
+
+/// One price override entry: exactly one target and exactly one of `price` / `multiplier` (checked by the engine).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct PriceOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub type_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_group_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multiplier: Option<f64>,
+}
+
+/// Injected prices: `isk` = type id (string key) -> ISK per unit; `use_snapshot: false` disables the market snapshot
+/// layer. `mode` (`override` | `replace`) is the docs/22 alias for `use_snapshot` (true | false).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Prices {
+    #[serde(default)]
+    pub isk: BTreeMap<String, f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_snapshot: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
 }
