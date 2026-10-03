@@ -1231,6 +1231,18 @@ impl Fit {
         fn count(m: &[(u32, u32)], k: u32) -> u32 {
             m.iter().find(|x| x.0 == k).map(|x| x.1).unwrap_or(0)
         }
+        // totals first: every module of an over-limit group / type is flagged (Pyfa marks all of them)
+        for &i in &modules {
+            let it = &self.items[i];
+            bump(&mut fitted_group, it.group);
+            bump(&mut fitted_type, it.type_id);
+            if it.state >= State::Online {
+                bump(&mut online_group, it.group);
+            }
+            if it.state >= State::Active {
+                bump(&mut active_group, it.group);
+            }
+        }
         for &i in &modules {
             let it = &self.items[i];
             let idx = it.req_index;
@@ -1243,6 +1255,9 @@ impl Fit {
             let ty: Vec<u32> = d::CAN_FIT_TYPE_ATTRS.iter().filter_map(|x| ta(*x)).map(|v| v as u32).filter(|v| *v != 0).collect();
             if (!gr.is_empty() || !ty.is_empty()) && !gr.contains(&ship_it.group) && !ty.contains(&ship_it.type_id) {
                 push("SHIP_RESTRICTION", format!("{name} cannot be fitted to {ship_name}"), idx);
+            } else if !self.is_structure && g(ship, a::isCapitalSize) != 1.0 && g(i, a::volume) >= 4000.0 {
+                // capital-size modules (volume >= 4000 m3) only fit capital hulls (Pyfa, GH #1096)
+                push("SHIP_RESTRICTION", format!("{name} is a capital-size module; {ship_name} is not a capital ship"), idx);
             }
             if it.slot == Some(Slot::Rig) {
                 let rs = ta(a::rigSize).unwrap_or(0.0);
@@ -1250,14 +1265,6 @@ impl Fit {
                 if rs != 0.0 && rs != srs {
                     push("RIG_SIZE", format!("{name} rig size {rs} != ship rig size {srs}"), idx);
                 }
-            }
-            bump(&mut fitted_group, it.group);
-            bump(&mut fitted_type, it.type_id);
-            if it.state >= State::Online {
-                bump(&mut online_group, it.group);
-            }
-            if it.state >= State::Active {
-                bump(&mut active_group, it.group);
             }
             let check = |attr: u16, m: &[(u32, u32)], key: u32| -> Option<(f64, u32)> {
                 let lim = ta(attr)?;
@@ -1270,10 +1277,10 @@ impl Fit {
             if let Some((lim, n)) = check(a::maxTypeFitted, &fitted_type, it.type_id) {
                 push("MAX_TYPE_FITTED", format!("{name}: {n} fitted, max {lim}"), idx);
             }
-            if let Some((lim, n)) = check(a::maxGroupOnline, &online_group, it.group) {
+            if let Some((lim, n)) = check(a::maxGroupOnline, &online_group, it.group).filter(|_| it.state >= State::Online) {
                 push("MAX_GROUP_ONLINE", format!("{name}: {n} online of group, max {lim}"), idx);
             }
-            if let Some((lim, n)) = check(a::maxGroupActive, &active_group, it.group) {
+            if let Some((lim, n)) = check(a::maxGroupActive, &active_group, it.group).filter(|_| it.state >= State::Active) {
                 push("MAX_GROUP_ACTIVE", format!("{name}: {n} active of group, max {lim}"), idx);
             }
             if let Some(c) = it.charge {
@@ -1296,36 +1303,60 @@ impl Fit {
         }
         // skills
         let have: Vec<(u32, f64)> = self.skill_levels.iter().map(|&(s, l)| (s, l.min(5) as f64)).collect();
-        const SKILL_ATTRS: [(u16, u16); 6] = [
-            (a::requiredSkill1, a::requiredSkill1Level),
-            (a::requiredSkill2, a::requiredSkill2Level),
-            (a::requiredSkill3, a::requiredSkill3Level),
-            (a::requiredSkill4, a::requiredSkill4Level),
-            (a::requiredSkill5, a::requiredSkill5Level),
-            (a::requiredSkill6, a::requiredSkill6Level),
-        ];
+        // Pyfa checkRequirements: modules (rigs skipped) and their charges, drones, fighters (not their charges),
+        // ship, implants, boosters; a missing skill's own missing prerequisites are reported too (recursively).
         let mut missing: Vec<(u32, f64, u32)> = Vec::new();
-        for it in &self.items {
-            if !matches!(it.kind, Kind::Ship | Kind::Module | Kind::Charge | Kind::Drone | Kind::Fighter | Kind::Implant | Kind::Booster) {
-                continue;
+        fn walk(ty: usize, by: u32, have: &[(u32, f64)], missing: &mut Vec<(u32, f64, u32)>, depth: u32) {
+            if depth > 16 {
+                return;
             }
             for (sa, la) in SKILL_ATTRS {
-                let s = d::type_attr(it.ty, sa).unwrap_or(0.0) as u32;
+                let s = d::type_attr(ty, sa).unwrap_or(0.0) as u32;
                 if s == 0 {
                     continue;
                 }
-                let need = d::type_attr(it.ty, la).unwrap_or(1.0);
+                let need = d::type_attr(ty, la).unwrap_or(1.0);
                 let lvl = have.binary_search_by_key(&s, |x| x.0).map(|k| have[k].1).unwrap_or(0.0);
-                if lvl < need && !missing.iter().any(|m| m.0 == s && m.1 >= need) {
-                    missing.push((s, need, it.type_id));
+                if lvl >= need {
+                    continue;
+                }
+                match missing.iter_mut().find(|m| m.0 == s) {
+                    Some(m) if m.1 >= need => continue,
+                    Some(m) => m.1 = need,
+                    None => missing.push((s, need, by)),
+                }
+                if let Some(sx) = d::type_index(s) {
+                    walk(sx, by, have, missing, depth + 1);
                 }
             }
         }
+        for it in &self.items {
+            let include = match it.kind {
+                Kind::Module => it.slot != Some(Slot::Rig),
+                Kind::Charge => it.owned && it.parent.map(|p| self.items[p].kind == Kind::Module && self.items[p].slot != Some(Slot::Rig)).unwrap_or(false),
+                Kind::Ship | Kind::Drone | Kind::Fighter | Kind::Implant | Kind::Booster => true,
+                _ => false,
+            };
+            if include {
+                walk(it.ty, it.type_id, &have, &mut missing, 0);
+            }
+        }
         for (s, need, by) in missing {
-            push("MISSING_SKILL", format!("{} {} required by {}", d::type_name_by_id(s), need, d::type_name_by_id(by)), None);
+            v.push(jv!({"code": "MISSING_SKILL", "message": format!("{} {} required by {}", d::type_name_by_id(s), need, d::type_name_by_id(by)),
+                        "module_index": None::<usize>, "skill_type_id": s, "level": need}));
         }
         v
     }
 }
+
+/// (required skill, required level) attribute pairs
+const SKILL_ATTRS: [(u16, u16); 6] = [
+    (a::requiredSkill1, a::requiredSkill1Level),
+    (a::requiredSkill2, a::requiredSkill2Level),
+    (a::requiredSkill3, a::requiredSkill3Level),
+    (a::requiredSkill4, a::requiredSkill4Level),
+    (a::requiredSkill5, a::requiredSkill5Level),
+    (a::requiredSkill6, a::requiredSkill6Level),
+];
 
 pub use crate::capsim::py_round;

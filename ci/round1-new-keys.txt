@@ -6,3 +6,5 @@ drones.items
 fighters
 bombing
 modules[].heat
+violations[].skill_type_id
+violations[].level
