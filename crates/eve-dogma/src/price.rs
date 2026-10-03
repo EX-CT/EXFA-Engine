@@ -15,25 +15,53 @@ use eve_fit_model::PriceOverride;
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
-/// A market price table (L4): from `--prices FILE` / `prices_load`, labelled `injected`, or the embedded release
-/// snapshot (docs/22), labelled `snapshot`.
+/// A market price table (L4): from `--prices FILE` / `prices_load` (lines labelled `injected`,
+/// provenance.price_source `file`), or the embedded release snapshot (labelled `snapshot`).
 #[derive(Debug, Clone, Default)]
 pub struct Market {
     pub isk: BTreeMap<u32, f64>,
-    /// `market_time` of an eve-price-snapshot file (RFC 3339), if known.
+    /// `market_time` of an eve-price-snapshot (RFC 3339), if any.
     pub time: Option<String>,
+    pub id: Option<String>,
+    pub hash: Option<String>,
     /// `injected` (file / session) or `snapshot` (embedded).
     pub source: &'static str,
+    /// e.g. the other-SDE-build warning (docs/22 §5)
+    pub warning: Option<String>,
 }
 
 static MARKET: RwLock<Option<Arc<Market>>> = RwLock::new(None);
 
-/// Set (or clear) the process / session market snapshot (L4).
+/// Embedded release snapshot (docs/22 §3.1): eve-market-prices `prices-jita44-20261003T063856Z`.
+pub const EMBEDDED_SNAPSHOT: &[u8] = include_bytes!("../data/prices-jita44-20261003T063856Z.json.gz");
+/// Identity of the embedded snapshot, for provenance without parsing it (checked by a test against the bytes).
+pub const EMBEDDED_ID: &str = "jita44-20261003T063856Z";
+pub const EMBEDDED_TIME: &str = "2026-10-03T06:38:56Z";
+pub const EMBEDDED_HASH: &str = "sha256:3dd62f6c96950d859f9eda484ae28dad269d838a9cb0f443f9a08439f566e234";
+static EMBEDDED: std::sync::OnceLock<Option<Arc<Market>>> = std::sync::OnceLock::new();
+
+pub fn embedded() -> Option<Arc<Market>> {
+    EMBEDDED
+        .get_or_init(|| {
+            let v = parse_bytes(EMBEDDED_SNAPSHOT).ok()?;
+            let mut m = market_from_value(&v).ok()?;
+            m.source = "snapshot";
+            Some(Arc::new(m))
+        })
+        .clone()
+}
+
+/// Set (or clear) the process / session price file (L4, replaces the embedded snapshot).
 pub fn set_market(m: Option<Market>) {
     *MARKET.write().unwrap() = m.map(Arc::new);
 }
+/// The loaded price file, if any (not the embedded snapshot).
 pub fn market() -> Option<Arc<Market>> {
     MARKET.read().unwrap().clone()
+}
+/// L4 in use: the loaded file, else the embedded snapshot.
+pub fn market_in_use() -> Option<Arc<Market>> {
+    market().or_else(embedded)
 }
 
 #[derive(Debug, Clone)]
@@ -46,47 +74,71 @@ fn bad(code: &'static str, message: String) -> PriceError {
     PriceError { code, message }
 }
 
-/// Parse a price file / session payload: an eve-price-snapshot v1 object (docs/22 §4, `prices` keyed by type id with
-/// `price` per entry, or a list of entries with `type_id`), a `{"isk": {...}}` object, or a plain `{"<type_id>": isk}` map.
+/// JSON bytes, gzip-compressed or not.
+pub fn parse_bytes(b: &[u8]) -> Result<serde_json::Value, PriceError> {
+    let raw: Vec<u8> = if b.starts_with(&[0x1f, 0x8b]) {
+        use std::io::Read;
+        let mut o = Vec::new();
+        flate2::read::GzDecoder::new(b).read_to_end(&mut o).map_err(|e| bad("BAD_PRICES", format!("gzip: {e}")))?;
+        o
+    } else {
+        b.to_vec()
+    };
+    serde_json::from_slice(&raw).map_err(|e| bad("BAD_PRICES", format!("JSON: {e}")))
+}
+
+/// Read a `--prices` / `prices_load` file.
+pub fn read_file(path: &str) -> Result<Market, PriceError> {
+    let b = std::fs::read(path).map_err(|e| bad("BAD_PRICES", format!("{path}: {e}")))?;
+    market_from_value(&parse_bytes(&b)?)
+}
+
+/// Parse a price file / session payload: an eve-price-snapshot v1 object (docs/22 §4: `types` keyed by type id,
+/// schema / content_hash / invariants checked), a `{"isk": {...}}` object, or a plain `{"<type_id>": isk}` map.
 pub fn market_from_value(v: &serde_json::Value) -> Result<Market, PriceError> {
     let obj = v.as_object().ok_or_else(|| bad("BAD_PRICES", "price file must be a JSON object".into()))?;
     let mut m = Market { source: "injected", ..Default::default() };
-    let (table, snap) = if obj.get("schema").and_then(|s| s.as_str()) == Some("eve-price-snapshot") {
+    if obj.contains_key("schema") || obj.contains_key("schema_version") {
+        if obj.get("schema").and_then(|s| s.as_str()) != Some("eve-price-snapshot") || obj.get("schema_version").and_then(|s| s.as_u64()) != Some(1) {
+            return Err(bad("PRICE_SNAPSHOT_VERSION", format!("unsupported snapshot schema {:?} v{:?}", obj.get("schema"), obj.get("schema_version"))));
+        }
+        let inv = |msg: String| bad("PRICE_SNAPSHOT_INVALID", msg);
+        let want = obj.get("content_hash").and_then(|h| h.as_str()).unwrap_or("");
+        let got = crate::prov::snapshot_hash(v);
+        if want != got {
+            return Err(inv(format!("content_hash {want} != computed {got}")));
+        }
+        let types = obj.get("types").and_then(|t| t.as_object()).ok_or_else(|| inv("snapshot has no types object".into()))?;
+        for (k, e) in types {
+            let id: u32 = k.parse().map_err(|_| inv(format!("types key {k:?} is not a type id")))?;
+            let f = |n: &str| e.get(n).and_then(|x| x.as_f64()).filter(|x| x.is_finite() && *x >= 0.0);
+            let (Some(price), Some(p0), Some(bmax), Some(u), Some(uc), Some(o), Some(oc), Some(ot)) =
+                (f("price"), f("p0"), f("band_max"), f("units"), f("units_considered"), f("orders"), f("orders_considered"), f("orders_total"))
+            else {
+                return Err(inv(format!("types[{k}]: missing or non-finite field")));
+            };
+            let tol = (1e-9 * bmax).max(0.005);
+            if !(p0 - tol <= price && price <= bmax + tol && 0.0 < u && u <= uc && 0.0 < o && o <= oc && oc <= ot) {
+                return Err(inv(format!("types[{k}]: §4.5 invariant broken")));
+            }
+            m.isk.insert(id, price);
+        }
         m.time = obj.get("market_time").and_then(|t| t.as_str()).map(|s| s.to_string());
-        (obj.get("prices").ok_or_else(|| bad("PRICE_SNAPSHOT_INVALID", "snapshot has no prices".into()))?, true)
-    } else if let Some(t) = obj.get("isk") {
-        (t, false)
-    } else {
-        (v, false)
-    };
-    let ok = |p: Option<f64>| p.filter(|p| p.is_finite() && *p >= 0.0);
-    match table {
-        serde_json::Value::Object(o) => {
-            for (k, x) in o {
-                let id: u32 = k.parse().map_err(|_| bad("BAD_PRICES", format!("bad type id key {k:?}")))?;
-                if snap {
-                    match x.get("price") {
-                        None | Some(serde_json::Value::Null) => continue, // no orders: unpriced
-                        Some(p) => {
-                            let p = ok(p.as_f64()).ok_or_else(|| bad("PRICE_SNAPSHOT_INVALID", format!("bad price for type {k}")))?;
-                            m.isk.insert(id, p);
-                        }
-                    }
-                } else {
-                    let p = ok(x.as_f64()).ok_or_else(|| bad("BAD_PRICES", format!("bad price for type {k}")))?;
-                    m.isk.insert(id, p);
-                }
+        m.id = obj.get("snapshot_id").and_then(|t| t.as_str()).map(|s| s.to_string());
+        m.hash = Some(want.to_string());
+        if let Some(b) = obj.get("sde_build").and_then(|b| b.as_u64()) {
+            if b != crate::data::SDE_BUILD {
+                m.warning = Some(format!("price snapshot for SDE build {b}, engine data is {}", crate::data::SDE_BUILD));
             }
         }
-        serde_json::Value::Array(a) if snap => {
-            for x in a {
-                let id = x.get("type_id").and_then(|i| i.as_u64()).ok_or_else(|| bad("PRICE_SNAPSHOT_INVALID", "entry without type_id".into()))?;
-                if let Some(p) = ok(x.get("price").and_then(|p| p.as_f64())) {
-                    m.isk.insert(id as u32, p);
-                }
-            }
-        }
-        _ => return Err(bad("BAD_PRICES", "price table must be an object".into())),
+        return Ok(m);
+    }
+    let table = obj.get("isk").unwrap_or(v);
+    let o = table.as_object().ok_or_else(|| bad("BAD_PRICES", "price table must be an object".into()))?;
+    for (k, x) in o {
+        let id: u32 = k.parse().map_err(|_| bad("BAD_PRICES", format!("bad type id key {k:?}")))?;
+        let p = x.as_f64().filter(|p| p.is_finite() && *p >= 0.0 && !x.is_boolean()).ok_or_else(|| bad("BAD_PRICES", format!("bad price for type {k}")))?;
+        m.isk.insert(id, p);
     }
     Ok(m)
 }
@@ -171,7 +223,9 @@ pub struct Ctx {
     /// [L1 variant, L2 request] (either may be empty).
     layers: [Layer; 2],
     injected: BTreeMap<u32, f64>,
-    use_market: bool,
+    pub use_market: bool,
+    /// the request carries a `prices.isk` table (provenance.price_source `request`)
+    pub request_table: bool,
     market: Option<Arc<Market>>,
 }
 
@@ -197,10 +251,8 @@ impl Ctx {
         for p in [batch_prices, req.prices.as_ref()].into_iter().flatten() {
             for (k, v) in &p.isk {
                 let id: u32 = k.parse().map_err(|_| bad("BAD_PRICES", format!("prices.isk: bad type id key {k:?}")))?;
-                if !v.is_finite() || *v < 0.0 {
-                    return Err(bad("BAD_PRICES", format!("prices.isk[{k}]: must be finite and >= 0")));
-                }
-                injected.insert(id, *v);
+                let x = v.as_f64().filter(|x| x.is_finite() && *x >= 0.0 && v.is_number()).ok_or_else(|| bad("BAD_PRICES", format!("prices.isk[{k}]: must be a finite number >= 0")))?;
+                injected.insert(id, x);
             }
             match p.mode.as_deref() {
                 None | Some("override") => {}
@@ -211,7 +263,8 @@ impl Ctx {
                 use_market = u;
             }
         }
-        Ok(Ctx { layers: [Layer::new(&[variant]), Layer::new(&[&req.price_overrides, batch_wide])], injected, use_market, market: market() })
+        let request_table = !injected.is_empty();
+        Ok(Ctx { layers: [Layer::new(&[variant]), Layer::new(&[&req.price_overrides, batch_wide])], injected, use_market, request_table, market: market_in_use() })
     }
 
     fn pick(&self, layer: usize, t: u32) -> Option<Entry> {
@@ -278,7 +331,7 @@ impl Ctx {
         }
         let m = self.market.as_ref()?;
         let p = *m.isk.get(&t)?;
-        Some(Resolved { price: p, source: m.source, layer: m.source, mult: None, base_source: None, snapshot_time: m.time.clone() })
+        Some(Resolved { price: p, source: m.source, layer: "snapshot", mult: None, base_source: None, snapshot_time: m.time.clone() })
     }
 
     /// Why a type has no price: a multiplier without a base price, or no price anywhere.
@@ -292,9 +345,31 @@ impl Ctx {
     }
 }
 
-/// Is a price block wanted for this request (docs/23 §6.1)?
+/// Is a price block wanted for this request (docs/23 §6.1)? The embedded snapshot alone does not trigger it.
+/// (use_market, request_table) of a request (+ batch-wide table) without building a full Ctx.
+pub fn request_state(req: &FitRequest, batch_prices: Option<&eve_fit_model::Prices>) -> (bool, bool) {
+    let mut use_market = true;
+    let mut table = false;
+    for p in [batch_prices, req.prices.as_ref()].into_iter().flatten() {
+        table |= !p.isk.is_empty();
+        if p.mode.as_deref() == Some("replace") {
+            use_market = false;
+        }
+        if let Some(u) = p.use_snapshot {
+            use_market = u;
+        }
+    }
+    (use_market, table)
+}
+
 pub fn wanted(req: &FitRequest) -> bool {
     req.options.price || !req.price_overrides.is_empty() || req.prices.is_some() || market().is_some()
+}
+
+impl Ctx {
+    pub fn warning(&self) -> Option<String> {
+        if self.use_market && !self.request_table { self.market.as_ref().and_then(|m| m.warning.clone()) } else { None }
+    }
 }
 
 const KINDS: [&str; 8] = ["ship", "module", "charge", "drone", "fighter", "implant", "booster", "cargo"];
@@ -358,17 +433,13 @@ pub fn block(req: &FitRequest, ctx: &Ctx) -> J {
     let mut sec_total = [0.0f64; 8];
     let mut missing = Vec::new();
     let mut sources: BTreeMap<&'static str, u64> = BTreeMap::new();
-    let mut snap_time: Option<String> = None;
     for (s, i, t, q) in lines(req) {
         match ctx.resolve(t, 0) {
             Some(r) => {
                 let total = r.price * q as f64;
                 sec_total[s] += total;
                 *sources.entry(r.source).or_default() += 1;
-                if snap_time.is_none() {
-                    snap_time = r.snapshot_time.clone();
-                }
-                let mut line = vec![
+                let line = vec![
                     ("kind".into(), J::S(KINDS[s])),
                     ("index".into(), J::U(i as u64)),
                     ("type_id".into(), J::U(t as u64)),
@@ -378,13 +449,11 @@ pub fn block(req: &FitRequest, ctx: &Ctx) -> J {
                     ("total_isk".into(), J::F(total)),
                     ("source".into(), J::S(r.source)),
                     ("layer".into(), J::S(r.layer)),
-                    // eve 14:36: without a multiplier, `multiplier` is omitted and base_source = source
+                    // eve 14:36: without a multiplier, `multiplier` is 1 and base_source = source
                     ("base_source".into(), J::S(r.base_source.unwrap_or(r.source))),
                     ("snapshot_time".into(), r.snapshot_time.map(J::Str).unwrap_or(J::Null)),
+                    ("multiplier".into(), J::F(r.mult.unwrap_or(1.0))),
                 ];
-                if let Some(m) = r.mult {
-                    line.push(("multiplier".into(), J::F(m)));
-                }
                 sec_items[s].push(J::O(line));
             }
             None => missing.push(J::O(vec![
@@ -413,7 +482,6 @@ pub fn block(req: &FitRequest, ctx: &Ctx) -> J {
         ("complete".into(), J::Bool(missing.is_empty())),
         ("sections".into(), J::O(sections)),
         ("missing".into(), J::A(missing)),
-        ("snapshot_time".into(), snap_time.map(J::Str).unwrap_or(J::Null)),
         ("sources".into(), J::O(sources.into_iter().map(|(k, v)| (std::borrow::Cow::Borrowed(k), J::U(v))).collect())),
         ("warnings".into(), J::A(warnings)),
     ])

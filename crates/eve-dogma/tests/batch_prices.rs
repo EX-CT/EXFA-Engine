@@ -92,13 +92,15 @@ fn calc_price_block_and_absence() {
     assert!(calc(&rifter()).get("price").is_none(), "no price inputs: no price block (output unchanged)");
     let mut f = rifter();
     f["prices"] = prices();
-    let p = calc(&f)["price"].clone();
+    let out = calc(&f);
+    assert_eq!(out["provenance"]["price_source"], "request");
+    let p = out["price"].clone();
     // Hail S: floor(capacity / volume) loaded charges
     let hail = line(&p, "charges", 0);
     assert_eq!(hail["quantity"], 200);
     assert_eq!(line(&p, "ship", 0)["kind"], "ship");
     assert_eq!(line(&p, "ship", 0)["base_source"], "injected");
-    assert!(line(&p, "ship", 0).get("multiplier").is_none());
+    assert_eq!(line(&p, "ship", 0)["multiplier"], 1.0);
     let total = 350000.0 + 1250000.0 + 900000.0 + 200.0 * 20.0 + 100.0 * 20.0;
     assert!((p["total_isk"].as_f64().unwrap() - total).abs() < 1e-6);
     assert_eq!(p["complete"], true);
@@ -131,6 +133,7 @@ fn precedence_and_multiplier_chain() {
     // multiplier without base
     let mut h = rifter();
     h["price_overrides"] = json!([{"type_id":587,"multiplier":2.0}]);
+    h["prices"] = json!({"use_snapshot": false}); // the embedded snapshot would price both
     let p = calc(&h)["price"].clone();
     let m = p["missing"].as_array().unwrap();
     assert!(m.iter().any(|x| x["type_id"] == 587 && x["reason"] == "multiplier_without_base"));
@@ -174,4 +177,43 @@ fn rpc_batch_method() {
     let r = eve_dogma::rpc(&line.to_string());
     assert_eq!(r["id"], 7);
     assert_eq!(r["result"]["total"], 1);
+}
+
+#[test]
+fn embedded_snapshot_identity_and_jcs() {
+    let m = eve_dogma::price::embedded().expect("embedded snapshot parses and validates");
+    assert_eq!(m.id.as_deref(), Some(eve_dogma::price::EMBEDDED_ID));
+    assert_eq!(m.time.as_deref(), Some(eve_dogma::price::EMBEDDED_TIME));
+    assert_eq!(m.hash.as_deref(), Some(eve_dogma::price::EMBEDDED_HASH));
+    use eve_dogma::prov::es_number as es;
+    assert_eq!(es(1240000.0), "1240000");
+    assert_eq!(es(4988.83), "4988.83");
+    assert_eq!(es(1e21), "1e+21");
+    assert_eq!(es(1e-7), "1e-7");
+    assert_eq!(es(0.000001), "0.000001");
+    assert_eq!(eve_dogma::prov::jcs(&json!({"34":1,"1000":2.0,"b":[1.5,"x"]})), r#"{"1000":2,"34":1,"b":[1.5,"x"]}"#);
+    // provenance: embedded snapshot by default, none with use_snapshot false
+    let out = calc(&json!({"ship":{"type_id":587},"options":{"price":true}}));
+    assert_eq!(out["provenance"]["price_source"], "snapshot");
+    assert_eq!(out["provenance"]["sde_build"], 3569502);
+    assert_eq!(line(&out["price"], "ship", 0)["source"], "snapshot");
+    let out = calc(&json!({"ship":{"type_id":587},"prices":{"use_snapshot":false}}));
+    assert_eq!(out["provenance"]["price_source"], "none");
+    assert_eq!(out["price"]["complete"], false);
+}
+
+#[test]
+fn sde_override_errors() {
+    use eve_dogma::prov::check_pack;
+    let code = |b: &[u8]| check_pack(b).unwrap_err()["error"]["reason"].as_str().unwrap().to_string();
+    assert_eq!(code(b""), "corrupt");
+    let mut p = vec![0u8; 64];
+    p[..4].copy_from_slice(b"XXXX");
+    assert_eq!(code(&p), "corrupt");
+    p[..4].copy_from_slice(b"EDPK");
+    p[4] = 2;
+    assert_eq!(code(&p), "incompatible_version");
+    p[4] = 1;
+    assert_eq!(code(&p), "hash_mismatch");
+    assert_eq!(eve_dogma::prov::load_pack_path("/nonexistent.edp").unwrap_err()["error"]["reason"], "not_found");
 }

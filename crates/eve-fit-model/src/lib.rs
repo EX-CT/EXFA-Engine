@@ -327,8 +327,9 @@ pub struct PriceOverride {
 /// layer. `mode` (`override` | `replace`) is the docs/22 alias for `use_snapshot` (true | false).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Prices {
+    /// values are checked by the engine (BAD_PRICES for non-numbers), so any JSON value is accepted here
     #[serde(default)]
-    pub isk: BTreeMap<String, f64>,
+    pub isk: BTreeMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub use_snapshot: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

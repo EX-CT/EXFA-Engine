@@ -12,14 +12,16 @@ Commands:
   batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout (a BatchRequest line -> one BatchResponse line)
   batch --request FILE|- BatchRequest JSON (docs/23: fits / variants / product / sweep) -> BatchResponse JSON
   optimize [FILE]        OptimizeRequest JSON (docs/21) -> ranked fits
-  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|batch|prices_load|optimize|graph|search|type|meta|eft_parse|eft_export|format_import|format_export\",\"params\":..}
+  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|batch|prices_load|version|sde_override|optimize|graph|search|type|meta|eft_parse|eft_export|format_import|format_export\",\"params\":..}
   eft [FILE]             EFT text (file or stdin) -> FitRequest JSON (add --calc to compute, --skills N)
   search QUERY [--limit N] [--kinds ship,module,..]  search types by name (exact > prefix > substring)
   type ID|NAME           show type with base attributes
   meta                   compiled dataset info
+  version                engine / SDE / price snapshot provenance (docs/22 §2.3)
   bench [FILE] [-n N]    time N calculations of a request
 
-Global options:
+Global options (before the command):
+  --sde FILE.edp         SDE pack override (docs/22 §2.4); load failure -> SDE_LOAD_FAILED
   --prices FILE          market price table for this process (eve-price-snapshot v1 file, {\"isk\":{..}} or
                          {\"<type_id>\": isk}); price layer L4, see eve-fit-docs docs/23 §5";
 
@@ -81,20 +83,20 @@ fn main() {
         args.drain(p..(p + 2).min(args.len()));
         v
     };
+    // global flags before the subcommand (docs/22 §2.4, docs/23 §8a): load errors are a JSON error on stdout, exit 2
+    let fail = |v: serde_json::Value| -> ! {
+        println!("{v}");
+        std::process::exit(2)
+    };
+    if let Some(path) = take_flag(&mut args, "--sde") {
+        if let Err(e) = eve_dogma::prov::load_pack_path(&path) {
+            fail(e);
+        }
+    }
     if let Some(path) = take_flag(&mut args, "--prices") {
-        let v = std::fs::read_to_string(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).map_err(|e| e.to_string()))
-            .unwrap_or_else(|e| {
-                eprintln!("error: --prices {path}: {e}");
-                std::process::exit(2)
-            });
-        match eve_dogma::price::market_from_value(&v) {
+        match eve_dogma::price::read_file(&path) {
             Ok(m) => eve_dogma::price::set_market(Some(m)),
-            Err(e) => {
-                eprintln!("error: --prices {path}: {} {}", e.code, e.message);
-                std::process::exit(2)
-            }
+            Err(e) => fail(serde_json::json!({"error": {"code": e.code, "message": format!("--prices {path}: {}", e.message)}})),
         }
     }
     let cmd = args.first().cloned().unwrap_or_default();
@@ -135,6 +137,9 @@ fn main() {
             }
         }
         "graph-batch" => batch(&mut out, eve_dogma::graphs::graph_json),
+        "version" => {
+            writeln!(out, "{}", serde_json::to_string_pretty(&eve_dogma::prov::version()).unwrap()).or_pipe();
+        }
         "graph-specs" => {
             writeln!(out, "{}", eve_dogma::graphs::SPEC_JSON.trim()).or_pipe();
         }

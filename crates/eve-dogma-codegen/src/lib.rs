@@ -131,7 +131,8 @@ fn u(v: &Value) -> Option<u32> {
     v.as_u64().map(|x| x as u32).or_else(|| v.as_f64().map(|x| x as u32))
 }
 
-fn sha256_hex(data: &[u8]) -> String {
+/// SHA-256 as lowercase hex (also used by eve-dogma at runtime for pack / snapshot hashes).
+pub fn sha256_hex(data: &[u8]) -> String {
     const K: [u32; 64] = [
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01,
         0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
@@ -280,6 +281,7 @@ fn generate() -> String {
     writeln!(out, "pub const SDE_BUILD: u64 = {};", d["sde"]["build"].as_u64().unwrap_or(0)).unwrap();
     writeln!(out, "pub const SDE_RELEASE_DATE: &str = {:?};", d["sde"]["release_date"].as_str().unwrap_or("")).unwrap();
     writeln!(out, "pub const DATASET_SHA256: &str = {sha:?};").unwrap();
+    writeln!(out, "pub const DATASET_REVISION: u64 = {};", d["dataset_revision"].as_u64().unwrap_or(1)).unwrap();
 
     // ------------------------------------------------------------ attributes (indexed by raw id)
     let attrs = d["attributes"].as_object().unwrap();

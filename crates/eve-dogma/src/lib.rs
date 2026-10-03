@@ -11,6 +11,7 @@ pub mod graphs;
 pub mod engine;
 pub mod j;
 pub mod price;
+pub mod prov;
 pub mod batch;
 pub mod request;
 pub mod stats;
@@ -40,8 +41,15 @@ pub fn calc_priced(req: &FitRequest, variant: &[request::PriceOverride], batch_w
     match engine::Fit::build(req) {
         Ok(fit) => {
             let mut out = fit.compute_stats(req);
-            if let (Some(c), j::J::O(o)) = (ctx, &mut out) {
-                o.push(("price".into(), price::block(req, &c)));
+            if let j::J::O(o) = &mut out {
+                let (use_market, table) = price::request_state(req, batch_prices);
+                o.push(("provenance".into(), prov::provenance_j(use_market, table)));
+                if let Some(c) = ctx {
+                    o.push(("price".into(), price::block(req, &c)));
+                    if let Some(w) = c.warning() {
+                        o.push(("warnings".into(), j::J::A(vec![j::J::Str(w)])));
+                    }
+                }
             }
             out
         }
@@ -178,24 +186,20 @@ fn prices_load(p: &Value) -> Value {
         price::set_market(None);
         return json!({"ok": true, "types": 0});
     }
-    let v = if let Some(path) = p.get("path").and_then(|x| x.as_str()) {
-        match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|s| serde_json::from_str::<Value>(&s).map_err(|e| e.to_string())) {
-            Ok(v) => v,
-            Err(e) => return json!({"error": {"code": "BAD_PRICES", "message": format!("{path}: {e}")}}),
-        }
+    let m = if let Some(path) = p.get("path").and_then(|x| x.as_str()) {
+        price::read_file(path)
     } else if let Some(s) = p.get("snapshot") {
-        s.clone()
+        price::market_from_value(s)
     } else if p.get("isk").is_some() {
-        p.clone()
+        price::market_from_value(p)
     } else {
         return json!({"error": {"code": "BAD_PRICES", "message": "prices_load needs path, snapshot or isk"}});
     };
-    match price::market_from_value(&v) {
+    match m {
         Ok(m) => {
-            let n = m.isk.len();
-            let t = m.time.clone();
+            let r = json!({"ok": true, "types": m.isk.len(), "snapshot_time": m.time, "price_snapshot_id": m.id, "price_hash": m.hash, "warnings": m.warning.iter().collect::<Vec<_>>()});
             price::set_market(Some(m));
-            json!({"ok": true, "types": n, "market_time": t})
+            r
         }
         Err(e) => json!({"error": {"code": e.code, "message": e.message}}),
     }
@@ -222,6 +226,8 @@ pub fn rpc(line: &str) -> Value {
         },
         "batch" | "calc_batch" => batch::run(&p),
         "prices_load" => prices_load(&p),
+        "version" => prov::version(),
+        "sde_override" => prov::sde_override(&p),
         "graph" => graphs::graph(&p),
         "graph_specs" => graphs::specs_json(),
         "search" => {

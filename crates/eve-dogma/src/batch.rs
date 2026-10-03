@@ -122,6 +122,36 @@ fn jstr(v: &Value) -> String {
     serde_json::to_string(v).unwrap_or_default()
 }
 
+/// Number of values of a sweep without generating them.
+fn sweep_count(sw: &Value) -> Result<u64, String> {
+    if let Some(v) = sw.get("values") {
+        return v.as_array().map(|a| a.len() as u64).ok_or_else(|| "sweep.values must be a list".to_string());
+    }
+    let f = |k: &str| sw.get(k).and_then(|x| x.as_f64()).ok_or_else(|| format!("sweep needs values or numeric from/to/step ({k})"));
+    let (from, to, step) = (f("from")?, f("to")?, f("step")?);
+    if !(step > 0.0) || !from.is_finite() || !to.is_finite() {
+        return Err("sweep.step must be > 0".into());
+    }
+    if to + 1e-9 * step < from {
+        return Ok(0);
+    }
+    let mut n = ((to - from) / step).floor().max(0.0) as u64 + 1;
+    while from + n as f64 * step <= to + 1e-9 * step.abs() {
+        n += 1;
+    }
+    while n > 0 && from + (n - 1) as f64 * step > to + 1e-9 * step.abs() {
+        n -= 1;
+    }
+    Ok(n)
+}
+
+fn axis_count(ax: &Value) -> Result<u64, String> {
+    match ax.get("sweep") {
+        Some(sw) => sweep_count(sw),
+        None => ax.get("options").and_then(|o| o.as_array()).map(|a| a.len() as u64).ok_or_else(|| "axis needs options or sweep".to_string()),
+    }
+}
+
 fn sweep_values(sw: &Value) -> Result<Vec<Value>, String> {
     if let Some(v) = sw.get("values") {
         return v.as_array().cloned().ok_or_else(|| "sweep.values must be a list".to_string());
@@ -141,9 +171,6 @@ fn sweep_values(sw: &Value) -> Result<Vec<Value>, String> {
         }
         out.push(if ints { json!(v as i64) } else { json!(v) });
         k += 1;
-        if out.len() as u64 > HARD_MAX_COMBINATIONS {
-            break;
-        }
     }
     Ok(out)
 }
@@ -229,20 +256,16 @@ fn expand(req: &Map<String, Value>, cap: u64) -> Result<(&'static str, Vec<Item>
     } else {
         vec![json!({"name": "sweep", "sweep": req["sweep"]})]
     };
-    let mut all = Vec::new();
     let mut n: u64 = 1;
     for ax in &axes {
-        let o = axis_options(ax).map_err(|m| err("BATCH_BAD_REQUEST", m))?;
-        n = n.saturating_mul(o.len() as u64);
-        if n > cap {
-            // count the rest for the error message
-            let mut total = n;
-            for rest in axes.iter().skip(all.len() + 1) {
-                total = total.saturating_mul(axis_options(rest).map(|o| o.len() as u64).unwrap_or(1));
-            }
-            return Err(too_large(total));
-        }
-        all.push(o);
+        n = n.saturating_mul(axis_count(ax).map_err(|m| err("BATCH_BAD_REQUEST", m))?);
+    }
+    if n > cap {
+        return Err(too_large(n));
+    }
+    let mut all = Vec::new();
+    for ax in &axes {
+        all.push(axis_options(ax).map_err(|m| err("BATCH_BAD_REQUEST", m))?);
     }
     let mut combos: Vec<Vec<usize>> = vec![vec![]];
     for o in &all {
@@ -456,6 +479,31 @@ pub fn run(req: &Value) -> Value {
     if deltas && form == "fits" && delta_ref.map(|d| !items.iter().any(|i| i.id == d)).unwrap_or(true) {
         return err("BATCH_BAD_REQUEST", "deltas on fits needs delta_ref naming one fit id");
     }
+    // every price override list is input validation: a bad one fails the whole batch (docs/23 §5.1)
+    for (k, it) in items.iter().enumerate() {
+        let l: Result<Vec<PriceOverride>, _> = serde_json::from_value(it.l1.clone());
+        match l {
+            Ok(l) => {
+                if let Err(e) = crate::price::validate(&l) {
+                    return err(e.code, format!("result {k} ({}): {}", it.id, e.message));
+                }
+            }
+            Err(e) => return err("BAD_PRICE_OVERRIDE", format!("result {k} ({}): {e}", it.id)),
+        }
+        if let Ok(f) = &it.fit {
+            if let Some(po) = f.get("price_overrides") {
+                match serde_json::from_value::<Vec<PriceOverride>>(po.clone()) {
+                    Ok(l) => {
+                        if let Err(e) = crate::price::validate(&l) {
+                            return err(e.code, format!("result {k} ({}): {}", it.id, e.message));
+                        }
+                    }
+                    Err(e) => return err("BAD_PRICE_OVERRIDE", format!("result {k} ({}): {e}", it.id)),
+                }
+            }
+        }
+    }
+    let sh_prices = batch_prices.clone();
     let sh = Shared { batch_po, batch_prices, force_price };
     let outs = compute_all(&items, &sh);
     let include_base = r.get("include_base").and_then(|x| x.as_bool()).unwrap_or(false);
@@ -482,6 +530,9 @@ pub fn run(req: &Value) -> Value {
             obj.insert("error".into(), e.clone());
         } else {
             obj.insert("stats".into(), project(&out));
+            if let Some(p) = out.get("provenance") {
+                obj.insert("provenance".into(), p.clone());
+            }
             if want_price {
                 if let Some(p) = out.get("price") {
                     obj.insert("price".into(), p.clone());
@@ -608,6 +659,17 @@ pub fn run(req: &Value) -> Value {
     let _ = rows.iter().map(|r| r.index).count();
     resp.insert("results".into(), Value::Array(rows.into_iter().map(|r| Value::Object(r.obj)).collect()));
     resp.insert("warnings".into(), Value::Array(warnings));
+    let (mut use_market, mut table) = (true, false);
+    if let Some(p) = &sh_prices {
+        table = !p.isk.is_empty();
+        if p.mode.as_deref() == Some("replace") {
+            use_market = false;
+        }
+        if let Some(u) = p.use_snapshot {
+            use_market = u;
+        }
+    }
+    resp.insert("provenance".into(), crate::prov::provenance_value(use_market, table));
     Value::Object(resp)
 }
 
