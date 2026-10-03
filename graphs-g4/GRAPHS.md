@@ -55,3 +55,22 @@ Behaviour is implemented from the contract text and from Pyfa's documented graph
 Pyfa-generated expected values (oracle). Pyfa is GPL-3.0; none of its code is copied here. Data lists that are facts
 about the game (e.g. navy ammo name prefixes, charge groups) are restated, not copied code. License of this
 variant: LGPL-3.0-or-later (see LICENSE).
+
+## Informational charge ids (application profile): why 103/120 is the ceiling
+
+The 17 `*_charge_type_id` points that differ from Pyfa (contract 0.2, not scored) are all **exact ties**: charges
+with identical damage vectors and identical range/tracking multipliers, e.g. Dark Blood vs True Sansha
+Multifrequency M (16.8 EM / 12 TH each), Dread Guristas vs Guardian Antimatter L, Domination Fusion vs EMP L
+(both 12 raw), Caldari vs Federation Navy Antimatter L. The applied values are bit-identical, so float rounding
+can't decide them.
+
+Black-box experiment (2026-10-03, reverted):
+- "Highest type id wins" fixes the 17 points but breaks 25 others, for 95/120. The oracle picks True Sansha
+  Standard M over Dark Blood at 50 km but Dark Blood Multifrequency M over True Sansha at 20 km.
+- `id mod 2^k` set-slot orders don't fit consistently either, across tiers or candidate-set sizes.
+
+Pyfa's behaviour, read for understanding only: the candidates come from a Python `set` of item *objects*. Those
+objects hash by memory address, and the first strict maximum in iteration order wins. The winner of an exact tie
+therefore depends on the allocation order inside Pyfa's process and isn't a function of the data. The engine
+keeps a deterministic rule (candidates in dataset order, first strict maximum), which gives 103/120. The contract
+is right not to score these ids.
