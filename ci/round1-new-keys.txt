@@ -1,3 +1,4 @@
 # stats-ext keys added after round1-base.sha256 (one dotted path per line; [] = each array element)
 mining
 attributes.fighters
+outgoing

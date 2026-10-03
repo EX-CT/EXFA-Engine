@@ -901,6 +901,72 @@ impl Fit {
             jv!({"modules_m3_s": m_y, "drones_m3_s": d_y, "total_m3_s": m_y + d_y, "modules_drain_m3_s": m_d, "drones_drain_m3_s": d_d})
         };
 
+        // ---------------- outgoing remote reps / cap transfer (Pyfa Fit.getRemoteReps; contract 1.10 stats-ext `outgoing`)
+        let outgoing = {
+            let rr_mods: Vec<(usize, u8)> = modules
+                .iter()
+                .filter(|&&i| active(i))
+                .filter_map(|&i| {
+                    let k = match d::group_name(self.items[i].group)? {
+                        "Remote Shield Booster" | "Ancillary Remote Shield Booster" => 0u8,
+                        "Remote Armor Repairer" | "Ancillary Remote Armor Repairer" | "Mutadaptive Remote Armor Repairer" => 1,
+                        "Remote Hull Repairer" => 2,
+                        "Remote Capacitor Transmitter" => 3,
+                        _ => return None,
+                    };
+                    Some((i, k))
+                })
+                .collect();
+            // per module / drone stack base amounts (shield, armor, hull, cap per cycle) and average cycle
+            let drone_rr: [f64; 4] = {
+                let mut t = [0.0f64; 4];
+                for &i in &drones {
+                    let n = self.items[i].active_count as f64;
+                    if n <= 0.0 {
+                        continue;
+                    }
+                    let cyc = if self.items[i].charge.is_some() {
+                        g(i, a::missileLaunchDuration)
+                    } else {
+                        [a::speed, a::duration, a::durationHighisGood].iter().map(|&x| g(i, x)).find(|&x| x != 0.0).unwrap_or(0.0)
+                    };
+                    if cyc == 0.0 {
+                        continue;
+                    }
+                    let f = 1000.0 / cyc;
+                    t[0] += g(i, a::shieldBonus) * n * f;
+                    t[1] += g(i, a::armorDamageAmount) * n * f;
+                    t[2] += g(i, a::structureDamageAmount) * n * f;
+                }
+                t
+            };
+            let calc = |forced: Option<Spool>| {
+                let mut t = drone_rr;
+                for &(i, k) in &rr_mods {
+                    let cyc = self.avg_cycle_ms(i, factor_reload);
+                    if cyc == 0.0 {
+                        continue;
+                    }
+                    let amount = match k {
+                        0 => g(i, a::shieldBonus),
+                        1 => {
+                            let paste = self.items[i].charge.is_some() && d::group_name(self.items[i].group) == Some("Ancillary Remote Armor Repairer");
+                            g(i, a::armorDamageAmount) * if paste { g(i, a::chargedArmorDamageMultiplier) } else { 1.0 }
+                        }
+                        2 => g(i, a::structureDamageAmount),
+                        _ => g(i, a::powerTransferAmount),
+                    };
+                    let spool = forced.unwrap_or_else(|| self.items[i].spool.unwrap_or(default_spool));
+                    let (sp, _, _) = spoolup(g(i, a::repairMultiplierBonusMax), g(i, a::repairMultiplierBonusPerCycle), self.raw_cycle_ms(i) / 1000.0, spool);
+                    t[k as usize] += amount * (1.0 + sp) / (cyc / 1000.0);
+                }
+                jv!({"shield_per_s": t[0], "armor_per_s": t[1], "hull_per_s": t[2], "capacitor_per_s": t[3]})
+            };
+            jv!({"current": calc(None),
+                 "spool_min": calc(Some(Spool { kind: SpoolType::SpoolScale, amount: 0.0 })),
+                 "spool_max": calc(Some(Spool { kind: SpoolType::SpoolScale, amount: 1.0 }))})
+        };
+
         let mut out = Vec::<(Key, J)>::new();
         out.push_kv(
             "meta".into(),
@@ -917,6 +983,7 @@ impl Fit {
         out.push_kv("targeting".into(), targeting);
         out.push_kv("drones".into(), drones_j);
         out.push_kv("mining".into(), mining);
+        out.push_kv("outgoing".into(), outgoing);
         out.push_kv("modules".into(), J::A(module_rows));
         if req.options.validate {
             out.push_kv("violations".into(), J::A(self.validate(cpu_used, pg_used, calib_used, bw_used)));
