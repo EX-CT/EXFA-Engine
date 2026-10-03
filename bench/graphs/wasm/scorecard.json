@@ -1,0 +1,71 @@
+{
+ "variant": "G4-wasm",
+ "cases": 178,
+ "cases_fully_correct": 178,
+ "values_correct": 2437,
+ "values_total": 2437,
+ "accuracy": 1.0,
+ "info_charge_ids": {
+  "ok": 103,
+  "total": 120
+ },
+ "groups": {
+  "application_profile": {
+   "ok": 120,
+   "total": 120,
+   "cases": 10
+  },
+  "capacitor": {
+   "ok": 173,
+   "total": 173,
+   "cases": 14
+  },
+  "damage": {
+   "ok": 918,
+   "total": 918,
+   "cases": 60
+  },
+  "ecm_burst": {
+   "ok": 218,
+   "total": 218,
+   "cases": 11
+  },
+  "errors": {
+   "ok": 20,
+   "total": 20,
+   "cases": 20
+  },
+  "ewar": {
+   "ok": 337,
+   "total": 337,
+   "cases": 22
+  },
+  "lock_time": {
+   "ok": 82,
+   "total": 82,
+   "cases": 7
+  },
+  "mobility": {
+   "ok": 259,
+   "total": 259,
+   "cases": 10
+  },
+  "remote_reps": {
+   "ok": 151,
+   "total": 151,
+   "cases": 11
+  },
+  "shield_regen": {
+   "ok": 66,
+   "total": 66,
+   "cases": 5
+  },
+  "warp_time": {
+   "ok": 93,
+   "total": 93,
+   "cases": 8
+  }
+ },
+ "wall_s": 0.637406917012413,
+ "time": "2026-10-03T08:53:12+0800"
+}

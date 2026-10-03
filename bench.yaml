@@ -1,5 +1,8 @@
-# eve-dogma-bench manifest for Variant J (C++20). Run from this directory.
-build: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && ninja -C build && ./build/eve-dogma-j build-cache --dataset {dataset}
-cmd: ./build/eve-dogma-j calc --dataset {dataset}
-batch_cmd: ./build/eve-dogma-j batch --dataset {dataset}
-rpc_cmd: ./build/eve-dogma-j serve-stdio --dataset {dataset}
+# eve-dogma-bench manifest (variant F). The dataset is compiled in at build time.
+# Static glibc build (+crt-static, ~0.4 ms faster process start); falls back to the default dynamic build.
+build: (EVE_DOGMA_DATASET={dataset} RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-gnu && cp target/x86_64-unknown-linux-gnu/release/eve-dogma-f target/eve-dogma-f-bench) || (EVE_DOGMA_DATASET={dataset} cargo build --release && cp target/release/eve-dogma-f target/eve-dogma-f-bench)
+cmd: ./target/eve-dogma-f-bench calc
+batch_cmd: ./target/eve-dogma-f-bench batch
+rpc_cmd: ./target/eve-dogma-f-bench serve-stdio
+# round 2 (graphs-round2): GraphRequest JSONL in -> GraphResult JSONL out
+graph_batch_cmd: ./target/eve-dogma-f-bench graph-batch

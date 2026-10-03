@@ -1,1 +1,0 @@
-bench: 1.8.0+33db85a, variant commit 60d86ec (scored head = the bench's work/J clone), measured 2026-10-03 08:34 CST, load 9.6; median of 3 runs by latency (0.036/0.052/0.090 ms/calc at load 8.6/9.6/9.6)

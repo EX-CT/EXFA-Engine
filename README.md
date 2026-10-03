@@ -1,98 +1,81 @@
-# Variant J — C++20 high-performance EVE dogma engine
+# Variant F — build-time code generation (Rust → native + WASM)
 
-A C++20 implementation of the EX-CT FitRequest → FitStats contract (`docs/contract.md` of eve-dogma-rs,
-`CONTRACT.md` in eve-dogma-bench). It is an algorithmic port of eve-dogma-rs (Variant A), built for minimal
-single-fit latency and high multi-core batch throughput. Its output is byte-identical to the reference engine
-on the whole bench corpus (only `meta.engine` differs).
+> **Branch `graphs-g4`:** variant F plus round-2 graphs, scheme **G4 (declarative graph spec)** — see
+> [Graphs (G4)](#graphs-g4-declarative-graph-spec) below and [GRAPHS.md](GRAPHS.md).
 
-## Build
+EVE Online dogma engine for the EXCT contract (`eve-dogma-rs/docs/contract.md`, v1): one JSON `FitRequest` on
+stdin → one JSON `FitStats` on stdout, stateless and deterministic.
 
-Requirements: C++20 compiler (g++ ≥ 13 or clang ≥ 17), CMake ≥ 3.20, Ninja, simdjson (≥ 3), libdeflate.
-On Debian/Ubuntu: `apt install g++ cmake ninja-build libsimdjson-dev libdeflate-dev`.
+The SDE dataset (`dataset-3569502.json.gz`, eve-sde-pipeline format v1) is **compiled into the binary**: `build.rs`
+turns every effect's modifier list into straight-line Rust code and every type/attribute/group into static tables.
+The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.md).
 
-```bash
-cd variant-j
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release   # -DEVEJ_NATIVE=ON for -march=native, -DEVEJ_LTO=OFF to disable LTO
-ninja -C build
-```
-
-## Test
+## Build & run
 
 ```bash
-EVE_DOGMA_DATASET=/path/to/dataset.json.gz ctest --test-dir build --output-on-failure
+# dataset: $EVE_DOGMA_DATASET, default ../../data/dataset-3569502.json.gz (EXCT box layout)
+export EVE_DOGMA_DATASET=/workspace/exct-eve/data/dataset-3569502.json.gz
+cargo build --release
+./target/release/eve-dogma-f calc < request.json > response.json
+./target/release/eve-dogma-f batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
+# EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)
+./target/release/eve-dogma-f serve-stdio                                   # JSONL RPC: calc | search | type | meta | eft_parse | eft_export | format_export | format_import
+./target/release/eve-dogma-f meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
 ```
 
-123 CTest tests (`-DEVEJ_TESTS=OFF` to skip building them): 7 unit tests (`test/unit_test.cpp`: number formatting
-fast path vs generic path, serde_json number semantics, Rust u32 parsing, capsim compact vs general event layout,
-capsim and range-factor basics) and 116 golden regression tests (`test/golden/`): 100 structured random fits
-(`tools/randfit_ref.py 41`), 15 malformed/edge requests through `calc`, and one 60-line `serve-stdio` session
-(calc, eft_export, eft_parse round trip, search, type, unknown method). When recorded, every stored output was checked
-byte-identical to eve-dogma-rs (engine name aside), except the BAD_REQUEST message wording of 4 malformed requests
-(see "Known contract differences"; codes and paths match). Wider parity checks against the reference
-live in `tools/` (compare_ref.py, fuzz_ref.py, randfit_ref.py).
-
-## Run
+### WASM
 
 ```bash
-D=/workspace/exct-eve/data/dataset-3569502.json.gz
-./build/eve-dogma-j calc  --dataset $D < request.json          # one FitRequest (stdin or FILE) -> FitStats
-./build/eve-dogma-j batch --dataset $D < requests.jsonl        # JSONL in -> JSONL out, same order, multithreaded
-./build/eve-dogma-j batch --dataset $D --threads 1 < req.jsonl # single-threaded batch
-./build/eve-dogma-j serve-stdio --dataset $D                   # JSONL {"cmd":"calc"|"meta"|"type"|"search",...}
-./build/eve-dogma-j meta|type ID|search TEXT --dataset $D
-./build/eve-dogma-j bench FILE -n 1000 --dataset $D            # in-process latency of one request
-./build/eve-dogma-j build-cache --dataset $D                   # pre-build the binary dataset image
+rustup target add wasm32-wasip1 wasm32-unknown-unknown
+cargo build --release --target wasm32-wasip1                 # CLI as WASI module
+wasmtime run target/wasm32-wasip1/release/eve-dogma-f.wasm calc < request.json
+cargo build --lib --profile release-small --target wasm32-unknown-unknown   # 3.76 MB (0.86 MB gzip), C-ABI exports
+node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogma_f.wasm < request.json
 ```
 
-The first run converts the gzipped JSON dataset to a flat binary image and caches it at
-`~/.cache/eve-dogma-j/<name>-<sha>.bin` (override with `--cache PATH` or `$EVE_DOGMA_J_CACHE`; `--no-cache`
-disables it). Later runs mmap the image in under 1 ms.
+### Bench
 
-Exit code: 0 on success, 2 if the response is an error object (`calc`), 1 on usage or dataset errors.
+`bench.yaml` is the eve-dogma-bench manifest. Bench 1.8.0: **326/326 cases, 21 051/21 051 values, EFT export 326/326**,
+0.064 ms/fit, 10 500 fits/s batch, 4 ms cold (see RESULTS.md, `bench/`).
 
-## Bench
+### Graphs (G4, declarative graph spec)
 
-`bench.yaml` is the eve-dogma-bench manifest. Results are in `results/`:
+Round-2 graph contract (eve-dogma-bench `graphs-round2`, `graphs/CONTRACT-GRAPHS.md`): all 9 Pyfa graph types.
 
-* `results/bench/`: `bench.py --only J` scorecard (bench version and machine load are in `RUN.txt`)
-* `results/compare_ref.txt`: byte/tolerance comparison against the eve-dogma-rs binary (`tools/compare_ref.py`)
+```bash
+./target/release/eve-dogma-f graph < graph_request.json        # one GraphRequest -> GraphResult
+./target/release/eve-dogma-f graph-batch < requests.jsonl       # JSONL, parallel, ordered
+./target/release/eve-dogma-f graph-specs                        # the catalogue (graphs.json)
+# RPC (serve-stdio and the WASM `rpc` export): {"method":"graph","params":GraphRequest}, {"method":"graph_specs"}
+```
 
-Bench 1.8.0 (326 cases), shared 8-core box (J measured 2026-10-03 08:34 CST at load 9.6; A measured 2026-10-03 08:36 CST at load 6.1):
+The catalogue `graphs.json` (compiled in) declares per graph its axes + validity limiters, params with defaults
+and one formula per (series, axis); formulas are expression trees over engine observables (`ship.<attr>`,
+`stat.<path>`, `p.<param>`, `s.<setting>`, `x`) and named kernels (capacitor simulation history, sub-warp speed,
+EWAR source tables, remote-rep and damage time lines, application, application profile, ECM burst). Scores:
+contract 0.2 (178 cases / 2 437 values) **178/178, 2 437/2 437**; contract 0.1 (111 / 1 843) **111/111,
+1 843/1 843** — native and WASM (wasip1) alike, `bench/graphs/README.md`. Behaviour follows the contract and Pyfa's graph outputs as oracle; no Pyfa (GPL) code
+is used.
 
-| | J (this) | A (eve-dogma-rs) |
-|---|---|---|
-| cases / values vs Pyfa | 326/326, 21 051/21 051 | 326/326, 21 051/21 051 |
-| latency, one fit (bench ms/calc) | 0.052 ms | 0.143 ms |
-| batch throughput | 15 002 fits/s | 4 283 fits/s |
-| cold start (one process per case, median) | 2 ms | 10 ms |
-| EFT export vs Pyfa (informational) | 326/326 | 326/326 |
-| byte-identical output to A (c3822c1) | 326/326 calc cases, all RPC methods | – |
+### Import / export formats (Pyfa parity)
 
-Pinned to one CPU (`taskset -c 3`, the round-1 evaluate.py latency method; batch then uses one worker), the bench's
-rifter request costs ≈ 0.088 ms/calc on this loaded box (≈ 0.82 M instructions per calc under callgrind).
+RPC `format_export {fit, name, format, options}` with `format` = `eft` | `dna` | `esi` | `xml` | `multibuy` |
+`shipstats`, and `format_import {text, format, path?}` with `format` = `auto` | `eft` | `eftcfg` | `dna` |
+`dna_alt` | `dna_link` | `esi` | `xml` (`auto` follows Pyfa's detection order and also recognises additions lists
+and single mutated items). Against the eve-dogma-bench `formats-suite` (Pyfa-generated round trips): all export
+variants 326/326 except shipstats 324/326, all four round-trip imports 326/326, edge files 16/16
+(`bench/formats/scorecard.md`).
 
-Timings on this shared box swing by ±50 % with the load from other agents (the bench takes one run per metric).
-Best J run so far: 0.034 ms/fit, 20 067 fits/s, 2 ms cold (dca13b9, bench 1.5.0, load 8.7).
+Branch note: `variant-f` is an orphan branch (the lab branches share no history) and holds only `variant-f/`.
 
-`EVEJ_TIMING=1` prints a phase breakdown (dataset open, ids, read, calc, write) to stderr.
-
-## Known contract differences vs eve-dogma-rs
-
-These are accepted by the coordinator. None of them affect calc outputs.
-
-* `BAD_REQUEST` messages: the error **codes** and paths match the reference, but the message text is J's own
-  wording rather than serde's.
-* Duplicate type names in `type_by_name`-style lookups (EFT parsing, `type`) resolve to the smallest published
-  type id, else the smallest id. Since eve-dogma-rs 7e24406 the reference uses the same rule (all 213 duplicate
-  names give identical `type` responses), so this is no longer a difference.
-* `meta.engine` is `eve-dogma-j 0.1.0`.
-* Structs sent as JSON arrays (serde's sequence form) are accepted since a203c98. Requests are normalised on the
-  error path only, so the fast path is unchanged. `tools/arrconv_ref.py` checks this against the reference.
+`--dataset PATH` is accepted (ignored) so command lines written for the reference engine keep working.
 
 ## License
 
-SPDX-License-Identifier: LGPL-3.0-or-later. Full texts: [LICENSE](LICENSE) (LGPL-3.0) and
-[LICENSE.GPL-3.0](LICENSE.GPL-3.0) (GPL-3.0, which the LGPL-3.0 incorporates by reference).
-The engine is a port of eve-dogma-rs's algorithms, which are LGPL-3.0-or-later. Variant J is therefore
-distributed under **LGPL-3.0-or-later** as well (see DESIGN.md, "Provenance"). No Pyfa (GPL) code is included.
-Pyfa served only as a black-box test oracle, through the bench. EVE Online data © CCP hf.
+LGPL-3.0-or-later (per eve-fit-docs `LICENSING.md`; `license = "LGPL-3.0-or-later"` in `Cargo.toml`). The full
+LGPL v3 text is in [`LICENSE`](LICENSE); as the LGPL v3 is a set of additional permissions on top of the GPL v3,
+the GPL v3 text is included as [`LICENSE.GPL-3.0`](LICENSE.GPL-3.0) (same layout as eve-dogma-rs).
+
+Provenance: engine semantics derived from eve-dogma-rs; behaviour tables that mirror Pyfa (GPL-3.0) handlers are
+described in DESIGN.md "Provenance". Import/export formats are written from public format descriptions and
+Pyfa used only as a black-box test oracle (no Pyfa code). EVE data is CCP's (not covered by this licence).

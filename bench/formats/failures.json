@@ -1,0 +1,23 @@
+[
+ {
+  "id": "esf_items_7.json@export:shipstats",
+  "category": "export:shipstats",
+  "scored": false,
+  "agrees_with_pyfa": false,
+  "reason": "known divergence cap_capacity (structure module on a ship, invalid fit; Pyfa applies it, SDE domain says no) -> 'Capacitor' line"
+ },
+ {
+  "id": "esf_structure_bonus_1.json@export:shipstats",
+  "category": "export:shipstats",
+  "scored": false,
+  "agrees_with_pyfa": false,
+  "reason": "known divergence hp.armor / ehp.armor (SDE: unpowered structure zeroes the plating bonus; Pyfa's hand-written handler ignores power state) -> 'EHP' and 'Armor' lines"
+ },
+ {
+  "id": "eft_renamed_item.eft.txt@auto",
+  "category": "edge:eft",
+  "scored": false,
+  "agrees_with_pyfa": false,
+  "reason": "legacy item name ('Drone Control Unit I') resolved by Pyfa's rename table; SDE 3569502 only has 'Fighter Support Unit I' (scored control: eft_current_name.eft.txt); report-only"
+ }
+]

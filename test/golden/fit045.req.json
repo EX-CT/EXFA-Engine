@@ -1,1 +1,0 @@
-{"schema_version": 1, "ship": {"type_id": 64034}, "modules": [{"type_id": 8748, "slot": "low", "state": "online"}], "boosters": [{"type_id": 57272}, {"type_id": 15457}, {"type_id": 54614}], "character": {"skills": {"default_level": 5}}, "options": {"cap_sim": {"reload": true, "stagger": true}}}

@@ -1,0 +1,235 @@
+{
+ "categories": {
+  "edge:autodetect": {
+   "code_ok": 6,
+   "error_rows": 6,
+   "pass": 6,
+   "total": 6
+  },
+  "edge:dna": {
+   "code_ok": 2,
+   "error_rows": 2,
+   "pass": 9,
+   "total": 9,
+   "unscored_agree": 3,
+   "unscored_rows": 3
+  },
+  "edge:eft": {
+   "code_ok": 5,
+   "error_rows": 5,
+   "pass": 29,
+   "total": 29,
+   "unscored_agree": 0,
+   "unscored_rows": 1
+  },
+  "edge:eftcfg": {
+   "code_ok": 2,
+   "error_rows": 2,
+   "pass": 2,
+   "total": 2
+  },
+  "edge:esi": {
+   "code_ok": 4,
+   "error_rows": 4,
+   "pass": 10,
+   "total": 10,
+   "unscored_agree": 1,
+   "unscored_rows": 1
+  },
+  "edge:forced": {
+   "code_ok": 6,
+   "error_rows": 6,
+   "info_notes": 1,
+   "pass": 14,
+   "total": 14,
+   "unscored_agree": 3,
+   "unscored_rows": 3
+  },
+  "edge:items": {
+   "pass": 8,
+   "total": 8
+  },
+  "edge:multi": {
+   "info_notes": 1,
+   "pass": 5,
+   "total": 5,
+   "unscored_agree": 2,
+   "unscored_rows": 2
+  },
+  "edge:mutated": {
+   "pass": 4,
+   "total": 4
+  },
+  "edge:xml": {
+   "code_ok": 3,
+   "error_rows": 3,
+   "pass": 6,
+   "total": 6,
+   "unscored_agree": 1,
+   "unscored_rows": 1
+  },
+  "edge_export:dna": {
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:dna_formatted": {
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:eft": {
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:eft_min": {
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:esi": {
+   "code_ok": 1,
+   "error_rows": 1,
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:esi_min": {
+   "code_ok": 1,
+   "error_rows": 1,
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:import_dna": {
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:import_eft": {
+   "code_ok": 1,
+   "error_rows": 1,
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:import_esi": {
+   "pass": 8,
+   "total": 8
+  },
+  "edge_export:import_xml": {
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:multibuy": {
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:multibuy_min": {
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:shipstats": {
+   "pass": 9,
+   "total": 9
+  },
+  "edge_export:xml": {
+   "pass": 9,
+   "total": 9
+  },
+  "export:dna": {
+   "pass": 326,
+   "total": 326
+  },
+  "export:dna_formatted": {
+   "pass": 326,
+   "total": 326
+  },
+  "export:eft": {
+   "info_known_divergence_subsystem_slot": 21,
+   "pass": 326,
+   "total": 326
+  },
+  "export:eft_min": {
+   "info_known_divergence_subsystem_slot": 21,
+   "pass": 326,
+   "total": 326
+  },
+  "export:esi": {
+   "pass": 326,
+   "total": 326
+  },
+  "export:esi_min": {
+   "code_ok": 2,
+   "error_rows": 2,
+   "pass": 326,
+   "total": 326
+  },
+  "export:multibuy": {
+   "pass": 326,
+   "total": 326
+  },
+  "export:multibuy_min": {
+   "pass": 326,
+   "total": 326
+  },
+  "export:shipstats": {
+   "pass": 323,
+   "total": 323,
+   "unscored_agree": 1,
+   "unscored_rows": 3
+  },
+  "export:xml": {
+   "pass": 326,
+   "total": 326
+  },
+  "import:dna": {
+   "code_ok": 1,
+   "error_rows": 1,
+   "legal_pass": 194,
+   "legal_total": 194,
+   "pass": 326,
+   "total": 326
+  },
+  "import:eft": {
+   "legal_pass": 194,
+   "legal_total": 194,
+   "pass": 326,
+   "total": 326
+  },
+  "import:esi": {
+   "legal_pass": 194,
+   "legal_total": 194,
+   "pass": 326,
+   "total": 326
+  },
+  "import:xml": {
+   "legal_pass": 194,
+   "legal_total": 194,
+   "pass": 326,
+   "total": 326
+  }
+ },
+ "contract": "CONTRACT-FORMATS 0.1 (rulings 2026-10-03)",
+ "gate": true,
+ "groups": {
+  "edge": {
+   "pass": 93,
+   "total": 93,
+   "unscored": 11
+  },
+  "edge_export": {
+   "pass": 125,
+   "total": 125,
+   "unscored": 0
+  },
+  "export": {
+   "pass": 3257,
+   "total": 3257,
+   "unscored": 3
+  },
+  "import": {
+   "pass": 1304,
+   "total": 1304,
+   "unscored": 0
+  }
+ },
+ "rows": 4779,
+ "rows_passed": 4779,
+ "score_pct": 100.0,
+ "variant": "FF-wasm",
+ "wall_s": 1.245
+}
