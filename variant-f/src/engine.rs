@@ -1666,6 +1666,9 @@ pub fn infer_slot(ty: usize) -> Option<Slot> {
     None
 }
 
+/// group id of "Missile Launcher Bomb"
+const G_MISSILE_LAUNCHER_BOMB: u32 = 862;
+
 /// Evaluate everything item `i` of fit `sf` projects (all values from the projecting side), `times` times.
 fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out: &mut Vec<ProjAction>) {
     let g = |x: u16| sf.get(i, x);
@@ -1681,6 +1684,38 @@ fn collect_projection(sf: &Fit, i: usize, distance: Option<f64>, times: u32, out
             eid,
             e::doomsdayAOEWeb | e::doomsdayAOENeut | e::doomsdayAOEPaint | e::doomsdayAOETrack | e::doomsdayAOEDamp | e::doomsdayAOEECM
         );
+        // projected bomb launcher (Pyfa: launcher effect in 'projected' context, group Missile Launcher Bomb): a
+        // void bomb neutralises energyNeutralizerAmount of the charge once per launcher speed + reactivation delay.
+        // An input-side capacitor drain: no range factor, no resistance (Pyfa fit.addDrain).
+        if eid == e::useMissiles && sf.items[i].group == G_MISSILE_LAUNCHER_BOMB {
+            if let Some(c) = sf.items[i].charge {
+                let delay = g(a::moduleReactivationDelay);
+                let speed = g(a::speed);
+                let neut = sf.get(c, a::energyNeutralizerAmount);
+                if delay != 0.0 && neut != 0.0 && speed != 0.0 {
+                    let dr = ExtDrain {
+                        cycle_ms: speed + delay,
+                        amount: neut,
+                        resist: 0,
+                        sig_res: g(a::energyNeutralizerSignatureResolution),
+                        assistance: false,
+                        late: false,
+                    };
+                    for _ in 0..times {
+                        out.push(ProjAction::Drain(dr));
+                    }
+                }
+                // lockbreaker bombs: ECM strength of the charge (Pyfa fit.addProjectedEcm, no resistance)
+                const ECM_BOMB: [u16; 4] = [a::scanMagnetometricStrengthBonus, a::scanLadarStrengthBonus, a::scanRadarStrengthBonus, a::scanGravimetricStrengthBonus];
+                let st = ECM_BOMB.map(|x| sf.get(c, x));
+                if st.iter().any(|&v| v != 0.0) {
+                    for _ in 0..times {
+                        out.push(ProjAction::Ecm { st, resist: 0 });
+                    }
+                }
+            }
+            continue;
+        }
         if meta.cat != 2 && meta.cat != 3 && eid != e::ECMBurstJammer && !doomsday {
             continue;
         }
