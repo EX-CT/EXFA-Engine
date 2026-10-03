@@ -4,3 +4,4 @@ attributes.fighters
 outgoing
 drones.items
 fighters
+bombing

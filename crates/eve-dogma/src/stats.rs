@@ -986,6 +986,38 @@ impl Fit {
                  "spool_max": calc(Some(Spool { kind: SpoolType::SpoolScale, amount: 1.0 }))})
         };
 
+        // ---------------- bombing (Pyfa bombing panel; contract 1.10 stats-ext `bombing`): bombs to kill this fit
+        let bombing = {
+            let stat = |t: u32, at: u16| d::type_index(t).and_then(|ix| d::type_attr(ix, at)).unwrap_or(0.0);
+            let mut env_mul = 1.0f64;
+            for &t in &req.environment.effect_type_ids {
+                let n = d::type_name_by_id(t);
+                if n.starts_with("Class ") && n.ends_with(" Red Giant Effects") && n.len() == "Class 1 Red Giant Effects".len() {
+                    env_mul *= stat(t, a::smartbombDamageMultiplier);
+                }
+            }
+            let sig = g(ship, a::signatureRadius);
+            let (hh, ha, hs) = (g(ship, a::hp), g(ship, a::armorHP), g(ship, a::shieldCapacity));
+            let mut m = Vec::<(Key, J)>::new();
+            for (name, bomb, rh, ra, rs) in [
+                ("em", 27920u32, a::emDamageResonance, a::armorEmDamageResonance, a::shieldEmDamageResonance),
+                ("thermal", 27916, a::thermalDamageResonance, a::armorThermalDamageResonance, a::shieldThermalDamageResonance),
+                ("kinetic", 27912, a::kineticDamageResonance, a::armorKineticDamageResonance, a::shieldKineticDamageResonance),
+                ("explosive", 27918, a::explosiveDamageResonance, a::armorExplosiveDamageResonance, a::shieldExplosiveDamageResonance),
+            ] {
+                let ehp = hh / g(ship, rh) + ha / g(ship, ra) + hs / g(ship, rs);
+                let base = stat(bomb, a::emDamage) + stat(bomb, a::thermalDamage) + stat(bomb, a::kineticDamage) + stat(bomb, a::explosiveDamage);
+                let bsig = stat(bomb, a::signatureRadius);
+                let mut lv = Vec::<(Key, J)>::new();
+                for l in 0..=5 {
+                    let applied = base * (1.0 + 0.05 * l as f64) * env_mul * (bsig.min(sig) / bsig);
+                    lv.push_kv(format!("covert_ops_{l}").into(), jv!((ehp / applied * 10.0).ceil() / 10.0));
+                }
+                m.push_kv(name.into(), J::O(lv));
+            }
+            J::O(m)
+        };
+
         let mut out = Vec::<(Key, J)>::new();
         out.push_kv(
             "meta".into(),
@@ -1004,6 +1036,7 @@ impl Fit {
         out.push_kv("mining".into(), mining);
         out.push_kv("outgoing".into(), outgoing);
         out.push_kv("fighters".into(), fighters_j);
+        out.push_kv("bombing".into(), bombing);
         out.push_kv("modules".into(), J::A(module_rows));
         if req.options.validate {
             out.push_kv("violations".into(), J::A(self.validate(cpu_used, pg_used, calib_used, bw_used)));
