@@ -1,27 +1,23 @@
-# FORMATS contract 0.1 (DRAFT) scorecards
+# FORMATS contract 0.1 (DRAFT, with eve's rulings) scorecards
 
-Suite: eve-dogma-bench `formats-suite` @ 7784ce7 (`formats/CONTRACT-FORMATS.md` rev 0.1 draft, 4792 rows), scorer
-`tools/evaluate_formats.py --rpc "<bin> serve-stdio"`.
+Suite: eve-dogma-bench `formats-suite` @ af4180f (`formats/CONTRACT-FORMATS.md` rev 0.1 draft + rulings: 4793
+rows, 4782 scored, 4 groups × 25 %), scorer `tools/evaluate_formats.py --rpc "<bin> serve-stdio"`.
 
-| dir | binary | rows | export | import | edge_export | edge |
-|---|---|---|---|---|---|---|
-| `F-native/` | variant-f **bc84e2b** release (x86_64) | 4781/4792 | 3258/3260 | 1304/1304 | 124/125 | 95/103 |
-| `F-wasm/` | variant-f **bc84e2b** wasm32-wasip1 (wasmtime, precompiled) | 4781/4792 | 3258/3260 | 1304/1304 | 124/125 | 95/103 |
-| `graphs-g4-native/` | graphs-g4 (same formats code) | 4781/4792 | 3258/3260 | 1304/1304 | 124/125 | 95/103 |
+| dir | binary | score (4×25 %) | scored rows | export | import | edge_export | edge (scored) | report-only agree |
+|---|---|---|---|---|---|---|---|---|
+| `F-native/`, `F-wasm/` | variant-f **bc84e2b** (native / wasm32-wasip1) | 98.44 % | 4774/4782 | 3258/3260 | 1304/1304 | 124/125 | 88/93 | 8/11 |
+| `graphs-g4-native/`, `graphs-g4-wasm/` | graphs-g4 **22dbeb7** (formats parity fixes) | 99.98 % | 4780/4782 | 3258/3260 | 1304/1304 | 125/125 | 93/93 | 10/11 |
 
-These are kept on graphs-g4 so that variant-f stays untouched for the 10:20 CST scoring. The same files can be
-copied to `variant-f/bench/formats/` afterwards. The 11 failures (identical on native and WASM):
-- shipstats ×2: the known structure-bonus / odd-item cases.
-- XML import of a name containing a newline.
-- 8 lenient imports where Pyfa fails:
-  - lower-case hull name
-  - `[Rifter,]`
-  - ESI without `description`
-  - malformed XML
-  - XML without `<description>`
-  - `<fittings count="0">`
-  - garbage forced as XML
-  - one missing rename (`Drone Control Unit I` → `Fighter Support Unit I`)
+Native and WASM give identical results.
 
-Error codes: F uses `IMPORT` / `UNSUPPORTED_FORMAT`, where the contract has `IMPORT_ERROR` / `UNRECOGNIZED_INPUT`
-(0/42, informational in 0.1).
+The 2 failures left on graphs-g4 are the known shipstats cases: `esf_structure_bonus_1` (a structure-bonus
+exclusion, excluded in the main bench too) and `esf_items_7` (capacitor). The one report-only disagreement is
+the legacy `Drone Control Unit I` name. The SDE has only `Fighter Support Unit I`, and that is deliberately not
+mapped.
+
+Error codes on graphs-g4 match the contract's recommended codes 34/34 (informational).
+
+Gates for 22dbeb7, native and WASM:
+- graphs 0.2: 178/178
+- round 1: 326/326, 21051/21051
+- EFT export: 326/326

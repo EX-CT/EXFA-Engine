@@ -53,23 +53,16 @@
  {
   "id": "eft_renamed_item.eft.txt@auto",
   "category": "edge:eft",
-  "reasons": [
-   "modules"
-  ],
-  "error": null,
-  "expected_error": null
+  "scored": false,
+  "agrees_with_pyfa": false,
+  "reason": "legacy item name ('Drone Control Unit I') resolved by Pyfa's rename table; SDE 3569502 only has 'Fighter Support Unit I' (scored control: eft_current_name.eft.txt); report-only"
  },
  {
   "id": "esi_missing_description.esi.json@auto",
   "category": "edge:esi",
-  "reasons": [
-   "expected_error"
-  ],
-  "error": null,
-  "expected_error": {
-   "code": "IMPORT_ERROR",
-   "pyfa": "KeyError: 'description'"
-  }
+  "scored": false,
+  "agrees_with_pyfa": false,
+  "reason": "ruling 1: Pyfa itself crashes (oracle invalid); report-only"
  },
  {
   "id": "xml_malformed.xml@auto",
@@ -86,14 +79,9 @@
  {
   "id": "xml_no_description.xml@auto",
   "category": "edge:xml",
-  "reasons": [
-   "expected_error"
-  ],
-  "error": null,
-  "expected_error": {
-   "code": "IMPORT_ERROR",
-   "pyfa": "AttributeError: 'NoneType' object has no attribute 'getAttribute'"
-  }
+  "scored": false,
+  "agrees_with_pyfa": false,
+  "reason": "ruling 1: Pyfa itself crashes (oracle invalid); report-only"
  },
  {
   "id": "xml_no_fittings.xml@auto",

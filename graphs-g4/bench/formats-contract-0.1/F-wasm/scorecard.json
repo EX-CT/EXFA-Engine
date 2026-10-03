@@ -8,19 +8,20 @@
   },
   "edge:dna": {
    "code_ok": 0,
-   "error_rows": 5,
-   "pass": 12,
-   "pyfa_crash_pass": 3,
-   "pyfa_crash_rows": 3,
-   "total": 12
+   "error_rows": 2,
+   "pass": 9,
+   "total": 9,
+   "unscored_agree": 3,
+   "unscored_rows": 3
   },
   "edge:eft": {
    "code_ok": 0,
    "diff_expected_error": 2,
-   "diff_modules": 1,
    "error_rows": 5,
-   "pass": 26,
-   "total": 29
+   "pass": 27,
+   "total": 29,
+   "unscored_agree": 0,
+   "unscored_rows": 1
   },
   "edge:eftcfg": {
    "code_ok": 0,
@@ -30,22 +31,21 @@
   },
   "edge:esi": {
    "code_ok": 0,
-   "diff_expected_error": 1,
-   "error_rows": 5,
+   "error_rows": 4,
    "pass": 10,
-   "pyfa_crash_pass": 0,
-   "pyfa_crash_rows": 1,
-   "total": 11
+   "total": 10,
+   "unscored_agree": 0,
+   "unscored_rows": 1
   },
   "edge:forced": {
    "code_ok": 0,
    "diff_expected_error": 1,
-   "error_rows": 9,
+   "error_rows": 6,
    "info_notes": 1,
-   "pass": 16,
-   "pyfa_crash_pass": 3,
-   "pyfa_crash_rows": 3,
-   "total": 17
+   "pass": 13,
+   "total": 14,
+   "unscored_agree": 3,
+   "unscored_rows": 3
   },
   "edge:items": {
    "pass": 8,
@@ -53,8 +53,10 @@
   },
   "edge:multi": {
    "info_notes": 1,
-   "pass": 7,
-   "total": 7
+   "pass": 5,
+   "total": 5,
+   "unscored_agree": 2,
+   "unscored_rows": 2
   },
   "edge:mutated": {
    "pass": 4,
@@ -62,12 +64,12 @@
   },
   "edge:xml": {
    "code_ok": 0,
-   "diff_expected_error": 3,
-   "error_rows": 4,
+   "diff_expected_error": 2,
+   "error_rows": 3,
    "pass": 4,
-   "pyfa_crash_pass": 0,
-   "pyfa_crash_rows": 1,
-   "total": 7
+   "total": 6,
+   "unscored_agree": 0,
+   "unscored_rows": 1
   },
   "edge_export:dna": {
    "pass": 9,
@@ -204,27 +206,33 @@
    "total": 326
   }
  },
- "contract": "CONTRACT-FORMATS 0.1",
+ "contract": "CONTRACT-FORMATS 0.1 (rulings 2026-10-03)",
+ "gate": false,
  "groups": {
   "edge": {
-   "pass": 95,
-   "total": 103
+   "pass": 88,
+   "total": 93,
+   "unscored": 11
   },
   "edge_export": {
    "pass": 124,
-   "total": 125
+   "total": 125,
+   "unscored": 0
   },
   "export": {
    "pass": 3258,
-   "total": 3260
+   "total": 3260,
+   "unscored": 0
   },
   "import": {
    "pass": 1304,
-   "total": 1304
+   "total": 1304,
+   "unscored": 0
   }
  },
- "rows": 4792,
- "rows_passed": 4781,
+ "rows": 4782,
+ "rows_passed": 4774,
+ "score_pct": 98.4406,
  "variant": "F-wasm",
- "wall_s": 1.327
+ "wall_s": 1.355
 }

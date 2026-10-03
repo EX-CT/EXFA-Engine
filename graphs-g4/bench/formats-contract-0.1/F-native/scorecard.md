@@ -1,30 +1,31 @@
 # Formats scorecard: F
 
-- contract: CONTRACT-FORMATS 0.1 (DRAFT)
-- rows passed: **4781/4792** (99.77 %)
-- error codes matching (informational): 0/42
-- rows where Pyfa crashes (flagged, scored in 0.1): 6/8 passed
-- wall time: 1.17 s
+- contract: CONTRACT-FORMATS 0.1 (rulings 2026-10-03) (DRAFT)
+- **score (4 groups x 25 %): 98.44 %**
+- scored rows passed: **4774/4782** (99.83 %) - gate not met
+- error codes matching (informational): 0/34
+- report-only rows (not scored) agreeing with Pyfa: 8/11
+- wall time: 1.30 s
 
-| group | pass | total | % |
-|---|---|---|---|
-| export | 3258 | 3260 | 99.9 |
-| import | 1304 | 1304 | 100.0 |
-| edge_export | 124 | 125 | 99.2 |
-| edge | 95 | 103 | 92.2 |
+| group | weight | pass | scored rows | % | report-only rows |
+|---|---|---|---|---|---|
+| export | 25 % | 3258 | 3260 | 99.94 | 0 |
+| import | 25 % | 1304 | 1304 | 100.00 | 0 |
+| edge_export | 25 % | 124 | 125 | 99.20 | 0 |
+| edge | 25 % | 88 | 93 | 94.62 | 11 |
 
 | category | pass | total | legal-fit pass | error code ok | notes |
 |---|---|---|---|---|---|
 | edge:autodetect | 6 | 6 |  | 0/6 |  |
-| edge:dna | 12 | 12 |  | 0/5 | pyfa_crash_pass 3, pyfa_crash_rows 3 |
-| edge:eft | 26 | 29 |  | 0/5 | diff_expected_error 2, diff_modules 1 |
+| edge:dna | 9 | 9 |  | 0/2 | unscored_agree 3, unscored_rows 3 |
+| edge:eft | 27 | 29 |  | 0/5 | diff_expected_error 2, unscored_agree 0, unscored_rows 1 |
 | edge:eftcfg | 2 | 2 |  | 0/2 |  |
-| edge:esi | 10 | 11 |  | 0/5 | diff_expected_error 1, pyfa_crash_pass 0, pyfa_crash_rows 1 |
-| edge:forced | 16 | 17 |  | 0/9 | diff_expected_error 1, info_notes 1, pyfa_crash_pass 3, pyfa_crash_rows 3 |
+| edge:esi | 10 | 10 |  | 0/4 | unscored_agree 0, unscored_rows 1 |
+| edge:forced | 13 | 14 |  | 0/6 | diff_expected_error 1, info_notes 1, unscored_agree 3, unscored_rows 3 |
 | edge:items | 8 | 8 |  |  |  |
-| edge:multi | 7 | 7 |  |  | info_notes 1 |
+| edge:multi | 5 | 5 |  |  | info_notes 1, unscored_agree 2, unscored_rows 2 |
 | edge:mutated | 4 | 4 |  |  |  |
-| edge:xml | 4 | 7 |  | 0/4 | diff_expected_error 3, pyfa_crash_pass 0, pyfa_crash_rows 1 |
+| edge:xml | 4 | 6 |  | 0/3 | diff_expected_error 2, unscored_agree 0, unscored_rows 1 |
 | edge_export:dna | 9 | 9 |  |  |  |
 | edge_export:dna_formatted | 9 | 9 |  |  |  |
 | edge_export:eft | 9 | 9 |  |  |  |
