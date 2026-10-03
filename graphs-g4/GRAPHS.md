@@ -1,7 +1,8 @@
 # Graphs, scheme G4 — declarative graph spec
 
 Round 2 of the EXCT engine bake-off: Pyfa's graph subsystem (contract: eve-dogma-bench branch `graphs-round2`,
-`graphs/CONTRACT-GRAPHS.md` rev 0.1; plan: eve-fit-docs `docs/10-round-2-graphs-plan.md`). This branch
+`graphs/CONTRACT-GRAPHS.md` rev 0.1, extended to rev 0.2 — ecm_burst, damage `tgt_speed_pct`/`tgt_sig_pct`,
+target fits for ewar/remote_reps, validation codes, param clamping; plan: eve-fit-docs `docs/10-round-2-graphs-plan.md`). This branch
 (`graphs-g4`, directory `graphs-g4/`) is variant F's engine plus a graph layer; `variant-f` itself is untouched.
 
 ## Shape

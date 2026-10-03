@@ -52,9 +52,9 @@ Round-2 graph contract (eve-dogma-bench `graphs-round2`, `graphs/CONTRACT-GRAPHS
 The catalogue `graphs.json` (compiled in) declares per graph its axes + validity limiters, params with defaults
 and one formula per (series, axis); formulas are expression trees over engine observables (`ship.<attr>`,
 `stat.<path>`, `p.<param>`, `s.<setting>`, `x`) and named kernels (capacitor simulation history, sub-warp speed,
-EWAR source tables, remote-rep and damage time lines, application, application profile). Score against the
-111-case / 1 843-value suite: **111/111 cases, 1 843/1 843 values, native and WASM (wasip1)** —
-`bench/graphs/scorecard.md`. Behaviour follows the contract and Pyfa's graph outputs as oracle; no Pyfa (GPL) code
+EWAR source tables, remote-rep and damage time lines, application, application profile, ECM burst). Scores:
+contract 0.2 (178 cases / 2 437 values) **178/178, 2 437/2 437**; contract 0.1 (111 / 1 843) **111/111,
+1 843/1 843** — native and WASM (wasip1) alike, `bench/graphs/README.md`. Behaviour follows the contract and Pyfa's graph outputs as oracle; no Pyfa (GPL) code
 is used.
 
 ### Import / export formats (Pyfa parity)
