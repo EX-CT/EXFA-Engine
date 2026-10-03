@@ -44,3 +44,6 @@ seed 3 requests 2000 lines 2000 2000 diff 0
 == batch output order, piped bursty input (tools/batch_order_check.py x10)
 runs with misordered output: 0/10
 == 60d86ec (worker count capped by CPU affinity): quick suite, ctest 123/123, taskset 1/2-CPU corpus runs identical
+
+# spot check vs eve-dogma-rs b08af08 (newest ref head, 08:39): bench cases 326/326 byte-identical, RPC over corpus 930/930,
+# fuzz_ref 7+11, capvar 2608, ref tests 799/799, randfit 91 x600, searchfuzz 4 x200: 0 diffs
