@@ -270,7 +270,7 @@ fn transitions(cds: &[Cd], turret: bool, osr: f64, tr: &Track, p: &Proj, max_d: 
 }
 
 /// mode 0 = dps, 1 = volley
-pub fn app_profile(ctx: &Ctx, mode: u8, dist: f64) -> Result<Option<f64>, String> {
+pub fn app_profile(ctx: &Ctx, mode: u8, dist: f64) -> Result<(Option<f64>, Option<u32>), String> {
     let fit = &ctx.fit;
     let tier = ctx.param("ammo_quality").and_then(|v| v.as_str()).unwrap_or("all").to_string();
     let mut turrets = Vec::new();
@@ -287,7 +287,7 @@ pub fn app_profile(ctx: &Ctx, mode: u8, dist: f64) -> Result<Option<f64>, String
         }
     }
     if turrets.is_empty() && launchers.is_empty() {
-        return Ok(Some(0.0));
+        return Ok((Some(0.0), None));
     }
     let turret = turrets.len() >= launchers.len();
     let mods = if turret { turrets } else { launchers };
@@ -466,7 +466,7 @@ pub fn app_profile(ctx: &Ctx, mode: u8, dist: f64) -> Result<Option<f64>, String
         }
     }
     if groups.is_empty() {
-        return Ok(Some(0.0));
+        return Ok((Some(0.0), None));
     }
     // ---- projected grid
     let max_range = groups.iter().map(|g| g.2).fold(0.0, f64::max);
@@ -487,6 +487,7 @@ pub fn app_profile(ctx: &Ctx, mode: u8, dist: f64) -> Result<Option<f64>, String
     }
     // ---- transitions + value
     let mut total = 0.0;
+    let mut first_charge: Option<u32> = None;
     for (_, g, _) in groups.iter_mut() {
         let max_d = if turret {
             let mo = g.cds.iter().map(|c| c.opt).fold(f64::MIN, f64::max);
@@ -506,6 +507,9 @@ pub fn app_profile(ctx: &Ctx, mode: u8, dist: f64) -> Result<Option<f64>, String
             continue;
         }
         let cd = &g.cds[ci as usize];
+        if first_charge.is_none() {
+            first_charge = d::type_by_name(cd.name);
+        }
         let (sp, sg) = proj.at(dist);
         let v = if turret { turret_volley(cd, g.osr, dist, &tr, sp, sg) } else { missile_volley(cd, dist, sp, sg) };
         let y = if mode == 0 {
@@ -515,5 +519,5 @@ pub fn app_profile(ctx: &Ctx, mode: u8, dist: f64) -> Result<Option<f64>, String
         };
         total += y * g.count;
     }
-    Ok(Some(total))
+    Ok((Some(total), first_charge))
 }

@@ -4,3 +4,5 @@ build: (EVE_DOGMA_DATASET={dataset} RUSTFLAGS="-C target-feature=+crt-static" ca
 cmd: ./target/eve-dogma-f-bench calc
 batch_cmd: ./target/eve-dogma-f-bench batch
 rpc_cmd: ./target/eve-dogma-f-bench serve-stdio
+# round 2 (graphs-round2): GraphRequest JSONL in -> GraphResult JSONL out
+graph_batch_cmd: ./target/eve-dogma-f-bench graph-batch

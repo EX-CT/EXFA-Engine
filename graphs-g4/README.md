@@ -1,5 +1,8 @@
 # Variant F — build-time code generation (Rust → native + WASM)
 
+> **Branch `graphs-g4`:** variant F plus round-2 graphs, scheme **G4 (declarative graph spec)** — see
+> [Graphs (G4)](#graphs-g4-declarative-graph-spec) below and [GRAPHS.md](GRAPHS.md).
+
 EVE Online dogma engine for the EXCT contract (`eve-dogma-rs/docs/contract.md`, v1): one JSON `FitRequest` on
 stdin → one JSON `FitStats` on stdout, stateless and deterministic.
 
@@ -34,6 +37,25 @@ node examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_dogm
 
 `bench.yaml` is the eve-dogma-bench manifest. Bench 1.8.0: **326/326 cases, 21 051/21 051 values, EFT export 326/326**,
 0.064 ms/fit, 10 500 fits/s batch, 4 ms cold (see RESULTS.md, `bench/`).
+
+### Graphs (G4, declarative graph spec)
+
+Round-2 graph contract (eve-dogma-bench `graphs-round2`, `graphs/CONTRACT-GRAPHS.md`): all 9 Pyfa graph types.
+
+```bash
+./target/release/eve-dogma-f graph < graph_request.json        # one GraphRequest -> GraphResult
+./target/release/eve-dogma-f graph-batch < requests.jsonl       # JSONL, parallel, ordered
+./target/release/eve-dogma-f graph-specs                        # the catalogue (graphs.json)
+# RPC (serve-stdio and the WASM `rpc` export): {"method":"graph","params":GraphRequest}, {"method":"graph_specs"}
+```
+
+The catalogue `graphs.json` (compiled in) declares per graph its axes + validity limiters, params with defaults
+and one formula per (series, axis); formulas are expression trees over engine observables (`ship.<attr>`,
+`stat.<path>`, `p.<param>`, `s.<setting>`, `x`) and named kernels (capacitor simulation history, sub-warp speed,
+EWAR source tables, remote-rep and damage time lines, application, application profile). Score against the
+111-case / 1 843-value suite: **111/111 cases, 1 843/1 843 values, native and WASM (wasip1)** —
+`bench/graphs/scorecard.md`. Behaviour follows the contract and Pyfa's graph outputs as oracle; no Pyfa (GPL) code
+is used.
 
 ### Import / export formats (Pyfa parity)
 

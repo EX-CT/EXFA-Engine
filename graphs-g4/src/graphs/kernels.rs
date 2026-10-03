@@ -38,7 +38,17 @@ pub fn call(ctx: &mut Ctx, name: &str, a: &[Option<f64>]) -> Result<Option<f64>,
             super::dmg::damage(ctx, mode, g(0), g(1), g(2), g(3))?
         }
         "app_dps" | "app_volley" => match a.first().copied().flatten() {
-            Some(x) => super::app::app_profile(ctx, if name == "app_dps" { 0 } else { 1 }, x)?,
+            Some(x) => {
+                let (v, ch) = super::app::app_profile(ctx, if name == "app_dps" { 0 } else { 1 }, x)?;
+                // informational: charge picked by the first weapon type at this point
+                let key = format!("{}_charge_type_id", &name[4..]);
+                let cv = ch.map(Value::from).unwrap_or(Value::Null);
+                match ctx.k.extra_series.iter_mut().find(|e| e.0 == key) {
+                    Some(e) => e.1.push(cv),
+                    None => ctx.k.extra_series.push((key, vec![cv])),
+                }
+                v
+            }
             None => None,
         },
         n if n.starts_with("sum_sources_") => Some(sources(ctx, &n[12..], false)?),
