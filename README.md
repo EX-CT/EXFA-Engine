@@ -46,6 +46,7 @@ CI checks the boundary (`cargo tree`: no eve-dogma under eve-fit-formats, no for
 ```bash
 export EVE_DOGMA_DATASET=/abs/path/dataset-3569502.json.gz   # default ../../../data/… relative to crates/eve-sde, crates/eve-dogma
 cargo build --release
+cargo install --path crates/eve-cli --locked                       # installs the binary `eve-fit` (package eve-cli)
 ./target/release/eve-fit calc < request.json > response.json
 ./target/release/eve-fit batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
 # EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)

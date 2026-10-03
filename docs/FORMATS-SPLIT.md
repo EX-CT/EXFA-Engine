@@ -36,12 +36,15 @@ input (`eve-fit-model` `FitRequest`) and only calculates.
 engine), so the RPC seen through the CLI is unchanged, byte for byte.
 
 `format_export` with `format: "shipstats"` needs engine stats. `eve-fit` passes the engine as a callback (stats of
-`eve_fit_formats::shipstats_request(fit)`: `include_attributes: "all"`, no spool-up). Without the engine (formats
-wasm), pass them as `params.stats` (FitStats JSON of that request); without either the answer is
-`{"error": {"code": "NEEDS_STATS"}}`. Caveat: the callback path uses the engine's unrounded values
-(`J::to_value_raw`); stats passed as JSON text are the serialized FitStats, so a value on a display rounding
-boundary can print differently (formats-suite shipstats inputs: 332/335 texts identical through `params.stats`, 3
-differ by one digit in a percentage/last place).
+`eve_fit_formats::shipstats_request(fit)`: `include_attributes: "all"`, no spool-up, `full_precision: true`). Without
+the engine (formats wasm), run engine `calc` on that request and pass its output text as `params.stats_json`: the
+formats layer reads it with correctly rounded floats, so the text is byte-identical to the linked-engine result (CI
+checks 20 cases incl. the 3 rounding-boundary ones). `params.stats` (an already parsed object) is also accepted, but
+serde_json's default float parsing can be one ulp off and flip a rounded digit (3/335 formats-suite cases). Without
+any of these the answer is `{"error": {"code": "NEEDS_STATS"}}`.
+
+New request option `options.full_precision` (engine, default false): floats are written unrounded (shortest
+round-trip form) instead of rounded to 6 decimals. Default output is unchanged (not even serialized when false).
 
 ## Interface changes for consumers
 
@@ -50,7 +53,8 @@ differ by one digit in a percentage/last place).
   `{"id", "result": {"error": {"code": "UNKNOWN_METHOD", "message": "<method>"}}}`). Load
   `eve_fit_formats_wasm.wasm` and call its `rpc` export with the same JSONL lines instead; responses are
   byte-identical to the previous engine responses (CI checks a sample against `eve-fit serve-stdio`). `shipstats`
-  export: call engine `calc` on the shipstats request first and pass the result as `params.stats`.
+  export: call engine `calc` on the shipstats request (`include_attributes: "all"`, `default_spool` spool_scale 0,
+  no per-module `spool`, `full_precision: true`) and pass the output text as `params.stats_json`.
 * **CLI / serve-stdio / MCP via the CLI**: no change.
 * **Rust**: `eve_dogma::eft` / `eve_dogma::formats` paths → `eve_fit_formats::{eft, formats}`.
 

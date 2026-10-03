@@ -29,6 +29,7 @@ pub fn calc(req: &FitRequest) -> j::J {
 pub fn calc_json(request_json: &str) -> String {
     // direct typed parse; syntax/EOF errors are BAD_JSON, shape errors BAD_REQUEST
     let v = match serde_json::from_str::<FitRequest>(request_json) {
+        Ok(req) if req.options.full_precision => return calc(&req).to_json_string_full(),
         Ok(req) => calc(&req),
         Err(e) => {
             let code = match e.classify() {
@@ -156,6 +157,7 @@ pub fn rpc(line: &str) -> Value {
     let p = v.get("params").cloned().unwrap_or(Value::Null);
     let result = match v.get("method").and_then(|m| m.as_str()).unwrap_or("calc") {
         "calc" => match serde_json::from_value::<FitRequest>(p) {
+            Ok(r) if r.options.full_precision => calc(&r).to_value_raw(),
             Ok(r) => serde_json::to_value(calc(&r)).unwrap_or(Value::Null),
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },

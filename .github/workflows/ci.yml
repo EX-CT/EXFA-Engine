@@ -73,6 +73,8 @@ jobs:
           ./target/release/eve-fit serve-stdio < ci/formats-wasm/requests.jsonl > /tmp/fn.out
           cmp /tmp/fw.out /tmp/fn.out
           echo "- formats wasm C ABI: $(wc -l < /tmp/fw.out) RPC responses byte-identical to the CLI" >> "$GITHUB_STEP_SUMMARY"
+          python3 ci/formats-wasm/shipstats_check.py ./target/release/eve-fit \
+            target/wasm32-unknown-unknown/release-small/eve_fit_formats_wasm.wasm >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: engine

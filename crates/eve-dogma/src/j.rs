@@ -135,13 +135,18 @@ fn write_str(out: &mut String, s: &str) {
 
 impl J {
     pub fn write(&self, out: &mut String) {
+        self.write_p(out, true)
+    }
+
+    /// `round`: floats rounded to 6 decimals (the default output); false = shortest round-trip repr (full precision).
+    pub fn write_p(&self, out: &mut String, round: bool) {
         match self {
             J::Null => out.push_str("null"),
             J::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
             J::U(v) => out.push_str(itoa::Buffer::new().format(*v)),
             J::I(v) => out.push_str(itoa::Buffer::new().format(*v)),
             J::F(v) => {
-                let v = round6(*v);
+                let v = if round { round6(*v) } else { *v };
                 if v.is_finite() {
                     out.push_str(zmij::Buffer::new().format_finite(v));
                 } else {
@@ -156,7 +161,7 @@ impl J {
                     if k > 0 {
                         out.push(',');
                     }
-                    x.write(out);
+                    x.write_p(out, round);
                 }
                 out.push(']');
             }
@@ -182,7 +187,7 @@ impl J {
                     let (key, v) = &o[k as usize];
                     write_str(out, key);
                     out.push(':');
-                    v.write(out);
+                    v.write_p(out, round);
                 }
                 out.push('}');
             }
@@ -208,6 +213,13 @@ impl J {
     pub fn to_json_string(&self) -> String {
         let mut s = String::with_capacity(8192);
         self.write(&mut s);
+        s
+    }
+
+    /// Unrounded JSON (`options.full_precision`).
+    pub fn to_json_string_full(&self) -> String {
+        let mut s = String::with_capacity(8192);
+        self.write_p(&mut s, false);
         s
     }
 }

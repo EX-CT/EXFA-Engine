@@ -227,6 +227,14 @@ pub struct Options {
     pub validate: bool,
     #[serde(default)]
     pub cap_sim: CapSimOpts,
+    /// Output floats unrounded (shortest round-trip form) instead of rounded to 6 decimals. Off by default; used
+    /// when a consumer formats the numbers itself (e.g. the formats layer's ship-stats text).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub full_precision: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Default for Options {
@@ -241,6 +249,7 @@ impl Default for Options {
             sources: false,
             validate: true,
             cap_sim: CapSimOpts::default(),
+            full_precision: false,
         }
     }
 }

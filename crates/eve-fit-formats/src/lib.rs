@@ -10,6 +10,7 @@
 pub mod eft;
 pub mod fitting;
 pub mod formats;
+pub mod json_exact;
 
 use eve_fit_model::*;
 use eve_sde as d;
@@ -58,8 +59,10 @@ pub fn eft_export(p: &Value) -> Value {
 }
 
 /// `format_export {fit, name, format, options, stats?}` -> `{"text"}`; formats eft, dna, esi, xml, multibuy, shipstats.
-/// `shipstats` needs engine stats of the fit computed with `options.include_attributes = "all"` and no spool-up
-/// (`default_spool` spool_scale 0, no per-module spool): from `stats` (the caller's engine) or `params.stats`.
+/// `shipstats` needs engine stats of [`shipstats_request`] (`include_attributes = "all"`, no spool-up,
+/// `full_precision`): from `stats` (the caller's engine), or `params.stats_json` (the engine `calc` output text of that
+/// request; read with correctly rounded floats, so the text equals the linked-engine result), or `params.stats` (an
+/// already parsed object; serde_json's float parsing can be one ulp off, which may change a rounded digit).
 pub fn format_export(p: &Value, stats: Option<StatsFn>) -> Value {
     let r = match serde_json::from_value::<FitRequest>(p.get("fit").cloned().unwrap_or(Value::Null)) {
         Ok(r) => r,
@@ -87,11 +90,15 @@ pub fn format_export(p: &Value, stats: Option<StatsFn>) -> Value {
             boosters: opt(p, "boosters", true),
         }),
         "shipstats" => {
-            let st: Value = match (stats, p.get("stats")) {
-                (Some(f), _) => f(&shipstats_request(&r)),
-                (None, Some(s)) => s.clone(),
-                (None, None) => {
-                    return json!({"error": {"code": "NEEDS_STATS", "message": "shipstats needs engine stats: pass params.stats (calc of the fit with include_attributes=all, no spool-up)"}})
+            let st: Value = match (stats, p.get("stats_json").and_then(|s| s.as_str()), p.get("stats")) {
+                (Some(f), _, _) => f(&shipstats_request(&r)),
+                (None, Some(text), _) => match json_exact::parse(text) {
+                    Ok(v) => v,
+                    Err(e) => return json!({"error": {"code": "BAD_REQUEST", "message": format!("stats_json: {e}")}}),
+                },
+                (None, None, Some(s)) => s.clone(),
+                (None, None, None) => {
+                    return json!({"error": {"code": "NEEDS_STATS", "message": "shipstats needs engine stats: pass params.stats_json (engine calc output text of shipstats_request(fit)) or params.stats"}})
                 }
             };
             if st.get("error").is_some() {
@@ -105,10 +112,11 @@ pub fn format_export(p: &Value, stats: Option<StatsFn>) -> Value {
 }
 
 /// The request whose stats the `shipstats` export needs: all attributes, Pyfa's default spool-up (none) for the
-/// stats copy instead of the request's spool settings.
+/// stats copy instead of the request's spool settings, unrounded numbers (`full_precision`).
 pub fn shipstats_request(r: &FitRequest) -> FitRequest {
     let mut r2 = r.clone();
     r2.options.include_attributes = Some("all".into());
+    r2.options.full_precision = true;
     r2.options.default_spool = Some(Spool { kind: SpoolType::SpoolScale, amount: 0.0 });
     for m in r2.modules.iter_mut() {
         m.spool = None;
