@@ -37,6 +37,10 @@ pub fn call(ctx: &mut Ctx, name: &str, a: &[Option<f64>]) -> Result<Option<f64>,
             let g = |k: usize| a.get(k).copied().flatten();
             super::dmg::damage(ctx, mode, g(0), g(1), g(2), g(3))?
         }
+        "app_dps" | "app_volley" => match a.first().copied().flatten() {
+            Some(x) => super::app::app_profile(ctx, if name == "app_dps" { 0 } else { 1 }, x)?,
+            None => None,
+        },
         n if n.starts_with("sum_sources_") => Some(sources(ctx, &n[12..], false)?),
         n if n.starts_with("stack_sources_") => Some(sources(ctx, &n[14..], true)?),
         _ => return Err(format!("unknown kernel '{name}'")),

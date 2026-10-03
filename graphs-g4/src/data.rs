@@ -185,3 +185,11 @@ pub fn category_name(id: u32) -> Option<&'static str> {
 pub fn is_muta_output(t: u32) -> bool {
     MUTA_MAP.iter().any(|x| x.2 == t)
 }
+
+/// Number of types in the table / type id at a dense index (graph kernels enumerate charges by group).
+pub fn type_count() -> usize {
+    TYPES.len()
+}
+pub fn type_id_at(ix: usize) -> u32 {
+    TYPE_IDS[ix]
+}

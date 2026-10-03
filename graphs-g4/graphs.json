@@ -341,6 +341,40 @@
      }
     }
    }
+  },
+  "application_profile": {
+   "title": "Application Profile",
+   "pyfa": "fitApplicationProfile",
+   "axes": {
+    "distance_m": {
+     "unit": "m",
+     "valid": "x >= 0"
+    }
+   },
+   "params": {
+    "ammo_quality": "all",
+    "tgt_speed_mps": null,
+    "tgt_speed_pct": 100,
+    "atk_speed_mps": null,
+    "atk_speed_pct": 0,
+    "atk_angle_deg": 90,
+    "tgt_angle_deg": 90
+   },
+   "defs": {},
+   "series": {
+    "dps": {
+     "unit": "HP/s",
+     "by_axis": {
+      "distance_m": "app_dps(x)"
+     }
+    },
+    "volley": {
+     "unit": "HP",
+     "by_axis": {
+      "distance_m": "app_volley(x)"
+     }
+    }
+   }
   }
  },
  "source_tables": {
