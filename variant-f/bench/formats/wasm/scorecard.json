@@ -229,6 +229,6 @@
  "rows": 4782,
  "rows_passed": 4780,
  "score_pct": 99.9847,
- "variant": "F2",
- "wall_s": 1.302
+ "variant": "F2-wasm",
+ "wall_s": 1.907
 }

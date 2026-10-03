@@ -1,11 +1,11 @@
-# Formats scorecard: F2
+# Formats scorecard: F2-wasm
 
 - contract: CONTRACT-FORMATS 0.1 (rulings 2026-10-03) (DRAFT)
 - **score (4 groups x 25 %): 99.98 %**
 - scored rows passed: **4780/4782** (99.96 %) - gate not met
 - error codes matching (informational): 34/34
 - report-only rows (not scored) agreeing with Pyfa: 10/11
-- wall time: 1.30 s
+- wall time: 1.91 s
 
 | group | weight | pass | scored rows | % | report-only rows |
 |---|---|---|---|---|---|
