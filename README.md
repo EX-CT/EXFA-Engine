@@ -57,16 +57,19 @@ Exit code: 0 on success, 2 if the response is an error object (`calc`), 1 on usa
 * `results/bench/`: `bench.py --only J` scorecard (bench version and machine load are in `RUN.txt`)
 * `results/compare_ref.txt`: byte/tolerance comparison against the eve-dogma-rs binary (`tools/compare_ref.py`)
 
-Bench 1.8.0 (326 cases), shared 8-core box (J measured 2026-10-03 08:08 CST at load 9.2; A measured 2026-10-03 08:12 CST at load 10.7):
+Bench 1.8.0 (326 cases), shared 8-core box (J measured 2026-10-03 08:34 CST at load 9.6; A measured 2026-10-03 08:36 CST at load 6.1):
 
 | | J (this) | A (eve-dogma-rs) |
 |---|---|---|
 | cases / values vs Pyfa | 326/326, 21 051/21 051 | 326/326, 21 051/21 051 |
-| latency, one fit (bench ms/calc) | 0.057 ms | 0.168 ms |
-| batch throughput | 11 622 fits/s | 3 897 fits/s |
-| cold start (one process per case, median) | 7 ms | 12 ms |
+| latency, one fit (bench ms/calc) | 0.052 ms | 0.143 ms |
+| batch throughput | 15 002 fits/s | 4 283 fits/s |
+| cold start (one process per case, median) | 2 ms | 10 ms |
 | EFT export vs Pyfa (informational) | 326/326 | 326/326 |
 | byte-identical output to A (c3822c1) | 326/326 calc cases, all RPC methods | – |
+
+Pinned to one CPU (`taskset -c 3`, the round-1 evaluate.py latency method; batch then uses one worker), the bench's
+rifter request costs ≈ 0.088 ms/calc on this loaded box (≈ 0.82 M instructions per calc under callgrind).
 
 Timings on this shared box swing by ±50 % with the load from other agents (the bench takes one run per metric).
 Best J run so far: 0.034 ms/fit, 20 067 fits/s, 2 ms cold (dca13b9, bench 1.5.0, load 8.7).
