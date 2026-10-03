@@ -24,7 +24,7 @@ Evidence key:
 | A4 | ~~**Drone EHP / drone regen columns**~~ **done** (`drones.items[]` / top-level `fighters.items[]` {drone_index/fighter_index, hp, ehp, shield_peak_recharge_hp_s}, one drone, request damage pattern) | `gui/builtinViewColumns/droneEhp.py`, `droneRegen.py` | done: bench v1.10.0 ext/ drone_ehp 16/16 (incl. fighter) | S |
 | A5 | **Price** (ship + fit + per-module market price, Jita/ESI/evemarketer sources) | `service/price.py:70 fetchPrices`, `service/marketSources/`, `gui/builtinStatsViews/priceViewFull.py` | F: `{"method":"price"}` → `UNKNOWN_METHOD`. F is offline by design (needs a network source or a price input). | M |
 | A6 | **"Affected by" / modifier sources per attribute** (item-stats Affected-by tab, skill affectors menu) | `gui/builtinContextMenus/skillAffectors.py`, `gui/builtinItemStatsViews/` | `options.sources` is parsed (`request.rs:224`) but never read: `rg "\.sources" src/` gives 0 hits. `include_attributes` returns values only. | M |
-| A7 | **Heat / overheat damage** (module heat column, burnout estimate) | `gui/builtinViewColumns/heat.py` | F applies overheated *bonuses* (state `overheated`) but has no heat-damage model | M |
+| A7 | ~~**Heat / overheat damage**~~ **done** (`modules[].heat` {burn_cycles, burnout_s} on overheated modules) | `gui/builtinViewColumns/heat.py` | done: bench v1.10.0 ext/ heat 30/30; per-cycle rack damage probability (heat generation × rack absorption, attenuation by rack distance, slot fill factor) until it settles, expected cycles to burn hp/heatDamage damage events | S |
 
 ## B. Graphs
 

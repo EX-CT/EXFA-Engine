@@ -5,3 +5,4 @@ outgoing
 drones.items
 fighters
 bombing
+modules[].heat

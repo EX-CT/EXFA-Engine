@@ -622,6 +622,95 @@ impl Fit {
         let mut drains = Vec::new();
         let mut cap_used = 0.0;
         let mut cap_added = 0.0;
+        // overheat burnout estimate (Pyfa heat column behaviour; contract 1.10 stats-ext `modules[].heat`)
+        let heat = {
+            let mods: &[usize] = &modules;
+            let rack = move |i: usize| match self.items[i].slot {
+                Some(Slot::Low) => 1usize,
+                Some(Slot::Mid) => 2,
+                Some(Slot::High) => 3,
+                Some(Slot::Rig) => 4,
+                _ => 0,
+            };
+            let hot = move |i: usize| self.items[i].state == State::Overheated;
+            let mut absorb = [0.0f64; 5];
+            for &i in mods {
+                if hot(i) {
+                    absorb[rack(i)] += g(i, a::heatAbsorbtionRateModifier);
+                }
+            }
+            let racks = g(ship, a::hiSlots) + g(ship, a::medSlots) + g(ship, a::lowSlots);
+            let used = mods.iter().filter(|&&i| (1..=3).contains(&rack(i))).count() as f64;
+            let offline = mods.iter().filter(|&&i| (1..=3).contains(&rack(i)) && self.items[i].state == State::Offline).count() as f64;
+            let slot_factor = (used - offline) / (racks + g(ship, a::rigSlots));
+            let hgm = g(ship, a::heatGenerationMultiplier);
+            // position of a module within its rack (request order)
+            let pos = move |i: usize| mods.iter().filter(|&&j| rack(j) == rack(i)).position(|&j| j == i).unwrap_or(0) as f64;
+            let damage_p = move |i: usize, t: f64| {
+                let r = rack(i);
+                let att_attr = [0, a::heatAttenuationLow, a::heatAttenuationMed, a::heatAttenuationHi];
+                let att = if (1..=3).contains(&r) && self.has(ship, att_attr[r]) { g(ship, att_attr[r]) } else { 0.25 };
+                let rack_heat = 1.0 - std::f64::consts::E.powf(-t * hgm * absorb[r]);
+                let me = pos(i);
+                let mut keep = 1.0f64;
+                for &j in mods {
+                    if j != i && rack(j) == r && hot(j) {
+                        keep *= 1.0 - att.powf((pos(j) - me).abs()) * slot_factor * rack_heat;
+                    }
+                }
+                let own = slot_factor * rack_heat;
+                if keep == 1.0 { own } else { 1.0 - keep * (1.0 - own) }
+            };
+            move |i: usize| -> Option<J> {
+                if !hot(i) {
+                    return None;
+                }
+                let (speed, dur) = (g(i, a::speed), g(i, a::duration));
+                let step = if speed != 0.0 { speed / 1000.0 } else { dur / 1000.0 };
+                let hd = g(i, a::heatDamage);
+                if step <= 0.0 || hd <= 0.0 {
+                    return None;
+                }
+                // per-cycle failure probability until it settles (5 decimals) or 600 s
+                let mut probs = Vec::new();
+                let (mut t, mut last) = (step, 0.0f64);
+                while t < 600.0 {
+                    let p = damage_p(i, t);
+                    probs.push(p);
+                    if format!("{p:.5}") == format!("{last:.5}") {
+                        break;
+                    }
+                    t += step;
+                    last = p;
+                }
+                if probs.is_empty() {
+                    return None;
+                }
+                // expected number of cycles until `n` damage events (hp / heatDamage, rounded up)
+                let n = (g(i, a::hp) / hd).ceil() as usize;
+                let mut st = vec![0.0f64; n + 1];
+                st[0] = 1.0;
+                let mut expect = 0.0f64;
+                let mut k_last = 0usize;
+                for (k, &p) in probs.iter().enumerate() {
+                    k_last = k;
+                    if n >= 1 {
+                        expect += (k + 1) as f64 * p * st[n - 1];
+                    }
+                    for m in (1..n).rev() {
+                        st[m] = (1.0 - p) * st[m] + p * st[m - 1];
+                    }
+                    st[0] *= 1.0 - p;
+                }
+                let p_end = probs[k_last];
+                for m in 0..n {
+                    expect += ((k_last + 1) as f64 + (n - m) as f64 * (1.0 / p_end)) * st[m];
+                }
+                let cycles = expect.floor();
+                let cyc_s = if dur != 0.0 { dur / 1000.0 } else { speed / 1000.0 };
+                Some(jv!({"burn_cycles": cycles, "burnout_s": cycles * cyc_s}))
+            }
+        };
         let mut module_rows = Vec::new();
         for &i in &modules {
             let mut cap_need = g(i, a::capacitorNeed);
@@ -639,6 +728,9 @@ impl Fit {
                 "cpu": g(i, a::cpu), "power": g(i, a::power)});
             if cyc_raw > 0.0 {
                 row["cycle_time_ms"] = jv!(cyc_raw);
+            }
+            if let Some(h) = heat(i) {
+                row["heat"] = h;
             }
             if active(i) && cap_need != 0.0 && full > 0.0 {
                 // Pyfa forces reload into capacitor boosters' average cycle (module.forceReload)
