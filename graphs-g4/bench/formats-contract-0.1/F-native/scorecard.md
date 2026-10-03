@@ -1,15 +1,15 @@
 # Formats scorecard: F
 
 - contract: CONTRACT-FORMATS 0.1 (rulings 2026-10-03) (DRAFT)
-- **score (4 groups x 25 %): 98.44 %**
-- scored rows passed: **4774/4782** (99.83 %) - gate not met
+- **score (4 groups x 25 %): 98.46 %**
+- scored rows passed: **4773/4779** (99.87 %) - gate not met
 - error codes matching (informational): 0/34
-- report-only rows (not scored) agreeing with Pyfa: 8/11
-- wall time: 1.30 s
+- report-only rows (not scored) agreeing with Pyfa: 9/14
+- wall time: 1.29 s
 
 | group | weight | pass | scored rows | % | report-only rows |
 |---|---|---|---|---|---|
-| export | 25 % | 3258 | 3260 | 99.94 | 0 |
+| export | 25 % | 3257 | 3257 | 100.00 | 3 |
 | import | 25 % | 1304 | 1304 | 100.00 | 0 |
 | edge_export | 25 % | 124 | 125 | 99.20 | 0 |
 | edge | 25 % | 88 | 93 | 94.62 | 11 |
@@ -48,7 +48,7 @@
 | export:esi_min | 326 | 326 |  | 0/2 |  |
 | export:multibuy | 326 | 326 |  |  |  |
 | export:multibuy_min | 326 | 326 |  |  |  |
-| export:shipstats | 324 | 326 |  |  | diff_text 2 |
+| export:shipstats | 323 | 323 |  |  | unscored_agree 1, unscored_rows 3 |
 | export:xml | 326 | 326 |  |  |  |
 | import:dna | 326 | 326 | 194/194 | 0/1 |  |
 | import:eft | 326 | 326 | 194/194 |  |  |

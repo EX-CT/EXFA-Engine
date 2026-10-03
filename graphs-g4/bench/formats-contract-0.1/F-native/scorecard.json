@@ -171,9 +171,10 @@
    "total": 326
   },
   "export:shipstats": {
-   "diff_text": 2,
-   "pass": 324,
-   "total": 326
+   "pass": 323,
+   "total": 323,
+   "unscored_agree": 1,
+   "unscored_rows": 3
   },
   "export:xml": {
    "pass": 326,
@@ -220,9 +221,9 @@
    "unscored": 0
   },
   "export": {
-   "pass": 3258,
-   "total": 3260,
-   "unscored": 0
+   "pass": 3257,
+   "total": 3257,
+   "unscored": 3
   },
   "import": {
    "pass": 1304,
@@ -230,9 +231,9 @@
    "unscored": 0
   }
  },
- "rows": 4782,
- "rows_passed": 4774,
- "score_pct": 98.4406,
+ "rows": 4779,
+ "rows_passed": 4773,
+ "score_pct": 98.4559,
  "variant": "F",
- "wall_s": 1.303
+ "wall_s": 1.287
 }

@@ -2,20 +2,16 @@
  {
   "id": "esf_items_7.json@export:shipstats",
   "category": "export:shipstats",
-  "reasons": [
-   "text"
-  ],
-  "error": null,
-  "expected_error": null
+  "scored": false,
+  "agrees_with_pyfa": false,
+  "reason": "known divergence cap_capacity (structure module on a ship, invalid fit; Pyfa applies it, SDE domain says no) -> 'Capacitor' line"
  },
  {
   "id": "esf_structure_bonus_1.json@export:shipstats",
   "category": "export:shipstats",
-  "reasons": [
-   "text"
-  ],
-  "error": null,
-  "expected_error": null
+  "scored": false,
+  "agrees_with_pyfa": false,
+  "reason": "known divergence hp.armor / ehp.armor (SDE: unpowered structure zeroes the plating bonus; Pyfa's hand-written handler ignores power state) -> 'EHP' and 'Armor' lines"
  },
  {
   "id": "edge_export/name_newline.json@import:xml",
