@@ -23,7 +23,7 @@ Commands:
 Global options (before the command):
   --sde FILE.edp         SDE pack override (docs/22 §2.4); load failure -> SDE_LOAD_FAILED
   --prices FILE          market price table for this process (eve-price-snapshot v1 file, {\"isk\":{..}} or
-                         {\"<type_id>\": isk}); price layer L4, see eve-fit-docs docs/23 §5
+                         {\"<type_id>\": isk}); price layer L4, see EXFA-Docs docs/23 §5
   --pyfa-data FILE       Pyfa-derived data (eve-sde-pipeline presets-pyfa-*.json, GPL-3.0; also EXFA_PYFA_DATA):
                          search jargon for market.search, renamed-item conversions for names.resolve";
 

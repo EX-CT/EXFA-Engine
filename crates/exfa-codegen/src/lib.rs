@@ -1,6 +1,6 @@
 //! exfa-codegen: build-time code generator (formerly variant F `build.rs`).
 //!
-//! Reads the EXCT dataset (`dataset-<build>.json.gz`, eve-sde-pipeline format v1) and emits two files:
+//! Reads the EXCT dataset (`dataset-<build>.json.gz`, `exct-eve-dataset` v1, from EX-CT/EXFA-Data releases) and emits two files:
 //! - `tables.rs` for `exfa-sde`: static tables (types, attributes, groups, names, mutaplasmids, …);
 //! - `effects.rs` for `exfa-core`: every SDE effect's modifier list compiled into straight-line Rust
 //!   (`apply_local`, `apply_projected`, `apply_skill`, `apply_dbuff`).

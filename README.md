@@ -11,7 +11,7 @@ black-box oracle and behaviour reference; no Pyfa code.
 One JSON `FitRequest` on stdin → one JSON `FitStats` on stdout, stateless and deterministic
 (contract: [contract/](contract/README.md)).
 
-The SDE dataset (`dataset-3569502-r5.json.gz`, eve-sde-pipeline format v1, release `sde-3569502-r5`) is **compiled into the binary**: the code
+The SDE dataset (`dataset-3569502-r5.json.gz`, `exct-eve-dataset` format v1, `EX-CT/EXFA-Data` release `sde-3569502-r5`, pinned in `sde.lock`) is **compiled into the binary**: the code
 generator turns every effect's modifier list into straight-line Rust code and every type/attribute/group into static
 tables. The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.md).
 
@@ -25,7 +25,7 @@ tables. The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.m
 | `crates/exfa-capsim` | capacitor simulator (+ Pyfa `round`) | — |
 | `crates/exfa-core` | **engine**: core, stats, graphs, JSON-RPC (calc, graph, graph_specs, search, type, meta); structured input only | exfa-sde, exfa-model, exfa-capsim |
 | `crates/exfa-formats` | fit formats: EFT (+cfg, mutations), DNA (+alt, link), ESI JSON, XML, multibuy, ship-stats text, item lists, auto-detect; RPC eft_parse, eft_export, format_import, format_export | exfa-sde, exfa-model (**not** exfa-core) |
-| `crates/exfa-optimizer` | skill-based fit optimizer (eve-fit-docs docs/21 v1): `optimize`, `Evaluator` trait, RPC `optimize` | exfa-core, exfa-model |
+| `crates/exfa-optimizer` | skill-based fit optimizer (EXFA-Docs docs/21 v1): `optimize`, `Evaluator` trait, RPC `optimize` | exfa-core, exfa-model |
 | `crates/exfa-cli` | binary `exfa` (calc, batch, serve-stdio, optimize, graph, graph-batch, eft, search, type, meta, bench): links engine + formats + optimizer | exfa-core, exfa-formats, exfa-optimizer |
 | `crates/exfa-wasm` | engine wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `calc`, `rpc` incl. `optimize`) | exfa-core, exfa-optimizer |
 | `crates/exfa-formats-wasm` | formats wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `rpc`), for the frontend | exfa-formats |
@@ -52,8 +52,8 @@ cargo install --path crates/exfa-cli --locked                       # installs t
 ./target/release/exfa batch < requests.jsonl > responses.jsonl      # one FitRequest per line, parallel, ordered
 # EXFA_THREADS=N limits batch worker threads (default: all cores)
 ./target/release/exfa serve-stdio                                   # JSONL RPC: calc | graph | search | type | meta (engine) + optimize + eft_parse | eft_export | format_export | format_import (formats)
-./target/release/exfa optimize request.json                         # OptimizeRequest (eve-fit-docs docs/21) -> ranked fits
-./target/release/exfa batch --request batch.json                    # BatchRequest (eve-fit-docs docs/23) -> BatchResponse
+./target/release/exfa optimize request.json                         # OptimizeRequest (EXFA-Docs docs/21) -> ranked fits
+./target/release/exfa batch --request batch.json                    # BatchRequest (EXFA-Docs docs/23) -> BatchResponse
 ./target/release/exfa --prices prices.json calc fit.json            # price table / eve-price-snapshot -> "price" block
 ./target/release/exfa meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
 ```
@@ -75,17 +75,20 @@ node crates/exfa-formats-wasm/examples/node-formats.mjs target/wasm32-unknown-un
 
 ### CI
 
-`.github/workflows/ci.yml`: native + both WASM targets; then, native and wasip1, every suite at its pinned
-eve-dogma-bench ref (`ci/run_suites.sh`) against the minimum scores in `ci/gate.json` (bench 1.9.0 331/331, EFT
-1.8.0 326/326, cap-suite 150/150, mutated-suite 93/93 + EFT 93/93 / 99/99, formats-suite 4779/4779, graphs 0.2
-178/178), plus the round-1 batch output sha256 (`ci/round1.sha256`). Unit tests run first: `exfa-formats`
-(`crates/exfa-formats/tests/roundtrip.rs`: per format import→export and export→import round trips and error
-paths), `exfa-optimizer` property tests, then the whole workspace. Locally:
-`BENCH=/path/to/eve-dogma-bench ci/run_suites.sh native ./target/release/exfa`.
+`.github/workflows/ci.yml`: native + both WASM targets; then, native and wasip1, the whole `EX-CT/EXFA-Bench`
+suite set (`tools/run_all_suites.sh`, bench checkout pinned by `bench.lock`) gated by
+`check_no_regress.py --baseline baselines/exfa-engine.json` — the suite scores may only go up — plus the explicit
+EFT gates in `ci/gate.json` (EFT export 326/326, mutated EFT export/import 93/99) and the round-1 batch output
+sha256 checks (`ci/round1.sha256` + `ci/round1-base.sha256` after stripping `ci/round1-new-keys.txt`). Unit tests
+run first: `exfa-formats` (`crates/exfa-formats/tests/roundtrip.rs`: per format import→export and export→import
+round trips and error paths), `exfa-optimizer` property tests, then the whole workspace. Locally:
+`BENCH=/path/to/EXFA-Bench ci/run_suites.sh native ./target/release/exfa`. The dataset tag is pinned in `sde.lock`
+and downloaded from `EX-CT/EXFA-Data`; `sde-update.yml` consumes EXFA-Data `sde-release` dispatches, re-gates and
+releases automatically.
 
 ### Bench
 
-`bench.yaml` is the eve-dogma-bench manifest. Bench 1.8.0: **326/326 cases, 21 051/21 051 values, EFT export 326/326**,
+`bench.yaml` is the EXFA-Bench manifest (originally the eve-dogma-bench manifest). Bench 1.8.0: **326/326 cases, 21 051/21 051 values, EFT export 326/326**,
 0.064 ms/fit, 10 500 fits/s batch, 4 ms cold (see RESULTS.md, `bench/`).
 
 ### Graphs (G4, declarative graph spec)
@@ -129,7 +132,7 @@ Crate `exfa-formats` (served by `exfa serve-stdio` and the `exfa-formats-wasm` `
 engine). RPC `format_export {fit, name, format, options}` with `format` = `eft` | `dna` | `esi` | `xml` | `multibuy` |
 `shipstats`, and `format_import {text, format, path?}` with `format` = `auto` | `eft` | `eftcfg` | `dna` |
 `dna_alt` | `dna_link` | `esi` | `xml` (`auto` follows Pyfa's detection order and also recognises additions lists
-and single mutated items). Against the eve-dogma-bench `formats-suite` (Pyfa-generated round trips): all export
+and single mutated items). Against the EXFA-Bench `formats` suite (Pyfa-generated round trips): all export
 variants 326/326 except shipstats 324/326, all four round-trip imports 326/326, edge files 16/16
 (`bench/formats/scorecard.md`).
 
@@ -137,7 +140,7 @@ variants 326/326 except shipstats 324/326, all four round-trip imports 326/326, 
 
 ## License
 
-LGPL-3.0-or-later (per eve-fit-docs `LICENSING.md`; `license = "LGPL-3.0-or-later"` in `Cargo.toml`). The full
+LGPL-3.0-or-later (per EXFA-Docs `LICENSING.md`; `license = "LGPL-3.0-or-later"` in `Cargo.toml`). The full
 LGPL v3 text is in [`LICENSE`](LICENSE); as the LGPL v3 is a set of additional permissions on top of the GPL v3,
 the GPL v3 text is included as [`LICENSE.GPL-3.0`](LICENSE.GPL-3.0) (same layout as eve-dogma-rs).
 

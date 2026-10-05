@@ -1,4 +1,4 @@
-# eve-dogma-bench manifest (exfa-core Rust mainline, workspace; binary exfa). The dataset is compiled in at build time.
+# EXFA-Bench manifest (exfa-core Rust mainline, workspace; binary exfa). The dataset is compiled in at build time.
 # Static glibc build (+crt-static, ~0.4 ms faster process start); falls back to the default dynamic build.
 build: (EXFA_DATASET={dataset} RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --target x86_64-unknown-linux-gnu && cp target/x86_64-unknown-linux-gnu/release/exfa target/exfa-bench) || (EXFA_DATASET={dataset} cargo build --release && cp target/release/exfa target/exfa-bench)
 cmd: ./target/exfa-bench calc

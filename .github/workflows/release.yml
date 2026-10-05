@@ -17,14 +17,24 @@ on:
         description: 'build + package only (artifacts on the run), no release upload'
         type: boolean
         default: true
+  workflow_call:
+    inputs:
+      tag:
+        description: 'existing tag to (re)build and release'
+        type: string
+        required: true
+      dry_run:
+        description: 'build + package only (artifacts on the run), no release upload'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  SDE_TAG: sde-3569502-r5
-  TAG: ${{ github.event_name == 'workflow_dispatch' && (inputs.tag || format('dev-{0}', github.sha)) || github.ref_name }}
+  TAG: ${{ inputs.tag || (github.event_name == 'workflow_dispatch' && format('dev-{0}', github.sha)) || github.ref_name }}
 
 jobs:
   build:
@@ -43,17 +53,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - name: Dataset (${{ env.SDE_TAG }})
+      - name: Dataset (sde.lock, EXFA-Data)
         shell: bash
         run: |
-          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
+          tag=$(cut -d= -f2 sde.lock)
+          echo "SDE_TAG=$tag" >> "$GITHUB_ENV"
+          gh release download "$tag" -R EX-CT/EXFA-Data --pattern 'dataset-*.json.gz' -D _data
           f=$(ls "$PWD"/_data/dataset-*.json.gz | head -1)
           # bash on Windows yields an MSYS path (/d/a/...) that the pwsh-run cargo cannot read
           if command -v cygpath > /dev/null; then f=$(cygpath -m "$f"); fi
@@ -98,16 +110,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1,wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           key: wasm
-      - name: Dataset (${{ env.SDE_TAG }})
+      - name: Dataset (sde.lock, EXFA-Data)
         run: |
-          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
+          tag=$(cut -d= -f2 sde.lock)
+          echo "SDE_TAG=$tag" >> "$GITHUB_ENV"
+          gh release download "$tag" -R EX-CT/EXFA-Data --pattern 'dataset-*.json.gz' -D _data
           echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
       - name: Build WASM (wasip1 CLI, unknown-unknown C ABI engine + formats)
         run: |
@@ -133,6 +147,9 @@ jobs:
     needs: [build, wasm]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -146,11 +163,14 @@ jobs:
           python3 - <<'EOF'
           import json, os
           v = json.load(open("/tmp/version.json"))
+          sde_tag = open("sde.lock").read().split("=", 1)[1].strip()
           rel = {
               "engine": v["engine"],
               "commit": os.environ["SHA"],
+              "sde_tag": sde_tag,
               "sde_build": v["sde_build"],
               "sde_revision": v["sde_revision"],
+              "data_source": "https://github.com/EX-CT/EXFA-Data",
               "dataset_sha256": v["sde_hash"].removeprefix("sha256:"),
               "price_snapshot_id": v["price_snapshot_id"],
           }

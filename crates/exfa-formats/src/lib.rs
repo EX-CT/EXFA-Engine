@@ -5,8 +5,8 @@
 //! It depends on `exfa-model` and the static data (`exfa-sde`) only, never on the `exfa-core` engine. The one
 //! export that needs computed stats (`shipstats`) takes them from the caller (a callback or `params.stats`).
 //!
-//! Output layout follows the formats as Pyfa writes them (verified against Pyfa-generated cases in eve-dogma-bench
-//! `formats-suite`; no Pyfa code is used here).
+//! Output layout follows the formats as Pyfa writes them (verified against Pyfa-generated cases in EXFA-Bench
+//! `suites/formats`; no Pyfa code is used here).
 pub mod eft;
 pub mod fitting;
 pub mod formats;

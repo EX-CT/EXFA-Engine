@@ -1,41 +1,51 @@
 #!/usr/bin/env bash
-# Run every regression suite against one engine command and fail on any score below the gate.
-# usage: ci/run_suites.sh NAME "ENGINE_CMD"   (ENGINE_CMD = native binary, or "wasmtime run ... exfa.cwasm")
-# needs: $BENCH = eve-dogma-bench checkout (full history), $EXFA_DATASET, python3
+# ci/run_suites.sh MODE "ENGINE_CMD" [skip-round1]
+# Run the EXFA-Bench contract suites against one engine command (native binary or "wasmtime run ... exfa.wasm --").
+#   BENCH:         EXFA-Bench checkout (default ./_bench), pinned by bench.lock
+#   EXFA_DATASET:  compiled dataset path (required)
+#   skip-round1:   skip the two round-1 sha256 checks (SDE update flow: new data legitimately changes the bytes)
+# The gate is check_no_regress.py against $BENCH/baselines/exfa-engine.json plus the explicit EFT gates
+# in ci/gate.json (round-1 EFT export 326/326, mutated EFT export/import 93/99).
 set -uo pipefail
-NAME=$1; E=$2; D=$EXFA_DATASET
-T=${SUITES_DIR:-$PWD/_suites}; mkdir -p "$T"; OUT=$PWD/ci-results/$NAME; mkdir -p "$OUT"
-stage() { # dir ref
-  [ -d "$T/$1" ] || { mkdir -p "$T/$1" && git -C "$BENCH" archive "$2" | tar -x -C "$T/$1"; }
-}
-# pins (docs: eve-dogma-bench results/F-coverage)
-stage b18 3da9671da11379de6ae17d3c3285505e95267f29   # bench 1.8.0 (round 1): byte-identical output check
-stage b19 d2edf98      # bench v1.9.0
-stage cap d80cc38      # cap-suite
-stage mut 2ac7c00      # mutated-suite
-stage fmt 7c716e7      # formats-suite (FORMATS 0.1)
-stage gr  84f7c2e      # graphs-round2, contract 0.2
-stage b110 d7911631f3d4056cdcd4a339b43759486478e52e   # bench v1.10.0: core 339, effects/ 2378, ext/ 116
+NAME=$1; E=$2; SKIP_R1=${3:-}
+# a plain relative binary path must stay valid when the suite tools spawn it with cwd=<suite dir>
+if [ -f "$E" ]; then E=$(cd "$(dirname "$E")" && pwd)/$(basename "$E"); fi
+BENCH=${BENCH:-_bench}
+OUT=$PWD/ci-results/$NAME; mkdir -p "$OUT"
+D=$EXFA_DATASET
+export EXFA_DATASET=$D
+export EXFA_DATASET_R5=${EXFA_DATASET_R5:-$D}
 fail=0
 note() { echo "$1" | tee -a "$OUT/summary.md"; }
+
+[ -d "$BENCH/suites/round1" ] || { echo "::error::EXFA-Bench checkout not found at $BENCH (set BENCH)"; exit 1; }
+[ -f "$BENCH/baselines/exfa-engine.json" ] || { echo "::error::baseline missing in $BENCH"; exit 1; }
+
 # round-1 corpus, batch output sha256 (pure refactors must not change a byte)
-for f in "$T"/b18/cases/*.json; do python3 -c "import json,sys;print(json.dumps(json.load(open(sys.argv[1]))))" "$f"; done > "$OUT/round1.jsonl"
+for f in "$BENCH"/suites/round1/cases/*.json; do python3 -c "import json,sys;print(json.dumps(json.load(open(sys.argv[1]))))" "$f"; done > "$OUT/round1.jsonl"
 $E batch < "$OUT/round1.jsonl" > "$OUT/round1.out.jsonl"
 sha=$(sha256sum < "$OUT/round1.out.jsonl" | cut -d' ' -f1)
 # additive output changes: with the new stats-ext keys stripped, the output must still be the base bytes
 base=$(python3 ci/strip_keys.py $(grep -v '^#' ci/round1-new-keys.txt) < "$OUT/round1.out.jsonl" | sha256sum | cut -d' ' -f1)
-if [ "$base" = "$(cat ci/round1-base.sha256)" ]; then note "- round-1 minus new keys ($(grep -v '^#' ci/round1-new-keys.txt | tr '\n' ' ')) sha256 $base = ci/round1-base.sha256 (pre-existing output byte-identical)"; else note "- round-1 minus new keys sha256 $base != ci/round1-base.sha256 (a pre-existing field changed)"; fail=1; fi
-want=$(cat ci/round1.sha256)
-if [ "$sha" = "$want" ]; then note "- round-1 batch sha256 $sha (unchanged)"; else note "- round-1 batch sha256 $sha != ci/round1.sha256 $want (output changed: update ci/round1.sha256 only for an intended output change)"; fail=1; fi
-(cd "$T/b19" && python3 run.py --name "$NAME" --cmd "$E calc" --batch-cmd "$E batch" --batch-repeat 1 --latency-n 3 > "$OUT/b19.log" 2>&1)
-(cd "$T/b18" && python3 "$T/b18/tools/check_eft_export.py" --rpc-cmd "$E serve-stdio" > "$OUT/eft18.log" 2>&1)
-(cd "$T/cap" && python3 cap/run_cap.py --name "$NAME" --batch-cmd "$E batch" > "$OUT/cap.log" 2>&1)
-(cd "$T/mut" && python3 mutated/run_mutated.py --name "$NAME" --cmd "$E calc" --batch-cmd "$E batch" > "$OUT/mut.log" 2>&1;
- python3 mutated/tools/check_eft.py --rpc-cmd "$E serve-stdio" --dataset "$D" > "$OUT/mut-eft.json" 2> "$OUT/mut-eft.log")
-(cd "$T/fmt" && python3 tools/evaluate_formats.py --rpc "$E serve-stdio" --name "$NAME" --out "$OUT/fmt" > "$OUT/fmt.log" 2>&1)
-(cd "$T/gr" && python3 graphs/run_graphs.py --name "$NAME" --rpc-cmd "$E serve-stdio" --timeout 60 > "$OUT/gr.log" 2>&1)
-(cd "$T/b110" && python3 run.py --name "$NAME" --cmd "$E calc" --batch-cmd "$E batch" --batch-repeat 1 --latency-n 3 > "$OUT/b110.log" 2>&1)
-(cd "$T/b110" && python3 effects/tools/score.py --batch-cmd "$E batch" --name "$NAME" --out "$OUT/effects.json" > "$OUT/effects.log" 2>&1)
-(cd "$T/b110" && python3 ext/tools/score.py --batch-cmd "$E batch" --name "$NAME" --out "$OUT/ext.json" > "$OUT/ext.log" 2>&1)
-python3 ci/gate.py "$NAME" "$T" "$OUT" | tee -a "$OUT/summary.md"; [ "${PIPESTATUS[0]}" = 0 ] || fail=1
+if [ -z "$SKIP_R1" ]; then
+  if [ "$base" = "$(cat ci/round1-base.sha256)" ]; then note "- round-1 minus new keys ($(grep -v '^#' ci/round1-new-keys.txt | tr '\n' ' ')) sha256 $base = ci/round1-base.sha256 (pre-existing output byte-identical)"; else note "- round-1 minus new keys sha256 $base != ci/round1-base.sha256 (a pre-existing field changed)"; fail=1; fi
+  want=$(cat ci/round1.sha256)
+  if [ "$sha" = "$want" ]; then note "- round-1 batch sha256 $sha (unchanged)"; else note "- round-1 batch sha256 $sha != ci/round1.sha256 $want (output changed: update ci/round1.sha256 only for an intended output change)"; fail=1; fi
+else
+  note "- round-1 sha checks skipped (skip-round1); sha256 $sha / base $base recorded only"
+fi
+
+(cd "$BENCH/suites/round1" && python3 tools/check_eft_export.py --rpc-cmd "$E serve-stdio" > "$OUT/eft18.log" 2>&1)
+(cd "$BENCH/suites/mutated" && python3 mutated/tools/check_eft.py --rpc-cmd "$E serve-stdio" --dataset "$D" > "$OUT/mut-eft.json" 2> "$OUT/mut-eft.log")
+
+bash "$BENCH/tools/run_all_suites.sh" "$E" "$OUT" "$NAME" || note "suite runner reported failures (gate decides)"
+
+# no-regress is THE suite gate. Write its report to a file first so its exit code decides the step
+# (a `| tee` pipeline would mask it behind tee's status).
+python3 "$BENCH/tools/check_no_regress.py" --baseline "$BENCH/baselines/exfa-engine.json" --run-dir "$OUT" > "$OUT/nrg.txt" 2>&1
+rc=$?
+cat "$OUT/nrg.txt"
+[ $rc -eq 0 ] || fail=1
+
+python3 ci/gate.py "$NAME" "$OUT" | tee -a "$OUT/summary.md"; [ "${PIPESTATUS[0]}" = 0 ] || fail=1
 exit $fail

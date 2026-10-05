@@ -1,0 +1,175 @@
+name: sde-update
+
+# Drives a new EXFA-Data SDE release through the engine. EXFA-Data's sde.yml sends a
+# repository_dispatch (type sde-release, client_payload {tag, sde_build, revision}) after each
+# dataset release; this workflow can also be run manually with the same tag.
+#
+# Flow: if sde.lock already pins the tag -> exit. Otherwise run the whole ci.yml gate against the
+# new dataset (workflow_call, skip_round1_sha: new data legitimately changes the round-1 bytes).
+# On green: update sde.lock, regenerate the two round-1 shas from the new output, bump the workspace
+# patch version, commit "Update SDE to <tag>", tag v<version> and call release.yml (GITHUB_TOKEN-pushed
+# tags do not fire on:push tag triggers). On gate failure: open an issue, main untouched.
+on:
+  repository_dispatch:
+    types: [sde-release]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'EXFA-Data SDE release tag, e.g. sde-3569502-r6'
+        required: true
+
+concurrency:
+  group: sde-update
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  NEW_TAG: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.tag || inputs.tag }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.c.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: c
+        run: |
+          set -euo pipefail
+          cur=$(cut -d= -f2 sde.lock)
+          echo "sde.lock pins $cur; incoming ${NEW_TAG:-<none>}"
+          if [ -z "$NEW_TAG" ]; then
+            echo "::error::no tag given (repository_dispatch client_payload.tag or workflow_dispatch input 'tag')"
+            exit 1
+          fi
+          if [ "$NEW_TAG" = "$cur" ]; then
+            echo "sde.lock already at $NEW_TAG — nothing to do"
+            echo "proceed=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=1" >> "$GITHUB_OUTPUT"
+          fi
+
+  gate:
+    needs: check
+    if: needs.check.outputs.proceed == '1'
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+    with:
+      sde_tag: ${{ env.NEW_TAG }}
+      skip_round1_sha: true
+
+  update:
+    needs: [check, gate]
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.b.outputs.tag }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: bench.lock + EXFA-Bench checkout
+        run: |
+          set -euo pipefail
+          grep '^BENCH_' bench.lock
+          echo "BENCH_SHA=$(grep '^BENCH_SHA=' bench.lock | cut -d= -f2)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          repository: EX-CT/EXFA-Bench
+          path: _bench
+          fetch-depth: 0
+      - name: Pin EXFA-Bench to bench.lock
+        run: git -C _bench checkout -q "$BENCH_SHA"
+      - name: New dataset ($NEW_TAG)
+        run: |
+          set -euo pipefail
+          gh release download "$NEW_TAG" -R EX-CT/EXFA-Data --pattern 'dataset-*.json.gz' -D _data
+          echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
+      - name: sde.lock + version bump + rebuild
+        id: b
+        run: |
+          set -euo pipefail
+          sed -i "s/^SDE_TAG=.*/SDE_TAG=$NEW_TAG/" sde.lock
+          NEW_VER=$(python3 - <<'EOF'
+          import re, pathlib
+          p = pathlib.Path("Cargo.toml"); t = p.read_text()
+          m = re.search(r'(?ms)^\[workspace\.package\].*?^version\s*=\s*"(\d+)\.(\d+)\.(\d+)"', t)
+          maj, mi, pa = map(int, m.groups()); new = f"{maj}.{mi}.{pa+1}"
+          span = t[m.start():m.end()]
+          p.write_text(t[:m.start()] + span.replace(f"{maj}.{mi}.{pa}", new, 1) + t[m.end():])
+          print(new)
+          EOF
+          )
+          echo "version bump -> $NEW_VER"
+          # build without --locked so Cargo.lock picks up the workspace version bump
+          cargo build --release -p exfa-cli
+          echo "tag=v$NEW_VER" >> "$GITHUB_OUTPUT"
+      - name: Regenerate round-1 shas on the new dataset
+        run: |
+          set -euo pipefail
+          for f in _bench/suites/round1/cases/*.json; do python3 -c "import json,sys;print(json.dumps(json.load(open(sys.argv[1]))))" "$f"; done > /tmp/round1.jsonl
+          ./target/release/exfa batch < /tmp/round1.jsonl > /tmp/round1.out.jsonl
+          sha256sum < /tmp/round1.out.jsonl | cut -d' ' -f1 > ci/round1.sha256
+          python3 ci/strip_keys.py $(grep -v '^#' ci/round1-new-keys.txt) < /tmp/round1.out.jsonl | sha256sum | cut -d' ' -f1 > ci/round1-base.sha256
+          echo "round1.sha256     = $(cat ci/round1.sha256)"
+          echo "round1-base.sha256 = $(cat ci/round1-base.sha256)"
+      - name: Commit + tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sde.lock Cargo.toml Cargo.lock ci/round1.sha256 ci/round1-base.sha256
+          git commit -m "Update SDE to $NEW_TAG"
+          git push origin main
+          git tag "$TAG_OUT"
+          git push origin "refs/tags/$TAG_OUT"
+        env:
+          TAG_OUT: ${{ steps.b.outputs.tag }}
+
+  release:
+    needs: update
+    uses: ./.github/workflows/release.yml
+    secrets: inherit
+    with:
+      tag: ${{ needs.update.outputs.tag }}
+      dry_run: false
+
+  blocked:
+    needs: [check, gate]
+    if: needs.check.outputs.proceed == '1' && failure()
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Open a blocking issue with the gate summary
+        run: |
+          set -uo pipefail
+          run_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          # find the reusable ci.yml run spawned by this workflow_call and pull its step summaries
+          summary=""
+          cid=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --event workflow_call --limit 5 \
+                  --json databaseId,createdAt --jq 'sort_by(.createdAt) | last | .databaseId' 2>/dev/null || true)
+          if [ -n "$cid" ]; then
+            for cr in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$cid/jobs" --jq '.jobs[].check_run_url | split("/")[-1]' 2>/dev/null); do
+              t=$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$cr" --jq '.output.text // empty' 2>/dev/null || true)
+              [ -n "$t" ] && summary="$summary
+          $t"
+            done
+          fi
+          {
+            echo "EXFA-Data released SDE \`$NEW_TAG\` but the engine gate rejected it."
+            echo ""
+            echo "- sde-update run: $run_url"
+            [ -n "$cid" ] && echo "- gate run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$cid"
+            echo ""
+            echo "## Gate summary"
+            [ -n "$summary" ] && echo "$summary" || echo "(no step summaries found — see the gate run logs)"
+          } > /tmp/issue.md
+          cat /tmp/issue.md
+          gh issue create -R "$GITHUB_REPOSITORY" --title "SDE $NEW_TAG blocked by the gate" --body-file /tmp/issue.md

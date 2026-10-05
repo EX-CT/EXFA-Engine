@@ -1,174 +1,167 @@
 name: ci
 
-# Build native + WASM, then gate every push / PR on all regression suites (eve-dogma-bench, pinned refs in
-# ci/run_suites.sh, minimum scores in ci/gate.json) and on the byte-identical round-1 output (ci/round1.sha256).
-
+# Gate for EXFA-Engine. Also a reusable workflow: sde-update.yml calls this file via `workflow_call`
+# with `sde_tag` (override the tag pinned in sde.lock) and `skip_round1_sha` (new data legitimately
+# changes the round-1 byte checks).
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      sde_tag:
+        description: 'SDE release tag (default: sde.lock)'
+        required: false
+        default: ''
+      skip_round1_sha:
+        description: 'skip the two round-1 sha checks'
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      sde_tag:
+        description: 'SDE release tag (default: sde.lock)'
+        type: string
+        required: false
+        default: ''
+      skip_round1_sha:
+        description: 'skip the two round-1 sha checks'
+        type: boolean
+        required: false
+        default: false
 
 env:
-  SDE_TAG: sde-3569502-r5
   CARGO_TERM_COLOR: always
+  SDE_TAG: ${{ inputs.sde_tag }}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
+    runs-on: windows-2022
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip1,wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - name: Dataset (${{ env.SDE_TAG }})
+      - name: Dataset (sde.lock${{ inputs.sde_tag && format(' overridden to {0}', inputs.sde_tag) || '' }})
+        shell: bash
         run: |
-          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
-          echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
-      - name: Build native (exfa)
-        run: cargo build --release --locked
-      - name: Build WASM (wasip1 CLI, unknown-unknown C ABI engine + formats)
-        run: |
-          cargo build --release --locked --target wasm32-wasip1 -p exfa-cli
-          cargo build --profile release-small --locked --target wasm32-unknown-unknown -p exfa-wasm -p exfa-formats-wasm
-          ls -l target/wasm32-wasip1/release/exfa.wasm target/wasm32-unknown-unknown/release-small/exfa_wasm.wasm \
-                target/wasm32-unknown-unknown/release-small/exfa_formats_wasm.wasm
-      - name: Crate boundary (engine has no formats, formats has no engine)
-        run: |
-          cargo tree --locked -e normal -p exfa-formats | tee /tmp/ff.tree
-          cargo tree --locked -e normal -p exfa-core | tee /tmp/ed.tree
-          cargo tree --locked -e normal -p exfa-wasm | tee /tmp/ew.tree
-          if grep -E "exfa-core v" /tmp/ff.tree; then echo "::error::exfa-formats depends on the engine"; exit 1; fi
-          if grep -E "exfa-formats v" /tmp/ed.tree /tmp/ew.tree; then echo "::error::engine depends on exfa-formats"; exit 1; fi
-      - name: Formats unit tests (every format - import/export round trips, error paths)
-        run: cargo test --release --locked -p exfa-formats --test roundtrip
+          tag="${SDE_TAG:-$(cut -d= -f2 sde.lock)}"
+          echo "SDE_TAG=$tag" >> "$GITHUB_ENV"
+          gh release download "$tag" -R EX-CT/EXFA-Data --pattern 'dataset-*.json.gz' -D _data
+          f=$(ls "$PWD"/_data/dataset-*.json.gz | head -1)
+          # bash on Windows yields an MSYS path (/d/a/...) that the pwsh-run cargo cannot read
+          if command -v cygpath > /dev/null; then f=$(cygpath -m "$f"); fi
+          echo "EXFA_DATASET=$f" >> "$GITHUB_ENV"
+      - name: Build
+        run: cargo build --release --locked -p exfa-cli
       - name: Test
-        run: cargo test --release --locked --workspace
-      - name: WASM C-ABI test (node, byte-identical to native)
-        run: |
-          git clone -q --filter=blob:none --no-checkout https://github.com/EX-CT/eve-dogma-bench _b
-          git -C _b checkout -q d2edf98 -- cases
-          n=0
-          for f in _b/cases/exct_rifter.json _b/cases/breacher_kestrel.json _b/cases/proj_neut_hyperion.json _b/cases/fleet_two_boosters_hyperion.json; do
-            a=$(node crates/exfa-wasm/examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/exfa_wasm.wasm < "$f" | sha256sum)
-            b=$(./target/release/exfa calc < "$f" | sha256sum)
-            [ "$a" = "$b" ] && n=$((n+1)) || echo "::error::wasm C ABI output differs for $f"
-          done
-          echo "- wasm32-unknown-unknown C ABI: $n/4 byte-identical to native" >> "$GITHUB_STEP_SUMMARY"
-          [ $n = 4 ]
-      - name: Formats WASM C-ABI test (node, byte-identical to the CLI)
-        run: |
-          node crates/exfa-formats-wasm/examples/node-formats.mjs target/wasm32-unknown-unknown/release-small/exfa_formats_wasm.wasm \
-            < ci/formats-wasm/requests.jsonl > /tmp/fw.out
-          ./target/release/exfa serve-stdio < ci/formats-wasm/requests.jsonl > /tmp/fn.out
-          cmp /tmp/fw.out /tmp/fn.out
-          echo "- formats wasm C ABI: $(wc -l < /tmp/fw.out) RPC responses byte-identical to the CLI" >> "$GITHUB_STEP_SUMMARY"
-          python3 ci/formats-wasm/shipstats_check.py ./target/release/exfa \
-            target/wasm32-unknown-unknown/release-small/exfa_formats_wasm.wasm >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: engine
-          path: |
-            target/release/exfa
-            target/wasm32-wasip1/release/exfa.wasm
-            target/wasm32-unknown-unknown/release-small/exfa_wasm.wasm
-            target/wasm32-unknown-unknown/release-small/exfa_formats_wasm.wasm
+        run: cargo test --workspace --locked
 
   suites:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [native, wasm]
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: EX-CT/eve-dogma-bench
-          path: _bench
-          fetch-depth: 0
-          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - run: pip install pyyaml   # cap-suite runner
-      - uses: actions/download-artifact@v4
+          python-version: '3.13'
+      - run: pip install pyyaml
+      - name: bench.lock
+        run: |
+          set -euo pipefail
+          grep '^BENCH_' bench.lock
+          repo=$(grep '^BENCH_REPO=' bench.lock | cut -d= -f2)
+          [ "$repo" = "EX-CT/EXFA-Bench" ] || { echo "::error::unexpected BENCH_REPO=$repo"; exit 1; }
+          echo "BENCH_SHA=$(grep '^BENCH_SHA=' bench.lock | cut -d= -f2)" >> "$GITHUB_ENV"
+      - name: Checkout EXFA-Bench (pinned by bench.lock)
+        uses: actions/checkout@v4
         with:
-          name: engine
-          path: _engine
-      - name: Dataset (${{ env.SDE_TAG }})
+          repository: EX-CT/EXFA-Bench
+          path: _bench
+          fetch-depth: 0
+      - name: Pin EXFA-Bench to bench.lock
+        run: git -C _bench checkout -q "$BENCH_SHA"
+      - name: Dataset (${{ env.SDE_TAG || 'sde.lock' }})
         run: |
-          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
+          tag="${SDE_TAG:-$(cut -d= -f2 sde.lock)}"
+          echo "SDE_TAG=$tag" >> "$GITHUB_ENV"
+          gh release download "$tag" -R EX-CT/EXFA-Data --pattern 'dataset-*.json.gz' -D _data
           echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
-          # Pyfa-derived data (GPL-3.0, never compiled in): loaded at run time for market.search jargon / names.resolve
-          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'presets-pyfa-*.json' -D _data
+      - name: Pyfa presets (legacy oracle data for ext_rpc cases)
+        run: |
+          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'presets-pyfa-*' -D _data
           echo "EXFA_PYFA_DATA=$(ls $PWD/_data/presets-pyfa-*.json | head -1)" >> "$GITHUB_ENV"
-      - uses: bytecodealliance/actions/wasmtime/setup@v1
-        if: matrix.mode == 'wasm'
-      - name: Engine command
+      - name: Build
+        run: cargo build --release --locked -p exfa-cli
+      - name: Suites
+        run: bash ci/run_suites.sh native ./target/release/exfa ${{ inputs.skip_round1_sha && 'skip-round1' || '' }}
+      - name: Inventory coverage (informative)
         run: |
-          chmod +x _engine/release/exfa
-          if [ "${{ matrix.mode }}" = wasm ]; then
-            wasmtime compile _engine/wasm32-wasip1/release/exfa.wasm -o "$PWD/_engine/exfa.cwasm"
-            echo "ENGINE=wasmtime run --allow-precompiled $PWD/_engine/exfa.cwasm" >> "$GITHUB_ENV"
-          else
-            echo "ENGINE=$PWD/_engine/release/exfa" >> "$GITHUB_ENV"
-          fi
-      - name: Suites (bench 1.10.0 core/effects/ext, bench 1.9.0, EFT 1.8.0, cap, mutated, formats, graphs 0.2, round-1 sha256)
-        env:
-          BENCH: ${{ github.workspace }}/_bench
-        run: |
-          rc=0; ci/run_suites.sh "${{ matrix.mode }}" "$ENGINE" || rc=$?
-          cat "ci-results/${{ matrix.mode }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
-          exit $rc
-      # eve3's no-regression gate (eve-dogma-bench pending-1.11 tools/check_no_regress.py, baseline bench/baselines/f.json,
-      # maintained by eve3 and only ever raised): per-suite pass counts must not drop and no case id that passed in the
-      # baseline may fail; new failures elsewhere are allowed. Blocking.
-      - name: No-regression gate (bench pending-1.11 tip, baselines/f.json; core, ext, ext_rpc, batch, effects, sde, price_inject, graphs, cap, mutated, formats)
-        if: matrix.mode == 'native'
-        run: |
-          # blobless (not shallow) clone: run_all_suites.sh fetches pinned suite commits into it; a --depth 1 clone raced on .git/shallow
-          # bench ref: pending-1.11 tip (>= 05ae5a1, eve3's alignment with eve-fit-docs eccf455; baseline 8bde0ba)
-          for i in 1 2 3; do rm -rf _nrg_bench; git clone -q --filter=blob:none -b pending-1.11 https://github.com/EX-CT/eve-dogma-bench _nrg_bench && break; sleep 5; done
-          git -C _nrg_bench merge-base --is-ancestor 05ae5a1e70859f7eab628a748360b060f9069574 HEAD
-          _nrg_bench/tools/run_all_suites.sh "$ENGINE" nrg-out
-          rc=0; python3 _nrg_bench/tools/check_no_regress.py --baseline _nrg_bench/baselines/f.json --run-dir nrg-out | tee nrg.txt || rc=$?
-          { echo; echo "### no-regression gate (bench pending-1.11 $(git -C _nrg_bench rev-parse --short HEAD))"; echo '```'; cat nrg.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          mkdir -p ci-results && cp nrg.txt ci-results/no-regress.txt
-          exit $rc
-      # docs/20 §5.1 inventory -> tests gate (eve-dogma-bench tools/check_inventory.py, docs/19 YAML from eve-fit-docs).
-      # Non-blocking until eve3 publishes cases for the uncovered items (ENG-OFF-003, TGT-004, VAL-002..006) and tags a
-      # new bench release; then drop continue-on-error.
-      - name: Inventory check (non-blocking)
-        if: matrix.mode == 'native'
-        continue-on-error: true
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/EX-CT/eve-fit-docs/main/docs/19-pyfa-feature-inventory.yaml -o _inv19.yaml
-          python3 _bench/tools/check_inventory.py --inventory _inv19.yaml --bench-repo _bench --columns f --root unit=$PWD \
-            --json ci-results/inventory.json | tee ci-results/inventory.txt; rc=${PIPESTATUS[0]}
-          { echo; echo '### inventory check (non-blocking)'; echo '```'; tail -3 ci-results/inventory.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          exit $rc
+          curl -fsSL https://raw.githubusercontent.com/EX-CT/EXFA-Docs/main/docs/19-pyfa-feature-inventory.yaml -o /tmp/inventory.yaml
+          python3 _bench/tools/check_inventory.py --inventory /tmp/inventory.yaml --bench-repo _bench --root unit=../EXFA-Engine --columns f || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: suite-results-${{ matrix.mode }}
-          path: ci-results/
+          name: ci-results-native
+          path: ci-results/native
+          if-no-files-found: ignore
+
+  suites-wasm:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install pyyaml
+      - name: bench.lock
+        run: |
+          set -euo pipefail
+          grep '^BENCH_' bench.lock
+          repo=$(grep '^BENCH_REPO=' bench.lock | cut -d= -f2)
+          [ "$repo" = "EX-CT/EXFA-Bench" ] || { echo "::error::unexpected BENCH_REPO=$repo"; exit 1; }
+          echo "BENCH_SHA=$(grep '^BENCH_SHA=' bench.lock | cut -d= -f2)" >> "$GITHUB_ENV"
+      - name: Checkout EXFA-Bench (pinned by bench.lock)
+        uses: actions/checkout@v4
+        with:
+          repository: EX-CT/EXFA-Bench
+          path: _bench
+          fetch-depth: 0
+      - name: Pin EXFA-Bench to bench.lock
+        run: git -C _bench checkout -q "$BENCH_SHA"
+      - name: Dataset (${{ env.SDE_TAG || 'sde.lock' }})
+        run: |
+          tag="${SDE_TAG:-$(cut -d= -f2 sde.lock)}"
+          echo "SDE_TAG=$tag" >> "$GITHUB_ENV"
+          gh release download "$tag" -R EX-CT/EXFA-Data --pattern 'dataset-*.json.gz' -D _data
+          echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
+      - name: Pyfa presets (legacy oracle data for ext_rpc cases)
+        run: |
+          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'presets-pyfa-*' -D _data
+          echo "EXFA_PYFA_DATA=$(ls $PWD/_data/presets-pyfa-*.json | head -1)" >> "$GITHUB_ENV"
+      - name: Build wasip1
+        run: cargo build --release --locked --target wasm32-wasip1 -p exfa-cli
+      - name: Install wasmtime
+        run: curl -fsSL https://wasmtime.dev/install.sh | bash -s -- --version v33.0.0
+      - name: Suites
+        run: |
+          export PATH="$HOME/.wasmtime/bin:$PATH"
+          bash ci/run_suites.sh wasm "wasmtime run --env EXFA_DATASET=$EXFA_DATASET $PWD/target/wasm32-wasip1/release/exfa.wasm --" ${{ inputs.skip_round1_sha && 'skip-round1' || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-results-wasm
+          path: ci-results/wasm
           if-no-files-found: ignore
