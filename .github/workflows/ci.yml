@@ -92,9 +92,9 @@ jobs:
           echo "SDE_TAG=$tag" >> "$GITHUB_ENV"
           gh release download "$tag" -R EX-CT/EXFA-Data --pattern 'dataset-*.json.gz' -D _data
           echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
-      - name: Pyfa presets (legacy oracle data for ext_rpc cases)
+      - name: Pyfa presets (legacy oracle data for ext_rpc cases; frozen at the last published copy — EXFA-Data no longer produces presets-pyfa)
         run: |
-          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'presets-pyfa-*' -D _data
+          gh release download sde-3569502-r5 -R EX-CT/eve-sde-pipeline --pattern 'presets-pyfa-*' -D _data
           echo "EXFA_PYFA_DATA=$(ls $PWD/_data/presets-pyfa-*.json | head -1)" >> "$GITHUB_ENV"
       - name: Build
         run: cargo build --release --locked -p exfa-cli
@@ -147,9 +147,9 @@ jobs:
           echo "SDE_TAG=$tag" >> "$GITHUB_ENV"
           gh release download "$tag" -R EX-CT/EXFA-Data --pattern 'dataset-*.json.gz' -D _data
           echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
-      - name: Pyfa presets (legacy oracle data for ext_rpc cases)
+      - name: Pyfa presets (legacy oracle data for ext_rpc cases; frozen at the last published copy — EXFA-Data no longer produces presets-pyfa)
         run: |
-          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'presets-pyfa-*' -D _data
+          gh release download sde-3569502-r5 -R EX-CT/eve-sde-pipeline --pattern 'presets-pyfa-*' -D _data
           echo "EXFA_PYFA_DATA=$(ls $PWD/_data/presets-pyfa-*.json | head -1)" >> "$GITHUB_ENV"
       - name: Build wasip1
         run: cargo build --release --locked --target wasm32-wasip1 -p exfa-cli
