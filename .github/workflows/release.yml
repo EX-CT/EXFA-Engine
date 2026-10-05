@@ -54,7 +54,10 @@ jobs:
         shell: bash
         run: |
           gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
-          echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
+          f=$(ls "$PWD"/_data/dataset-*.json.gz | head -1)
+          # bash on Windows yields an MSYS path (/d/a/...) that the pwsh-run cargo cannot read
+          if command -v cygpath > /dev/null; then f=$(cygpath -m "$f"); fi
+          echo "EXFA_DATASET=$f" >> "$GITHUB_ENV"
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} -p exfa-cli
       - name: Smoke (native targets)
