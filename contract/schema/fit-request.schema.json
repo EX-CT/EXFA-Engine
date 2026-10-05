@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/EX-CT/eve-fit-docs/schema/fit-request.schema.json",
+  "title": "EXCT FitRequest v1",
+  "type": "object",
+  "required": ["ship"],
+  "$defs": {
+    "typeId": {"type": "integer", "minimum": 0},
+    "state": {"enum": ["offline", "online", "active", "overheated"]},
+    "slot": {"enum": ["high", "mid", "low", "rig", "subsystem", "service"]},
+    "spool": {"type": "object", "required": ["type", "amount"], "properties": {
+      "type": {"enum": ["spool_scale", "cycle_scale", "time", "cycles"]}, "amount": {"type": "number", "minimum": 0}}},
+    "mutation": {"type": "object", "required": ["base_type_id", "attributes"], "properties": {
+      "base_type_id": {"$ref": "#/$defs/typeId"}, "mutaplasmid_type_id": {"$ref": "#/$defs/typeId"},
+      "attributes": {"type": "object", "additionalProperties": {"type": "number"}}}},
+    "module": {"type": "object", "required": ["type_id"], "properties": {
+      "type_id": {"$ref": "#/$defs/typeId"}, "slot": {"$ref": "#/$defs/slot"},
+      "state": {"$ref": "#/$defs/state"}, "charge_type_id": {"$ref": "#/$defs/typeId"},
+      "mutation": {"$ref": "#/$defs/mutation"}, "spool": {"$ref": "#/$defs/spool"}}},
+    "resists": {"type": "object", "properties": {
+      "em": {"type": "number"}, "thermal": {"type": "number"}, "kinetic": {"type": "number"}, "explosive": {"type": "number"}}},
+    "fit": {"$ref": "#"}
+  },
+  "properties": {
+    "schema_version": {"const": 1},
+    "ship": {"type": "object", "required": ["type_id"], "properties": {
+      "type_id": {"$ref": "#/$defs/typeId"}, "mode_type_id": {"$ref": "#/$defs/typeId"}}},
+    "character": {"type": "object", "properties": {
+      "skills": {"type": "object", "properties": {
+        "default_level": {"type": "integer", "minimum": 0, "maximum": 5},
+        "levels": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 5}}}},
+      "security_status": {"type": "number", "minimum": -10, "maximum": 5}}},
+    "modules": {"type": "array", "items": {"$ref": "#/$defs/module"}},
+    "drones": {"type": "array", "items": {"type": "object", "required": ["type_id", "quantity"], "properties": {
+      "type_id": {"$ref": "#/$defs/typeId"}, "quantity": {"type": "integer", "minimum": 1},
+      "active": {"type": "integer", "minimum": 0}, "mutation": {"$ref": "#/$defs/mutation"}}}},
+    "fighters": {"type": "array", "items": {"type": "object", "required": ["type_id"], "properties": {
+      "type_id": {"$ref": "#/$defs/typeId"}, "quantity": {"type": "integer"}, "active": {"type": "boolean"},
+      "abilities": {"type": "array", "items": {"type": "integer"}}}}},
+    "implants": {"type": "array", "items": {"$ref": "#/$defs/typeId"}},
+    "boosters": {"type": "array", "items": {"type": "object", "required": ["type_id"], "properties": {
+      "type_id": {"$ref": "#/$defs/typeId"}, "side_effects": {"type": "array", "items": {"type": "integer"}}}}},
+    "cargo": {"type": "array", "items": {"type": "object", "properties": {
+      "type_id": {"$ref": "#/$defs/typeId"}, "quantity": {"type": "integer"}}}},
+    "fleet": {"type": "object", "properties": {
+      "buffs": {"type": "array", "items": {"type": "object", "required": ["buff_id", "value"], "properties": {
+        "buff_id": {"type": "integer"}, "value": {"type": "number"}}}},
+      "booster_fits": {"type": "array", "items": {"$ref": "#/$defs/fit"}}}},
+    "projected": {"type": "array", "items": {"type": "object", "required": ["kind"], "properties": {
+      "kind": {"enum": ["module", "drone", "fighter", "fit"]},
+      "module": {"$ref": "#/$defs/module"}, "fit": {"$ref": "#/$defs/fit"},
+      "amount": {"type": "integer", "minimum": 1}, "distance_m": {"type": ["number", "null"]}}}},
+    "environment": {"type": "object", "properties": {
+      "effect_type_ids": {"type": "array", "items": {"$ref": "#/$defs/typeId"}},
+      "system_security": {"enum": ["highsec", "lowsec", "nullsec", "wormhole"]}}},
+    "damage_pattern": {"$ref": "#/$defs/resists"},
+    "target_profile": {"allOf": [{"$ref": "#/$defs/resists"}], "properties": {
+      "signature_radius": {"type": ["number", "null"]}, "max_velocity": {"type": ["number", "null"]}, "radius": {"type": ["number", "null"]}}},
+    "overrides": {"type": "array", "items": {"type": "object", "required": ["type_id", "attribute_id", "value"]}},
+    "options": {"type": "object", "properties": {
+      "factor_reload": {"type": "boolean"}, "default_spool": {"$ref": "#/$defs/spool"},
+      "rah": {"enum": ["adapt", "disable"]}, "include_attributes": {"enum": ["none", "ship", "all"]},
+      "sources": {"type": "boolean"}, "validate": {"type": "boolean"},
+      "cap_sim": {"type": "object", "properties": {"reload": {"type": "boolean"}, "stagger": {"type": "boolean"}, "max_time_s": {"type": "number"}}}}}
+  }
+}

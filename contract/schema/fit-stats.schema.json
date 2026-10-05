@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/EX-CT/eve-fit-docs/schema/fit-stats.schema.json",
+  "title": "EXCT FitStats v1",
+  "type": "object",
+  "required": ["meta", "ship", "resources", "offense", "defense", "capacitor", "navigation", "targeting"],
+  "$defs": {
+    "dmg": {"type": "object", "properties": {"em": {"type": "number"}, "thermal": {"type": "number"}, "kinetic": {"type": "number"}, "explosive": {"type": "number"}, "total": {"type": "number"}}},
+    "usage": {"type": "object", "properties": {"used": {"type": "number"}, "total": {"type": "number"}}},
+    "layers": {"type": "object", "properties": {"shield": {}, "armor": {}, "hull": {}}}
+  },
+  "properties": {
+    "meta": {"type": "object", "required": ["schema_version", "engine", "sde_build"]},
+    "ship": {"type": "object"},
+    "resources": {"type": "object", "additionalProperties": true},
+    "offense": {"type": "object", "properties": {
+      "weapons": {"type": "array"}, "drones": {"type": "array"}, "fighters": {"type": "array"},
+      "total": {"type": "object", "properties": {"dps": {"$ref": "#/$defs/dmg"}, "volley": {"$ref": "#/$defs/dmg"}}}}},
+    "defense": {"type": "object", "properties": {"hp": {}, "resonance": {"$ref": "#/$defs/layers"}, "ehp": {}, "tank": {}}},
+    "capacitor": {"type": "object"},
+    "navigation": {"type": "object"},
+    "targeting": {"type": "object"},
+    "drones": {"type": "object"},
+    "mining": {"type": "object"},
+    "remote": {"type": "object"},
+    "modules": {"type": "array"},
+    "violations": {"type": "array", "items": {"type": "object", "required": ["code", "message"]}},
+    "attributes": {"type": "object"}
+  }
+}
