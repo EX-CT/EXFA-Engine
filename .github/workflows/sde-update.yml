@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       proceed: ${{ steps.c.outputs.proceed }}
+      tag: ${{ steps.c.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - id: c
@@ -44,6 +45,7 @@ jobs:
             echo "::error::no tag given (repository_dispatch client_payload.tag or workflow_dispatch input 'tag')"
             exit 1
           fi
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
           if [ "$NEW_TAG" = "$cur" ]; then
             echo "sde.lock already at $NEW_TAG — nothing to do"
             echo "proceed=0" >> "$GITHUB_OUTPUT"
@@ -57,7 +59,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
     secrets: inherit
     with:
-      sde_tag: ${{ env.NEW_TAG }}
+      sde_tag: ${{ needs.check.outputs.tag }}
       skip_round1_sha: true
 
   update:
