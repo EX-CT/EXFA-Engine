@@ -1,28 +1,28 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/eve-dogma-codegen", "crates/eve-sde", "crates/eve-fit-model", "crates/eve-capsim", "crates/eve-dogma",
-    "crates/eve-fit-formats", "crates/eve-cli", "crates/eve-wasm", "crates/eve-fit-formats-wasm", "crates/eve-optimizer",
+    "crates/exfa-codegen", "crates/exfa-sde", "crates/exfa-model", "crates/exfa-capsim", "crates/exfa-core",
+    "crates/exfa-formats", "crates/exfa-cli", "crates/exfa-wasm", "crates/exfa-formats-wasm", "crates/exfa-optimizer",
 ]
 default-members = [
-    "crates/eve-dogma-codegen", "crates/eve-sde", "crates/eve-fit-model", "crates/eve-capsim", "crates/eve-dogma",
-    "crates/eve-fit-formats", "crates/eve-cli", "crates/eve-optimizer",
+    "crates/exfa-codegen", "crates/exfa-sde", "crates/exfa-model", "crates/exfa-capsim", "crates/exfa-core",
+    "crates/exfa-formats", "crates/exfa-cli", "crates/exfa-optimizer",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "LGPL-3.0-or-later"
-repository = "https://github.com/EX-CT/eve-dogma"
+repository = "https://github.com/EX-CT/EXFA-Engine"
 
 [workspace.dependencies]
-eve-capsim = { path = "crates/eve-capsim" }
-eve-dogma = { path = "crates/eve-dogma" }
-eve-dogma-codegen = { path = "crates/eve-dogma-codegen" }
-eve-sde = { path = "crates/eve-sde" }
-eve-fit-model = { path = "crates/eve-fit-model" }
-eve-fit-formats = { path = "crates/eve-fit-formats" }
-eve-optimizer = { path = "crates/eve-optimizer" }
+exfa-capsim = { path = "crates/exfa-capsim" }
+exfa-core = { path = "crates/exfa-core" }
+exfa-codegen = { path = "crates/exfa-codegen" }
+exfa-sde = { path = "crates/exfa-sde" }
+exfa-model = { path = "crates/exfa-model" }
+exfa-formats = { path = "crates/exfa-formats" }
+exfa-optimizer = { path = "crates/exfa-optimizer" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 itoa = "1"

@@ -1,0 +1,16 @@
+[package]
+name = "exfa-formats"
+description = "EVE fit formats (EFT, DNA, ESI JSON, XML, multibuy, ship stats text): text <-> structured FitRequest; no engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exfa-model.workspace = true
+exfa-sde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# tests only: real engine stats for the shipstats export (the library itself never links the engine;
+# CI's crate-boundary check uses `cargo tree -e normal`, which excludes dev-dependencies)
+exfa-core.workspace = true

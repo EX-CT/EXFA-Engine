@@ -1,0 +1,20 @@
+[package]
+name = "exfa-core"
+description = "EVE Online dogma engine: SDE compiled into Rust at build time; fit stats, graphs, JSON-RPC (structured input only; formats are in exfa-formats)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+exfa-capsim.workspace = true
+exfa-sde.workspace = true
+exfa-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+itoa.workspace = true
+zmij.workspace = true
+flate2.workspace = true
+
+[build-dependencies]
+exfa-codegen.workspace = true

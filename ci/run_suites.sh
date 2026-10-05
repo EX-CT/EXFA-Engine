@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Run every regression suite against one engine command and fail on any score below the gate.
-# usage: ci/run_suites.sh NAME "ENGINE_CMD"   (ENGINE_CMD = native binary, or "wasmtime run ... eve-fit.cwasm")
-# needs: $BENCH = eve-dogma-bench checkout (full history), $EVE_DOGMA_DATASET, python3
+# usage: ci/run_suites.sh NAME "ENGINE_CMD"   (ENGINE_CMD = native binary, or "wasmtime run ... exfa.cwasm")
+# needs: $BENCH = eve-dogma-bench checkout (full history), $EXFA_DATASET, python3
 set -uo pipefail
-NAME=$1; E=$2; D=$EVE_DOGMA_DATASET
+NAME=$1; E=$2; D=$EXFA_DATASET
 T=${SUITES_DIR:-$PWD/_suites}; mkdir -p "$T"; OUT=$PWD/ci-results/$NAME; mkdir -p "$OUT"
 stage() { # dir ref
   [ -d "$T/$1" ] || { mkdir -p "$T/$1" && git -C "$BENCH" archive "$2" | tar -x -C "$T/$1"; }

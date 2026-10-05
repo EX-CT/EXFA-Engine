@@ -24,27 +24,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "eve-capsim"
+name = "exfa-capsim"
 version = "0.1.0"
 
 [[package]]
-name = "eve-cli"
+name = "exfa-cli"
 version = "0.1.0"
 dependencies = [
- "eve-dogma",
- "eve-fit-formats",
- "eve-optimizer",
+ "exfa-core",
+ "exfa-formats",
+ "exfa-optimizer",
  "serde_json",
 ]
 
 [[package]]
-name = "eve-dogma"
+name = "exfa-core"
 version = "0.1.0"
 dependencies = [
- "eve-capsim",
- "eve-dogma-codegen",
- "eve-fit-model",
- "eve-sde",
+ "exfa-capsim",
+ "exfa-codegen",
+ "exfa-model",
+ "exfa-sde",
  "flate2",
  "itoa",
  "serde",
@@ -53,7 +53,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "eve-dogma-codegen"
+name = "exfa-codegen"
 version = "0.1.0"
 dependencies = [
  "flate2",
@@ -61,25 +61,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "eve-fit-formats"
+name = "exfa-formats"
 version = "0.1.0"
 dependencies = [
- "eve-dogma",
- "eve-fit-model",
- "eve-sde",
+ "exfa-core",
+ "exfa-model",
+ "exfa-sde",
  "serde_json",
 ]
 
 [[package]]
-name = "eve-fit-formats-wasm"
+name = "exfa-formats-wasm"
 version = "0.1.0"
 dependencies = [
- "eve-fit-formats",
+ "exfa-formats",
  "serde_json",
 ]
 
 [[package]]
-name = "eve-fit-model"
+name = "exfa-model"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -87,28 +87,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "eve-optimizer"
+name = "exfa-optimizer"
 version = "0.1.0"
 dependencies = [
- "eve-dogma",
- "eve-fit-model",
+ "exfa-core",
+ "exfa-model",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "eve-sde"
+name = "exfa-sde"
 version = "0.1.0"
 dependencies = [
- "eve-dogma-codegen",
+ "exfa-codegen",
 ]
 
 [[package]]
-name = "eve-wasm"
+name = "exfa-wasm"
 version = "0.1.0"
 dependencies = [
- "eve-dogma",
- "eve-optimizer",
+ "exfa-core",
+ "exfa-optimizer",
  "serde_json",
 ]
 

@@ -1,0 +1,16 @@
+[package]
+name = "exfa-cli"
+description = "exfa command line (engine + formats): calc, batch, serve-stdio, graph, eft, search, type, meta, bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "exfa"
+path = "src/main.rs"
+
+[dependencies]
+exfa-core.workspace = true
+exfa-formats.workspace = true
+exfa-optimizer.workspace = true
+serde_json.workspace = true

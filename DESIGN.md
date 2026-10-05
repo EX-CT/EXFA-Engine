@@ -2,7 +2,7 @@
 
 ## Core idea
 The SDE is compiled into Rust code. `build.rs` reads `dataset-3569502-r5.json.gz` (eve-sde-pipeline format v1, release sde-3569502-r5; r2+ adds the market-group tree used by price overrides; path from
-`$EVE_DOGMA_DATASET`) and writes `$OUT_DIR/gen.rs` (about 5.4 MB of Rust), which is pulled in with `include!`. At runtime
+`$EXFA_DATASET`) and writes `$OUT_DIR/gen.rs` (about 5.4 MB of Rust), which is pulled in with `include!`. At runtime
 the engine never parses dataset JSON and never interprets modifier records. Every effect is a match arm of straight-line
 calls.
 
@@ -101,23 +101,23 @@ value and are listed for eve's pyfa-data-drift decision, not excluded here.
   is no JSON load at all. Cold start + one calc is about 2–3 ms native. The reference engine needs hundreds of ms to
   load its dataset.
 * The generated source is large (5.4 MB). Fat LTO + codegen-units=1 keep the output compact but make builds slower.
-* Chinese names (`names.zh`, ≈ 330 KB) are compiled in for `search`/`type`. EFT import/export (`eve-fit-formats::eft`, RPC `eft_parse`/`eft_export`) is ported from eve-dogma-rs; mutated types resolve through a build-time mutaplasmid mapping table.
-* Import/export formats (crate `eve-fit-formats`, outside the engine; RPC `format_export` / `format_import`): DNA (+ chat link, alt), ESI JSON,
+* Chinese names (`names.zh`, ≈ 330 KB) are compiled in for `search`/`type`. EFT import/export (`exfa-formats::eft`, RPC `eft_parse`/`eft_export`) is ported from eve-dogma-rs; mutated types resolve through a build-time mutaplasmid mapping table.
+* Import/export formats (crate `exfa-formats`, outside the engine; RPC `format_export` / `format_import`): DNA (+ chat link, alt), ESI JSON,
   XML (multi-fit), multibuy, EFT option switches and EFT `.cfg`, additions lists / single mutant, ship-stats text.
   Importers reproduce Pyfa's observable behaviour: fit checks (slots, hardpoints, canFitShip*, capital size, rig size,
   subsystem slot, maxGroupFitted; DNA/EFT-cfg one-over leniency), active-state limits, charge validity, item
   publicity as Pyfa's database sees it (Civilian modules public; abyssal/mutated types not), fighter-tube checks.
-  `shipstats` formats unrounded engine stats supplied by the caller (`eve-fit` passes `calc(..).to_value_raw()`,
+  `shipstats` formats unrounded engine stats supplied by the caller (`exfa` passes `calc(..).to_value_raw()`,
   the formats wasm takes `params.stats`) with a 3-significant-digit k/M/G formatter, at no spool-up. Slot and
-  hardpoint counts after subsystems and fighter squadron sizes come from static data (`eve_fit_formats::fitting`),
+  hardpoint counts after subsystems and fighter squadron sizes come from static data (`exfa_formats::fitting`),
   not from the engine.
 
 ## WASM
-* `wasm32-wasip1`: the same CLI binary. Run it with `wasmtime run eve-fit.wasm calc < req.json`. Precompiling with
+* `wasm32-wasip1`: the same CLI binary. Run it with `wasmtime run exfa.wasm calc < req.json`. Precompiling with
   `wasmtime compile` gives about 6.6 ms cold.
-* `wasm32-unknown-unknown` (`--lib --profile release-small`): engine `eve-wasm` C-ABI exports `alloc`, `dealloc`,
+* `wasm32-unknown-unknown` (`--lib --profile release-small`): engine `exfa-wasm` C-ABI exports `alloc`, `dealloc`,
   `calc(ptr,len)->u64`, `rpc(ptr,len)->u64` (engine methods only). See `examples/node-calc.mjs`. Formats are a
-  separate module, `eve-fit-formats-wasm` (`alloc`, `dealloc`, `rpc`), see `examples/node-formats.mjs`.
+  separate module, `exfa-formats-wasm` (`alloc`, `dealloc`, `rpc`), see `examples/node-formats.mjs`.
 
 ## Repository note
 The lab repo's branches share no history, so `variant-f` is an **orphan branch** that contains only `variant-f/`.

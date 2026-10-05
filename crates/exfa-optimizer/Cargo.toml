@@ -1,0 +1,12 @@
+[package]
+name = "exfa-optimizer"
+description = "Skill-based fit optimizer over the exfa-core engine (docs/21 v1): objective x constraints x character -> ranked fits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exfa-core.workspace = true
+exfa-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true

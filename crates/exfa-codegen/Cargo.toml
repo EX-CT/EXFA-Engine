@@ -1,0 +1,10 @@
+[package]
+name = "exfa-codegen"
+description = "Build-time generator: EXCT SDE dataset -> Rust tables and effect code for exfa-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+flate2.workspace = true
+serde_json.workspace = true
