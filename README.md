@@ -1,15 +1,15 @@
-# eve-dogma — EVE Online fitting engine (Rust mainline)
+# EXFA-Engine — EXFA · 精密装配助理 解算引擎
 
-EXCT's Rust mainline, migrated 2026-10-03 from eve-dogma-lab `variant-f-features` (engine variant F + graphs layer),
-history included. The previous C++ engine (variant J) is in this repository's history (`dd97e12`) and in eve-dogma-lab
-tag `j-backup-2026-10-03`.
-The C++ alternative implementation J lives on branch `j-backup` and on eve-dogma-lab tag `j-backup-2026-10-03`.
-Architecture: eve-fit-docs `docs/20-rust-architecture-plan.md`; scope: `docs/19`.
+Stateless EVE Online fitting engine (Rust, native + WASM), migrated 2026-10-05 from
+`EX-CT/eve-dogma@d70e371` with full history. Provenance line before that: `eve-dogma-lab`
+`variant-f-features` (engine variant F + graphs layer); the previous C++ engine (variant J) is in
+this repository's history (`dd97e12`) and in eve-dogma-lab tag `j-backup-2026-10-03`.
+Architecture: `EX-CT/EXFA-Docs` `docs/00-architecture-plan.md`.
 Licence: LGPL-3.0-or-later (`LICENSE`, with the GPL text it extends in `LICENSE.GPL-3.0`). Pyfa is used only as a
 black-box oracle and behaviour reference; no Pyfa code.
 
-EVE Online dogma engine for the EXCT contract (`eve-dogma-rs/docs/contract.md`, v1): one JSON `FitRequest` on
-stdin → one JSON `FitStats` on stdout, stateless and deterministic.
+One JSON `FitRequest` on stdin → one JSON `FitStats` on stdout, stateless and deterministic
+(contract: [contract/](contract/README.md)).
 
 The SDE dataset (`dataset-3569502-r5.json.gz`, eve-sde-pipeline format v1, release `sde-3569502-r5`) is **compiled into the binary**: the code
 generator turns every effect's modifier list into straight-line Rust code and every type/attribute/group into static
@@ -19,58 +19,58 @@ tables. The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.m
 
 | crate | what | depends on |
 |---|---|---|
-| `crates/eve-dogma-codegen` | build-time generator: dataset → `tables.rs` (for eve-sde) + `effects.rs` (for eve-dogma) | — |
-| `crates/eve-sde` | static data compiled in: types, attributes, groups, names (en/zh), mutaplasmids, … (no engine code) | (build: codegen) |
-| `crates/eve-fit-model` | structured fit input: `FitRequest` v1 serde types | serde |
-| `crates/eve-capsim` | capacitor simulator (+ Pyfa `round`) | — |
-| `crates/eve-dogma` | **engine**: core, stats, graphs, JSON-RPC (calc, graph, graph_specs, search, type, meta); structured input only | eve-sde, eve-fit-model, eve-capsim |
-| `crates/eve-fit-formats` | fit formats: EFT (+cfg, mutations), DNA (+alt, link), ESI JSON, XML, multibuy, ship-stats text, item lists, auto-detect; RPC eft_parse, eft_export, format_import, format_export | eve-sde, eve-fit-model (**not** eve-dogma) |
-| `crates/eve-optimizer` | skill-based fit optimizer (eve-fit-docs docs/21 v1): `optimize`, `Evaluator` trait, RPC `optimize` | eve-dogma, eve-fit-model |
-| `crates/eve-cli` | binary `eve-fit` (calc, batch, serve-stdio, optimize, graph, graph-batch, eft, search, type, meta, bench): links engine + formats + optimizer | eve-dogma, eve-fit-formats, eve-optimizer |
-| `crates/eve-wasm` | engine wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `calc`, `rpc` incl. `optimize`) | eve-dogma, eve-optimizer |
-| `crates/eve-fit-formats-wasm` | formats wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `rpc`), for the frontend | eve-fit-formats |
+| `crates/exfa-codegen` | build-time generator: dataset → `tables.rs` (for exfa-sde) + `effects.rs` (for exfa-core) | — |
+| `crates/exfa-sde` | static data compiled in: types, attributes, groups, names (en/zh), mutaplasmids, … (no engine code) | (build: codegen) |
+| `crates/exfa-model` | structured fit input: `FitRequest` v1 serde types | serde |
+| `crates/exfa-capsim` | capacitor simulator (+ Pyfa `round`) | — |
+| `crates/exfa-core` | **engine**: core, stats, graphs, JSON-RPC (calc, graph, graph_specs, search, type, meta); structured input only | exfa-sde, exfa-model, exfa-capsim |
+| `crates/exfa-formats` | fit formats: EFT (+cfg, mutations), DNA (+alt, link), ESI JSON, XML, multibuy, ship-stats text, item lists, auto-detect; RPC eft_parse, eft_export, format_import, format_export | exfa-sde, exfa-model (**not** exfa-core) |
+| `crates/exfa-optimizer` | skill-based fit optimizer (eve-fit-docs docs/21 v1): `optimize`, `Evaluator` trait, RPC `optimize` | exfa-core, exfa-model |
+| `crates/exfa-cli` | binary `exfa` (calc, batch, serve-stdio, optimize, graph, graph-batch, eft, search, type, meta, bench): links engine + formats + optimizer | exfa-core, exfa-formats, exfa-optimizer |
+| `crates/exfa-wasm` | engine wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `calc`, `rpc` incl. `optimize`) | exfa-core, exfa-optimizer |
+| `crates/exfa-formats-wasm` | formats wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `rpc`), for the frontend | exfa-formats |
 
 ```
-eve-fit-model ──┬──────────────► eve-fit-formats ──► eve-fit-formats-wasm
-eve-sde ────────┤                        │
-                └──► eve-dogma ──┬───────┴──► eve-cli (eve-fit)
-eve-capsim ──────────►┘          └──► eve-wasm
-eve-dogma-codegen (build-time) ──► eve-sde, eve-dogma
+exfa-model ──┬──────────────► exfa-formats ──► exfa-formats-wasm
+exfa-sde ────┤                        │
+             └──► exfa-core ──┬───────┴──► exfa-cli (exfa)
+exfa-capsim ──────►┘          └──► exfa-wasm
+exfa-codegen (build-time) ──► exfa-sde, exfa-core
 ```
 
 Fit formats are not part of the engine (architecture ruling 2026-10-03): the engine takes the structured fit and the
-skills input and only calculates. What moved out of `eve-dogma`: [docs/FORMATS-SPLIT.md](docs/FORMATS-SPLIT.md).
-CI checks the boundary (`cargo tree`: no eve-dogma under eve-fit-formats, no formats under eve-dogma / eve-wasm).
+skills input and only calculates. What moved out of the engine: [docs/FORMATS-SPLIT.md](docs/FORMATS-SPLIT.md).
+CI checks the boundary (`cargo tree`: no exfa-core under exfa-formats, no formats under exfa-core / exfa-wasm).
 
 ## Build & run
 
 ```bash
-export EVE_DOGMA_DATASET=/abs/path/dataset-3569502-r5.json.gz   # default ../../../data/… relative to crates/eve-sde, crates/eve-dogma
+export EXFA_DATASET=/abs/path/dataset-3569502-r5.json.gz   # default ../../../data/… relative to crates/exfa-sde, crates/exfa-core
 cargo build --release
-cargo install --path crates/eve-cli --locked                       # installs the binary `eve-fit` (package eve-cli)
-./target/release/eve-fit calc < request.json > response.json
-./target/release/eve-fit batch < requests.jsonl > responses.jsonl     # one FitRequest per line, parallel, ordered
-# EVE_DOGMA_THREADS=N limits batch worker threads (default: all cores)
-./target/release/eve-fit serve-stdio                                   # JSONL RPC: calc | graph | search | type | meta (engine) + optimize + eft_parse | eft_export | format_export | format_import (formats)
-./target/release/eve-fit optimize request.json                         # OptimizeRequest (eve-fit-docs docs/21) -> ranked fits
-./target/release/eve-fit batch --request batch.json                    # BatchRequest (eve-fit-docs docs/23) -> BatchResponse
-./target/release/eve-fit --prices prices.json calc fit.json            # price table / eve-price-snapshot -> "price" block
-./target/release/eve-fit meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
+cargo install --path crates/exfa-cli --locked                       # installs the binary `exfa` (package exfa-cli)
+./target/release/exfa calc < request.json > response.json
+./target/release/exfa batch < requests.jsonl > responses.jsonl      # one FitRequest per line, parallel, ordered
+# EXFA_THREADS=N limits batch worker threads (default: all cores)
+./target/release/exfa serve-stdio                                   # JSONL RPC: calc | graph | search | type | meta (engine) + optimize + eft_parse | eft_export | format_export | format_import (formats)
+./target/release/exfa optimize request.json                         # OptimizeRequest (eve-fit-docs docs/21) -> ranked fits
+./target/release/exfa batch --request batch.json                    # BatchRequest (eve-fit-docs docs/23) -> BatchResponse
+./target/release/exfa --prices prices.json calc fit.json            # price table / eve-price-snapshot -> "price" block
+./target/release/exfa meta | search QUERY [--limit N --kinds k,..] | type ID|NAME | eft ... | bench FILE -n N
 ```
 
-The `meta.engine` string stays `eve-dogma-f 0.1.0` for now (byte-identical output); it changes with the first
-intended output change.
+`meta.engine` / `provenance.engine` / `version` report `exfa-engine 0.1.0` (renamed from `eve-dogma-f`
+at migration; otherwise byte-identical output — see `ci/round1.sha256`).
 
 ### WASM
 
 ```bash
 rustup target add wasm32-wasip1 wasm32-unknown-unknown
-cargo build --release --target wasm32-wasip1 -p eve-cli                                  # CLI as WASI module
-wasmtime run target/wasm32-wasip1/release/eve-fit.wasm calc < request.json
-cargo build --profile release-small --target wasm32-unknown-unknown -p eve-wasm          # engine C-ABI exports
-node crates/eve-wasm/examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/eve_wasm.wasm < request.json
-cargo build --profile release-small --target wasm32-unknown-unknown -p eve-fit-formats-wasm   # formats C-ABI exports
-node crates/eve-fit-formats-wasm/examples/node-formats.mjs target/wasm32-unknown-unknown/release-small/eve_fit_formats_wasm.wasm < rpc.jsonl
+cargo build --release --target wasm32-wasip1 -p exfa-cli                                   # CLI as WASI module
+wasmtime run target/wasm32-wasip1/release/exfa.wasm calc < request.json
+cargo build --profile release-small --target wasm32-unknown-unknown -p exfa-wasm           # engine C-ABI exports
+node crates/exfa-wasm/examples/node-calc.mjs target/wasm32-unknown-unknown/release-small/exfa_wasm.wasm < request.json
+cargo build --profile release-small --target wasm32-unknown-unknown -p exfa-formats-wasm   # formats C-ABI exports
+node crates/exfa-formats-wasm/examples/node-formats.mjs target/wasm32-unknown-unknown/release-small/exfa_formats_wasm.wasm < rpc.jsonl
 ```
 
 ### CI
@@ -78,10 +78,10 @@ node crates/eve-fit-formats-wasm/examples/node-formats.mjs target/wasm32-unknown
 `.github/workflows/ci.yml`: native + both WASM targets; then, native and wasip1, every suite at its pinned
 eve-dogma-bench ref (`ci/run_suites.sh`) against the minimum scores in `ci/gate.json` (bench 1.9.0 331/331, EFT
 1.8.0 326/326, cap-suite 150/150, mutated-suite 93/93 + EFT 93/93 / 99/99, formats-suite 4779/4779, graphs 0.2
-178/178), plus the round-1 batch output sha256 (`ci/round1.sha256`). Unit tests run first: `eve-fit-formats`
-(`crates/eve-fit-formats/tests/roundtrip.rs`: per format import→export and export→import round trips and error
-paths), `eve-optimizer` property tests, then the whole workspace. Locally:
-`BENCH=/path/to/eve-dogma-bench ci/run_suites.sh native ./target/release/eve-fit`.
+178/178), plus the round-1 batch output sha256 (`ci/round1.sha256`). Unit tests run first: `exfa-formats`
+(`crates/exfa-formats/tests/roundtrip.rs`: per format import→export and export→import round trips and error
+paths), `exfa-optimizer` property tests, then the whole workspace. Locally:
+`BENCH=/path/to/eve-dogma-bench ci/run_suites.sh native ./target/release/exfa`.
 
 ### Bench
 
@@ -90,12 +90,13 @@ paths), `eve-optimizer` property tests, then the whole workspace. Locally:
 
 ### Graphs (G4, declarative graph spec)
 
-Round-2 graph contract (eve-dogma-bench `graphs-round2`, `graphs/CONTRACT-GRAPHS.md`): all 9 Pyfa graph types.
+Round-2 graph contract ([contract/CONTRACT-GRAPHS.md](contract/CONTRACT-GRAPHS.md), originally eve-dogma-bench
+`graphs-round2`): all 9 Pyfa graph types.
 
 ```bash
-./target/release/eve-fit graph < graph_request.json        # one GraphRequest -> GraphResult
-./target/release/eve-fit graph-batch < requests.jsonl       # JSONL, parallel, ordered
-./target/release/eve-fit graph-specs                        # the catalogue (graphs.json)
+./target/release/exfa graph < graph_request.json          # one GraphRequest -> GraphResult
+./target/release/exfa graph-batch < requests.jsonl        # JSONL, parallel, ordered
+./target/release/exfa graph-specs                         # the catalogue (graphs.json)
 # RPC (serve-stdio and the WASM `rpc` export): {"method":"graph","params":GraphRequest}, {"method":"graph_specs"}
 ```
 
@@ -109,7 +110,7 @@ is used.
 
 ### Optimizer (docs/21 v1)
 
-`eve-fit optimize FILE` / RPC `{"method":"optimize","params":OptimizeRequest}` (serve-stdio and the eve-wasm `rpc`
+`exfa optimize FILE` / RPC `{"method":"optimize","params":OptimizeRequest}` (serve-stdio and the exfa-wasm `rpc`
 export). Objective = one metric or a weighted sum (`dps`, `volley`, `ehp`, `tank`, `max_velocity`, `align_time`,
 `applied_dps`, `price`, or any JSON pointer into FitStats); constraints = character skills (or `ignore`), meta level /
 meta groups, cap stable, metric floors/ceilings, price budget; search over high/mid/low/rig racks, charges and one
@@ -124,15 +125,13 @@ filtering, several drone stacks, subsystems/T3 modes, the bench optimizer suite.
 
 ### Import / export formats (Pyfa parity)
 
-Crate `eve-fit-formats` (served by `eve-fit serve-stdio` and the `eve-fit-formats-wasm` `rpc` export, not by the
+Crate `exfa-formats` (served by `exfa serve-stdio` and the `exfa-formats-wasm` `rpc` export, not by the
 engine). RPC `format_export {fit, name, format, options}` with `format` = `eft` | `dna` | `esi` | `xml` | `multibuy` |
 `shipstats`, and `format_import {text, format, path?}` with `format` = `auto` | `eft` | `eftcfg` | `dna` |
 `dna_alt` | `dna_link` | `esi` | `xml` (`auto` follows Pyfa's detection order and also recognises additions lists
 and single mutated items). Against the eve-dogma-bench `formats-suite` (Pyfa-generated round trips): all export
 variants 326/326 except shipstats 324/326, all four round-trip imports 326/326, edge files 16/16
 (`bench/formats/scorecard.md`).
-
-Branch note: `variant-f` is an orphan branch (the lab branches share no history) and holds only `variant-f/`.
 
 `--dataset PATH` is accepted (ignored) so command lines written for the reference engine keep working.
 
@@ -145,3 +144,4 @@ the GPL v3 text is included as [`LICENSE.GPL-3.0`](LICENSE.GPL-3.0) (same layout
 Provenance: engine semantics derived from eve-dogma-rs; behaviour tables that mirror Pyfa (GPL-3.0) handlers are
 described in DESIGN.md "Provenance". Import/export formats are written from public format descriptions and
 Pyfa used only as a black-box test oracle (no Pyfa code). EVE data is CCP's (not covered by this licence).
+EXFA · 精密装配助理 (Exactitude Fitting Assistant) is an EX-CT project, not affiliated with CCP.

@@ -1,0 +1,195 @@
+name: release
+
+# On a pushed tag v*: build the exfa CLI for 4 native targets plus the three WASM modules, attach the
+# archives + release.json + SHA256SUMS to the GitHub release of that tag (created if it does not exist
+# yet). Manual runs default to a dry run: build + package only, archives kept as run artifacts,
+# nothing uploaded to a release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'existing tag to (re)build; empty = current ref, archives named dev-<sha>'
+        required: false
+        default: ''
+      dry_run:
+        description: 'build + package only (artifacts on the run), no release upload'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  SDE_TAG: sde-3569502-r5
+  TAG: ${{ github.event_name == 'workflow_dispatch' && (inputs.tag || format('dev-{0}', github.sha)) || github.ref_name }}
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64,   os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { name: macos-x86_64,   os: macos-14,     target: x86_64-apple-darwin }
+          - { name: macos-arm64,    os: macos-14,     target: aarch64-apple-darwin }
+          - { name: windows-x86_64, os: windows-2022, target: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Dataset (${{ env.SDE_TAG }})
+        shell: bash
+        run: |
+          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
+          echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p exfa-cli
+      - name: Smoke (native targets)
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        run: ./target/${{ matrix.target }}/release/exfa help
+      - name: Package
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          ASSET: exfa-${{ env.TAG }}-${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/$ASSET"
+          bin=exfa
+          case "$TARGET" in *windows*) bin=exfa.exe ;; esac
+          cp "target/$TARGET/release/$bin" "dist/$ASSET/"
+          cp README.md LICENSE LICENSE.GPL-3.0 "dist/$ASSET/"
+          cd dist
+          case "$TARGET" in
+            *windows*) 7z a -tzip "$ASSET.zip" "$ASSET" > /dev/null ;;
+            *) tar -czf "$ASSET.tar.gz" "$ASSET" ;;
+          esac
+          rm -rf "$ASSET"
+          git -C .. rev-parse HEAD > commit.txt   # cwd is dist/
+          ls -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  wasm:
+    name: wasm modules
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1,wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+      - name: Dataset (${{ env.SDE_TAG }})
+        run: |
+          gh release download "$SDE_TAG" -R EX-CT/eve-sde-pipeline --pattern 'dataset-*.json.gz' -D _data
+          echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
+      - name: Build WASM (wasip1 CLI, unknown-unknown C ABI engine + formats)
+        run: |
+          cargo build --release --locked --target wasm32-wasip1 -p exfa-cli
+          cargo build --profile release-small --locked --target wasm32-unknown-unknown -p exfa-wasm -p exfa-formats-wasm
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/wasm32-wasip1/release/exfa.wasm "dist/exfa-wasm32-wasip1.wasm"
+          cp target/wasm32-unknown-unknown/release-small/exfa_wasm.wasm dist/
+          cp target/wasm32-unknown-unknown/release-small/exfa_formats_wasm.wasm dist/
+          git rev-parse HEAD > dist/commit.txt
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: dist/*
+          if-no-files-found: error
+
+  manifest:
+    name: release.json + SHA256SUMS
+    needs: [build, wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: release.json (engine version / commit / SDE / dataset sha256 / price snapshot id)
+        run: |
+          set -euo pipefail
+          tar -xzf dist/exfa-"$TAG"-linux-x86_64.tar.gz
+          ./exfa-"$TAG"-linux-x86_64/exfa version > /tmp/version.json
+          export SHA="$(cat dist/commit.txt)"
+          python3 - <<'EOF'
+          import json, os
+          v = json.load(open("/tmp/version.json"))
+          rel = {
+              "engine": v["engine"],
+              "commit": os.environ["SHA"],
+              "sde_build": v["sde_build"],
+              "sde_revision": v["sde_revision"],
+              "dataset_sha256": v["sde_hash"].removeprefix("sha256:"),
+              "price_snapshot_id": v["price_snapshot_id"],
+          }
+          json.dump(rel, open("dist/release.json", "w"), indent=2)
+          print(json.dumps(rel, indent=2))
+          EOF
+          rm -f dist/commit.txt
+      - name: SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifest
+          path: |
+            dist/release.json
+            dist/SHA256SUMS
+          if-no-files-found: error
+      - name: Stage everything for the release job
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  release:
+    needs: manifest
+    if: github.event_name == 'push' || !inputs.dry_run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Upload to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "EXFA-Engine $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber dist/*
