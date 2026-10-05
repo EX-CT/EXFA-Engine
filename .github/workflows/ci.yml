@@ -158,7 +158,7 @@ jobs:
       - name: Suites
         run: |
           export PATH="$HOME/.wasmtime/bin:$PATH"
-          bash ci/run_suites.sh wasm "wasmtime run --env EXFA_DATASET=$EXFA_DATASET $PWD/target/wasm32-wasip1/release/exfa.wasm --" ${{ inputs.skip_round1_sha && 'skip-round1' || '' }}
+          bash ci/run_suites.sh wasm "wasmtime run --env EXFA_DATASET=$EXFA_DATASET $PWD/target/wasm32-wasip1/release/exfa.wasm" ${{ inputs.skip_round1_sha && 'skip-round1' || '' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
