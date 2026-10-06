@@ -5,6 +5,7 @@
 //! Semantics follow the reference engine eve-dogma-rs (LGPL-3.0-or-later), which this file is derived from.
 use std::collections::BTreeMap;
 use crate::data::{self as d, a, e};
+use crate::j::J;
 use crate::request::{FitRequest, ModuleReq, Slot, Spool, State};
 use std::cell::Cell;
 
@@ -138,6 +139,7 @@ pub struct Fit {
     pub ship: usize,
     pub char: usize,
     pub warnings: Vec<String>,
+    pub adjustments: Vec<Adjustment>,
     pub is_structure: bool,
     ship_items: Vec<u32>,
     char_items: Vec<u32>,
@@ -166,6 +168,14 @@ pub struct Fit {
     cur_from: u32,
     cur_lvl: bool,
     cur_loc: bool,
+}
+
+pub struct Adjustment {
+    pub code: &'static str,
+    pub path: String,
+    pub from: J,
+    pub to: J,
+    pub message: &'static str,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -854,6 +864,15 @@ impl Fit {
         it.spool = m.spool;
         it.state = m.state.unwrap_or(State::Online);
         if matches!(slot, Some(Slot::Rig) | Some(Slot::Subsystem)) && it.state != State::Offline {
+            if it.state != State::Online {
+                self.adjustments.push(Adjustment {
+                    code: "STATE_CLAMPED",
+                    path: format!("{path}/state"),
+                    from: J::S(state_name(it.state)),
+                    to: J::S("online"),
+                    message: "module state clamped to online",
+                });
+            }
             it.state = State::Online;
         }
         if let Some(mu) = &m.mutation {
@@ -873,6 +892,13 @@ impl Fit {
                     // same way) — a request asking for a state a module cannot use is a normalization
                     // concern, not a user-facing problem, so no warnings[] entry.
                     self.items[idx].state = State::Online;
+                    self.adjustments.push(Adjustment {
+                        code: "STATE_CLAMPED",
+                        path: format!("{path}/state"),
+                        from: J::S(state_name(st)),
+                        to: J::S("online"),
+                        message: "module state clamped to online",
+                    });
                 }
             }
         }
@@ -893,6 +919,7 @@ impl Fit {
             ship: 0,
             char: 0,
             warnings: Vec::new(),
+            adjustments: Vec::new(),
             is_structure: false,
             ship_items: Vec::new(),
             char_items: Vec::new(),
@@ -954,11 +981,17 @@ impl Fit {
         }
         fit.skill_levels = levels;
         // T3D: default mode resolved at build time (lowest mode type id named after the hull)
-        let mode_id = req.ship.mode_type_id.or_else(|| {
-            let m = d::default_mode(req.ship.type_id)?;
-            fit.warnings.push(format!("no tactical mode given; defaulted to type {m}"));
-            Some(m)
-        });
+        let default_mode = req.ship.mode_type_id.is_none().then(|| d::default_mode(req.ship.type_id)).flatten();
+        let mode_id = req.ship.mode_type_id.or(default_mode);
+        if let Some(mode) = default_mode {
+            fit.adjustments.push(Adjustment {
+                code: "MODE_DEFAULTED",
+                path: "/ship/mode_type_id".into(),
+                from: J::Null,
+                to: J::from(mode),
+                message: "default tactical mode selected",
+            });
+        }
         if let Some(mode) = mode_id {
             let idx = fit.new_item(mode, Kind::Mode, Loc::Nowhere, "/ship/mode_type_id")?;
             fit.items[idx].owned = false;
@@ -980,8 +1013,19 @@ impl Fit {
         for (i, f) in req.fighters.iter().enumerate() {
             let idx = fit.new_item(f.type_id, Kind::Fighter, Loc::Space, &format!("/fighters/{i}"))?;
             let maxsq = fit.base_opt(idx, a::fighterSquadronMaxSize).map(|v| v as u32).unwrap_or(1);
+            let requested = f.quantity.unwrap_or(maxsq);
+            let quantity = requested.clamp(1, maxsq.max(1));
+            if requested != quantity {
+                fit.adjustments.push(Adjustment {
+                    code: "FIGHTER_QUANTITY_CLAMPED",
+                    path: format!("/fighters/{i}/quantity"),
+                    from: J::from(requested),
+                    to: J::from(quantity),
+                    message: "fighter quantity clamped to valid range",
+                });
+            }
             let it = &mut fit.items[idx];
-            it.quantity = f.quantity.unwrap_or(maxsq).clamp(1, maxsq.max(1));
+            it.quantity = quantity;
             it.active_count = if f.active { it.quantity } else { 0 };
             it.state = if f.active { State::Active } else { State::Offline };
             it.fighter_abilities = f.abilities.clone().unwrap_or_else(|| d::fighter_default_abilities(f.type_id).to_vec());
@@ -1003,6 +1047,13 @@ impl Fit {
         for (i, imp) in implants.iter().enumerate() {
             if let Some(sl) = slot_of_type(*imp, a::implantness) {
                 if taken.contains(&sl) {
+                    fit.adjustments.push(Adjustment {
+                        code: "SLOT_OCCUPIED_SKIPPED",
+                        path: format!("/{ipath}/{i}"),
+                        from: J::from(*imp),
+                        to: J::Null,
+                        message: "implant slot already occupied",
+                    });
                     continue;
                 }
                 taken.push(sl);
@@ -1015,6 +1066,13 @@ impl Fit {
         for (i, b) in req.boosters.iter().enumerate() {
             if let Some(sl) = slot_of_type(b.type_id, a::boosterness) {
                 if taken.contains(&sl) {
+                    fit.adjustments.push(Adjustment {
+                        code: "SLOT_OCCUPIED_SKIPPED",
+                        path: format!("/boosters/{i}/type_id"),
+                        from: J::from(b.type_id),
+                        to: J::Null,
+                        message: "booster slot already occupied",
+                    });
                     continue;
                 }
                 taken.push(sl);
@@ -1064,10 +1122,21 @@ impl Fit {
                         for _ in 0..p.amount.max(1) {
                             let idx = fit.new_item(f.type_id, Kind::Projected, Loc::Nowhere, &format!("/projected/{i}"))?;
                             let maxsq = fit.base_opt(idx, a::fighterSquadronMaxSize).map(|v| v as u32).unwrap_or(1).max(1);
+                            let requested = f.quantity.unwrap_or(maxsq);
+                            let quantity = requested.clamp(1, maxsq);
+                            if requested != quantity {
+                                fit.adjustments.push(Adjustment {
+                                    code: "FIGHTER_QUANTITY_CLAMPED",
+                                    path: format!("/projected/{i}/fighter/quantity"),
+                                    from: J::from(requested),
+                                    to: J::from(quantity),
+                                    message: "fighter quantity clamped to valid range",
+                                });
+                            }
                             let it = &mut fit.items[idx];
                             it.owned = false;
                             it.state = if f.active { State::Active } else { State::Offline };
-                            it.quantity = f.quantity.unwrap_or(maxsq).clamp(1, maxsq);
+                            it.quantity = quantity;
                             it.active_count = it.quantity;
                             it.distance = p.distance_m;
                             it.req_index = Some(i);
@@ -1096,6 +1165,17 @@ impl Fit {
         // system security -> securityModifier (default nullsec, like Pyfa)
         {
             let sec = req.environment.system_security.as_deref().unwrap_or("nullsec").to_lowercase();
+            if let Some(requested) = req.environment.system_security.as_deref().filter(|s| !s.is_empty()) {
+                if !matches!(sec.as_str(), "hisec" | "highsec" | "high" | "lowsec" | "low" | "nullsec" | "null" | "wspace" | "wormhole" | "w-space") {
+                    fit.adjustments.push(Adjustment {
+                        code: "SECURITY_DEFAULTED",
+                        path: "/environment/system_security".into(),
+                        from: J::from(requested.to_string()),
+                        to: J::S("nullsec"),
+                        message: "unknown system security defaulted to nullsec",
+                    });
+                }
+            }
             let src = match sec.as_str() {
                 "hisec" | "highsec" | "high" => a::hiSecModifier,
                 "lowsec" | "low" => a::lowSecModifier,
@@ -1858,6 +1938,15 @@ impl Fit {
         slot.st.set(2);
         slot.val.set(val);
         val
+    }
+}
+
+fn state_name(state: State) -> &'static str {
+    match state {
+        State::Offline => "offline",
+        State::Online => "online",
+        State::Active => "active",
+        State::Overheated => "overheated",
     }
 }
 

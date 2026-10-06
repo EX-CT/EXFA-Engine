@@ -40,5 +40,19 @@ pub unsafe extern "C" fn rpc(ptr: *const u8, len: usize) -> u64 {
             return out(serde_json::to_string(&r).unwrap());
         }
     }
-    out(serde_json::to_string(&exfa_core::rpc(s)).unwrap())
+    let core = exfa_core::rpc(s);
+    if core.pointer("/result/error/code").and_then(serde_json::Value::as_str) == Some("UNKNOWN_METHOD") {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
+            let method = v.get("method").and_then(serde_json::Value::as_str).unwrap_or("");
+            let params = v.get("params").cloned().unwrap_or(serde_json::Value::Null);
+            if let Some(result) = exfa_formats::rpc_method(method, &params, None) {
+                let response = serde_json::json!({
+                    "id": v.get("id").cloned().unwrap_or(serde_json::Value::Null),
+                    "result": result
+                });
+                return out(serde_json::to_string(&response).unwrap());
+            }
+        }
+    }
+    out(serde_json::to_string(&core).unwrap())
 }

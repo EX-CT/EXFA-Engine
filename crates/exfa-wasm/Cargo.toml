@@ -10,5 +10,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 exfa-core.workspace = true
+exfa-formats.workspace = true
 exfa-optimizer.workspace = true
 serde_json.workspace = true

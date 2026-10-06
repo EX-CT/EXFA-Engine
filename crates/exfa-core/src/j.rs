@@ -12,6 +12,7 @@ pub enum J {
     U(u64),
     I(i64),
     F(f64),
+    RawF(f64),
     S(&'static str),
     Str(String),
     A(Vec<J>),
@@ -153,6 +154,13 @@ impl J {
                     out.push_str("null");
                 }
             }
+            J::RawF(v) => {
+                if v.is_finite() {
+                    out.push_str(zmij::Buffer::new().format_finite(*v));
+                } else {
+                    out.push_str("null");
+                }
+            }
             J::S(s) => write_str(out, s),
             J::Str(s) => write_str(out, s),
             J::A(a) => {
@@ -178,7 +186,16 @@ impl J {
                 for (k, x) in idx.iter_mut().enumerate() {
                     *x = k as u16;
                 }
-                idx.sort_unstable_by(|&x, &y| o[x as usize].0.cmp(&o[y as usize].0));
+                idx.sort_unstable_by(|&x, &y| {
+                    let a = o[x as usize].0.as_ref();
+                    let b = o[y as usize].0.as_ref();
+                    match (a == "adjustments", b == "adjustments") {
+                        (true, true) => std::cmp::Ordering::Equal,
+                        (true, false) => "violations\0".cmp(b),
+                        (false, true) => a.cmp("violations\0"),
+                        (false, false) => a.cmp(b),
+                    }
+                });
                 out.push('{');
                 for (n, &k) in idx.iter().enumerate() {
                     if n > 0 {
@@ -203,6 +220,7 @@ impl J {
             J::U(u) => V::from(*u),
             J::I(i) => V::from(*i),
             J::F(f) => serde_json::Number::from_f64(*f).map(V::Number).unwrap_or(V::Null),
+            J::RawF(f) => serde_json::Number::from_f64(*f).map(V::Number).unwrap_or(V::Null),
             J::S(s) => V::String((*s).to_string()),
             J::Str(s) => V::String(s.clone()),
             J::A(a) => V::Array(a.iter().map(|x| x.to_value_raw()).collect()),

@@ -19,7 +19,31 @@
       "mutation": {"$ref": "#/$defs/mutation"}, "spool": {"$ref": "#/$defs/spool"}}},
     "resists": {"type": "object", "properties": {
       "em": {"type": "number"}, "thermal": {"type": "number"}, "kinetic": {"type": "number"}, "explosive": {"type": "number"}}},
-    "fit": {"$ref": "#"}
+    "fit": {"$ref": "#"},
+    "scenarioTarget": {"type": "object", "properties": {
+      "profile": {"type": "object", "properties": {
+        "em": {"type": "number"}, "thermal": {"type": "number"}, "kinetic": {"type": "number"}, "explosive": {"type": "number"},
+        "max_velocity": {"type": "number"}, "signature_radius": {"type": ["number", "null"]},
+        "radius": {"type": ["number", "null"]}, "hp": {"type": "number"}}},
+      "fit": {"$ref": "#/$defs/fit"},
+      "resist_mode": {"enum": ["auto", "shield", "armor", "hull", "weighted_average"]}},
+      "oneOf": [{"required": ["profile"]}, {"required": ["fit"]}]},
+    "scenario": {"type": "object", "required": ["id", "target"], "properties": {
+      "id": {"type": "string"}, "target": {"$ref": "#/$defs/scenarioTarget"},
+      "params": {"type": "object", "properties": {
+        "distance_m": {"type": ["number", "null"], "minimum": 0},
+        "time_s": {"type": ["number", "null"], "minimum": 0, "maximum": 2500},
+        "tgt_speed_mps": {"type": ["number", "null"], "minimum": 0},
+        "tgt_speed_pct": {"type": ["number", "null"], "minimum": 0},
+        "tgt_sig_m": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "atk_speed_mps": {"type": ["number", "null"], "minimum": 0},
+        "atk_speed_pct": {"type": ["number", "null"], "minimum": 0},
+        "atk_angle_deg": {"type": ["number", "null"], "minimum": 0, "maximum": 360},
+        "tgt_angle_deg": {"type": ["number", "null"], "minimum": 0, "maximum": 360}}},
+      "settings": {"type": "object", "properties": {
+        "ignore_resists": {"type": "boolean"}, "apply_projected": {"type": "boolean"},
+        "ignore_lock_range": {"type": "boolean"}, "ignore_drone_control_range": {"type": "boolean"},
+        "mobile_drone_mode": {"enum": ["auto", "follow_attacker", "follow_target"]}}}}}
   },
   "properties": {
     "schema_version": {"const": 1},
@@ -56,6 +80,7 @@
     "damage_pattern": {"$ref": "#/$defs/resists"},
     "target_profile": {"allOf": [{"$ref": "#/$defs/resists"}], "properties": {
       "signature_radius": {"type": ["number", "null"]}, "max_velocity": {"type": ["number", "null"]}, "radius": {"type": ["number", "null"]}}},
+    "scenarios": {"type": "array", "items": {"$ref": "#/$defs/scenario"}},
     "overrides": {"type": "array", "items": {"type": "object", "required": ["type_id", "attribute_id", "value"]}},
     "options": {"type": "object", "properties": {
       "factor_reload": {"type": "boolean"}, "default_spool": {"$ref": "#/$defs/spool"},

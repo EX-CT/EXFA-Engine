@@ -822,7 +822,7 @@ pub fn tackle(ctx: &Ctx, tgt: &Target, cur_speed: f64, dist: Option<f64>, r: &Ra
 }
 
 /// mode: 0 dps, 1 volley, 2 damage. Arguments may be None (not set).
-pub fn damage(ctx: &Ctx, mode: u8, time: Option<f64>, dist: Option<f64>, speed_x: Option<f64>, sig_x: Option<f64>) -> Result<Option<f64>, String> {
+fn damage_one(ctx: &Ctx, mode: u8, time: Option<f64>, dist: Option<f64>, speed_x: Option<f64>, sig_x: Option<f64>) -> Result<Option<f64>, String> {
     if mode == 2 && time.is_none() {
         return Ok(None);
     }
@@ -884,4 +884,18 @@ pub fn damage(ctx: &Ctx, mode: u8, time: Option<f64>, dist: Option<f64>, speed_x
         out += total[k] * (1.0 - res[k]);
     }
     Ok(Some(out))
+}
+
+pub fn point_values(
+    ctx: &Ctx,
+    time: Option<f64>,
+    dist: Option<f64>,
+    speed_x: Option<f64>,
+    sig_x: Option<f64>,
+) -> Result<[Option<f64>; 3], String> {
+    Ok([
+        damage_one(ctx, 0, time, dist, speed_x, sig_x)?,
+        damage_one(ctx, 1, time, dist, speed_x, sig_x)?,
+        damage_one(ctx, 2, time, dist, speed_x, sig_x)?,
+    ])
 }

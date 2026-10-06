@@ -13,9 +13,16 @@ pub struct Caches {
     /// capsim history per starting cap (bits): sorted (t s, cap)
     pub cap_hist: Vec<(u64, Vec<(f64, f64)>)>,
     pub extra_series: Vec<(String, Vec<Value>)>,
+    damage: Option<DamageCache>,
+}
+struct DamageCache {
+    key: [Option<u64>; 4],
+    values: Result<[Option<f64>; 3], String>,
 }
 impl Caches {
-    pub fn point_clear(&mut self) {}
+    pub fn point_clear(&mut self) {
+        self.damage = None;
+    }
 }
 
 pub fn call(ctx: &mut Ctx, name: &str, a: &[Option<f64>]) -> Result<Option<f64>, String> {
@@ -35,7 +42,14 @@ pub fn call(ctx: &mut Ctx, name: &str, a: &[Option<f64>]) -> Result<Option<f64>,
         "dmg_dps" | "dmg_volley" | "dmg_damage" => {
             let mode = match name { "dmg_dps" => 0, "dmg_volley" => 1, _ => 2 };
             let g = |k: usize| a.get(k).copied().flatten();
-            super::dmg::damage(ctx, mode, g(0), g(1), g(2), g(3))?
+            let key = [g(0), g(1), g(2), g(3)].map(|v| v.map(f64::to_bits));
+            if ctx.k.damage.as_ref().map(|c| c.key) != Some(key) {
+                ctx.k.damage = Some(DamageCache {
+                    key,
+                    values: super::dmg::point_values(ctx, g(0), g(1), g(2), g(3)),
+                });
+            }
+            ctx.k.damage.as_ref().unwrap().values.as_ref().map(|v| v[mode]).map_err(Clone::clone)?
         }
         "app_dps" | "app_volley" => match a.first().copied().flatten() {
             Some(x) => {

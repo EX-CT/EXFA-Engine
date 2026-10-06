@@ -304,6 +304,22 @@
      "unit": "%",
      "valid": "x >= 0"
     },
+    "atk_speed_mps": {
+     "unit": "m/s",
+     "valid": "x >= 0"
+    },
+    "atk_speed_pct": {
+     "unit": "%",
+     "valid": "x >= 0"
+    },
+    "atk_angle_deg": {
+     "unit": "deg",
+     "valid": "x >= 0 && x <= 360"
+    },
+    "tgt_angle_deg": {
+     "unit": "deg",
+     "valid": "x >= 0 && x <= 360"
+    },
     "tgt_sig_pct": {
      "unit": "%",
      "valid": "x > 0"
@@ -329,7 +345,11 @@
       "tgt_speed_mps": "dmg_dps(p.time_s, p.distance_m, x, null())",
       "tgt_sig_m": "dmg_dps(p.time_s, p.distance_m, null(), x)",
       "tgt_speed_pct": "dmg_dps(p.time_s, p.distance_m, x / 100 * tgt_vmax(), null())",
-      "tgt_sig_pct": "isnull(tgt_sig()) ? null() : dmg_dps(p.time_s, p.distance_m, null(), x / 100 * tgt_sig())"
+      "tgt_sig_pct": "isnull(tgt_sig()) ? null() : dmg_dps(p.time_s, p.distance_m, null(), x / 100 * tgt_sig())",
+      "atk_speed_mps": "dmg_dps(p.time_s, p.distance_m, null(), null())",
+      "atk_speed_pct": "dmg_dps(p.time_s, p.distance_m, null(), null())",
+      "atk_angle_deg": "dmg_dps(p.time_s, p.distance_m, null(), null())",
+      "tgt_angle_deg": "dmg_dps(p.time_s, p.distance_m, null(), null())"
      }
     },
     "volley": {
@@ -340,7 +360,11 @@
       "tgt_speed_mps": "dmg_volley(p.time_s, p.distance_m, x, null())",
       "tgt_sig_m": "dmg_volley(p.time_s, p.distance_m, null(), x)",
       "tgt_speed_pct": "dmg_volley(p.time_s, p.distance_m, x / 100 * tgt_vmax(), null())",
-      "tgt_sig_pct": "isnull(tgt_sig()) ? null() : dmg_volley(p.time_s, p.distance_m, null(), x / 100 * tgt_sig())"
+      "tgt_sig_pct": "isnull(tgt_sig()) ? null() : dmg_volley(p.time_s, p.distance_m, null(), x / 100 * tgt_sig())",
+      "atk_speed_mps": "dmg_volley(p.time_s, p.distance_m, null(), null())",
+      "atk_speed_pct": "dmg_volley(p.time_s, p.distance_m, null(), null())",
+      "atk_angle_deg": "dmg_volley(p.time_s, p.distance_m, null(), null())",
+      "tgt_angle_deg": "dmg_volley(p.time_s, p.distance_m, null(), null())"
      }
     },
     "damage": {
@@ -351,7 +375,11 @@
       "tgt_speed_mps": "dmg_damage(p.time_s, p.distance_m, x, null())",
       "tgt_sig_m": "dmg_damage(p.time_s, p.distance_m, null(), x)",
       "tgt_speed_pct": "dmg_damage(p.time_s, p.distance_m, x / 100 * tgt_vmax(), null())",
-      "tgt_sig_pct": "isnull(tgt_sig()) ? null() : dmg_damage(p.time_s, p.distance_m, null(), x / 100 * tgt_sig())"
+      "tgt_sig_pct": "isnull(tgt_sig()) ? null() : dmg_damage(p.time_s, p.distance_m, null(), x / 100 * tgt_sig())",
+      "atk_speed_mps": "dmg_damage(p.time_s, p.distance_m, null(), null())",
+      "atk_speed_pct": "dmg_damage(p.time_s, p.distance_m, null(), null())",
+      "atk_angle_deg": "dmg_damage(p.time_s, p.distance_m, null(), null())",
+      "tgt_angle_deg": "dmg_damage(p.time_s, p.distance_m, null(), null())"
      }
     }
    }
@@ -363,9 +391,26 @@
     "distance_m": {
      "unit": "m",
      "valid": "x >= 0"
+    },
+    "atk_speed_mps": {
+     "unit": "m/s",
+     "valid": "x >= 0"
+    },
+    "atk_speed_pct": {
+     "unit": "%",
+     "valid": "x >= 0"
+    },
+    "atk_angle_deg": {
+     "unit": "deg",
+     "valid": "x >= 0 && x <= 360"
+    },
+    "tgt_angle_deg": {
+     "unit": "deg",
+     "valid": "x >= 0 && x <= 360"
     }
    },
-   "params": {
+  "params": {
+    "distance_m": null,
     "ammo_quality": "all",
     "tgt_speed_mps": null,
     "tgt_speed_pct": 100,
@@ -379,13 +424,21 @@
     "dps": {
      "unit": "HP/s",
      "by_axis": {
-      "distance_m": "app_dps(x)"
+      "distance_m": "app_dps(p.distance_m)",
+      "atk_speed_mps": "app_dps(p.distance_m)",
+      "atk_speed_pct": "app_dps(p.distance_m)",
+      "atk_angle_deg": "app_dps(p.distance_m)",
+      "tgt_angle_deg": "app_dps(p.distance_m)"
      }
     },
     "volley": {
      "unit": "HP",
      "by_axis": {
-      "distance_m": "app_volley(x)"
+      "distance_m": "app_volley(p.distance_m)",
+      "atk_speed_mps": "app_volley(p.distance_m)",
+      "atk_speed_pct": "app_volley(p.distance_m)",
+      "atk_angle_deg": "app_volley(p.distance_m)",
+      "tgt_angle_deg": "app_volley(p.distance_m)"
      }
     }
    }

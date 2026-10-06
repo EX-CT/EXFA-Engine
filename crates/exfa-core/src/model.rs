@@ -1,6 +1,7 @@
 //! The structured fit input (FitRequest v1, contract: eve-dogma-rs/docs/contract.md), shared by the
 //! engine and the fit formats (`exfa-formats`). Plain serde types; no data, no engine (was `exfa-model`).
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
@@ -323,6 +324,8 @@ pub struct FitRequest {
     /// Injected price table (docs/23 §5.3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prices: Option<Prices>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenarios: Option<Value>,
 }
 
 /// One price override entry: exactly one target and exactly one of `price` / `multiplier` (checked by the engine).

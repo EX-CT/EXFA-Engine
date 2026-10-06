@@ -3,7 +3,7 @@
   "$id": "https://github.com/EX-CT/eve-fit-docs/schema/fit-stats.schema.json",
   "title": "EXCT FitStats v1",
   "type": "object",
-  "required": ["meta", "ship", "resources", "offense", "defense", "capacitor", "navigation", "targeting"],
+  "required": ["meta", "ship", "resources", "offense", "defense", "capacitor", "navigation", "targeting", "adjustments"],
   "$defs": {
     "dmg": {"type": "object", "properties": {"em": {"type": "number"}, "thermal": {"type": "number"}, "kinetic": {"type": "number"}, "explosive": {"type": "number"}, "total": {"type": "number"}}},
     "usage": {"type": "object", "properties": {"used": {"type": "number"}, "total": {"type": "number"}}},
@@ -25,6 +25,14 @@
     "remote": {"type": "object"},
     "modules": {"type": "array"},
     "violations": {"type": "array", "items": {"type": "object", "required": ["code", "message"]}},
+    "adjustments": {"type": "array", "items": {"type": "object", "required": ["code", "path", "from", "to", "message"],
+      "properties": {"code": {"enum": ["STATE_CLAMPED", "FIGHTER_QUANTITY_CLAMPED", "SLOT_OCCUPIED_SKIPPED", "SECURITY_DEFAULTED", "MODE_DEFAULTED"]},
+        "path": {"type": "string"}, "from": {}, "to": {}, "message": {"type": "string"}}}},
+    "scenario_results": {"type": "array", "items": {"oneOf": [
+      {"type": "object", "required": ["id", "dps", "volley"], "properties": {"id": {"type": "string"}, "dps": {"type": ["number", "null"]}, "volley": {"type": ["number", "null"]}}},
+      {"type": "object", "required": ["id", "error"], "properties": {"id": {"type": ["string", "null"]},
+        "error": {"type": "object", "required": ["code", "message", "path"], "properties": {"code": {"type": "string"}, "message": {"type": "string"}, "path": {"type": "string"}}}}}
+    ]}},
     "attributes": {"type": "object"}
   }
 }

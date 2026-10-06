@@ -1,4 +1,4 @@
-# eve-dogma request/response contract (v1, revision 1.4.7)
+# eve-dogma request/response contract (v1, revision 1.5.0)
 
 Stateless: **one JSON `FitRequest` in → one JSON `FitStats` out.** No hidden state, no clocks, no network.
 The same request with the same dataset must give byte-identical output. Unknown request fields are ignored.
@@ -57,6 +57,13 @@ Library (Rust): `eve_dogma::calc(&Dataset, &FitRequest) -> serde_json::Value`, `
   "environment": {"effect_type_ids": [30844], "system_security": "nullsec"},  // hisec | lowsec | nullsec (default) | wspace
   "damage_pattern": {"em": 25, "thermal": 25, "kinetic": 25, "explosive": 25},  // incoming, for EHP/RAH (default uniform)
   "target_profile": {"em": 0, "thermal": 0, "kinetic": 0, "explosive": 0, "signature_radius": 125, "max_velocity": 0, "radius": null},
+  "scenarios": [{
+    "id": "s1",
+    "target": {"profile": {"em": 0.2, "thermal": 0.3, "kinetic": 0.4, "explosive": 0.5, "signature_radius": 100, "max_velocity": 500, "radius": 10, "hp": 100000}},
+    "params": {"distance_m": 15000, "time_s": null, "tgt_speed_mps": null, "tgt_speed_pct": 100, "tgt_sig_m": null,
+      "atk_speed_mps": null, "atk_speed_pct": 0, "atk_angle_deg": 90, "tgt_angle_deg": 90},
+    "settings": {"ignore_resists": false}
+  }],
   "overrides": [{"type_id": 587, "attribute_id": 37, "value": 400}],
   "options": {
     "factor_reload": false, "default_spool": null, "rah": "adapt",   // "disable" = unadapted RAH
@@ -66,6 +73,14 @@ Library (Rust): `eve_dogma::calc(&Dataset, &FitRequest) -> serde_json::Value`, `
   }
 }
 ```
+
+`scenarios` is optional. Each entry uses the same `target` object as the damage graph (a `profile` or `fit`, with
+optional `resist_mode`), the damage graph's parameter names/defaults, and its settings. Scenario
+`settings.ignore_resists` defaults to **false** (damage graphs default to true); every other setting uses the graph
+default. Each scenario returns an effective `dps` and `volley` at exactly that point. These values use the same
+point-evaluation function as the damage graph and therefore equal its values for the same fit, target, parameters,
+and settings. A scenario error is isolated to that result and does not fail or alter the fit calculation. Scenarios
+are evaluated only for the top-level request; nested fits' scenarios are ignored.
 
 `options` omitted entirely is the same as `"options": {}`: every option takes its default, so **`validate` defaults to
 true** either way (violations are reported unless `validate: false` is given).
@@ -153,6 +168,21 @@ earlier "unusable state keeps requested value" ruling; principle: align with Pyf
   the corrected `modules[N].state` (or `type` RPC `allowed_states`, added alongside).
 - Projected modules (`projected[kind=module]` and modules inside projected / booster fits) follow the same correction.
 
+**`adjustments[]`, `violations[]`, `warnings[]`, and errors** (revision 1.5.0):
+- `adjustments[]` records a request value that was corrected or skipped and the value used instead; fitting
+  continues. It is always present, including when empty, and reports corrections made to the top-level fit only.
+- `violations[]` describes a fit that cannot be fitted in game. They do not fail calculation.
+- `warnings[]` describes input or behavior the engine could not handle; these are not corrections.
+- `error` means the calculation itself failed. Per-scenario errors appear only in that scenario's result.
+
+| `adjustments[].code` | `path` | Meaning |
+|---|---|---|
+| `STATE_CLAMPED` | `/modules/{i}/state` | Requested `active` or `overheated` state was lowered to `online`. |
+| `FIGHTER_QUANTITY_CLAMPED` | `/fighters/{i}/quantity` or `/projected/{i}/fighter/quantity` | Requested fighter quantity was clamped to the squadron's legal range. |
+| `SLOT_OCCUPIED_SKIPPED` | `/implants/{i}` or `/boosters/{i}/type_id` | The requested implant or booster was skipped because its slot was already occupied. |
+| `SECURITY_DEFAULTED` | `/environment/system_security` | An unknown, non-empty security value was treated as `nullsec`; an omitted value is not an adjustment. |
+| `MODE_DEFAULTED` | `/ship/mode_type_id` | The default tactical mode was selected because no mode was supplied. |
+
 ## Search (`search` RPC / CLI), interim
 
 Not part of dogma scoring; the formal spec is deferred to the MCP round. Interim behaviour:
@@ -190,7 +220,9 @@ charges, mutations), for the fit as Pyfa's GUI holds it (after `fill()`):
 `capacitor` {capacity, recharge_time_s, peak_recharge_gj_s, use_gj_s, injected_gj_s, delta_gj_s, stable, stable_percent | depletes_in_s, eve_stable_percent, sim_iterations} ·
 `navigation` {max_velocity, align_time_s, mass, agility, signature_radius, warp_speed_au_s, max_warp_distance_au, warp_scramble_status} ·
 `targeting` {max_targets, max_range_m, scan_resolution, sensor_strength, sensor_type, probe_size, lock_time_s{…}} ·
-`drones` {active, max_active, control_range_m} · `violations[]` {code, message, module_index} · `warnings[]` · `attributes` (optional).
+`drones` {active, max_active, control_range_m} · `violations[]` {code, message, module_index} ·
+`adjustments[]` {code, path, from, to, message} · `warnings[]` · `scenario_results[]` (when scenarios are present
+and non-empty; each entry is `{id,dps,volley}` or `{id,error:{code,message,path}}`) · `attributes` (optional).
 
 Units are in key suffixes (`_m`, `_s`, `_ms`, `_gj_s`, `_au`); resonances are 0..1 (1 = no resist); DPS/HP are per second / absolute.
 Violation codes: `CPU_OVERLOAD POWER_OVERLOAD CALIBRATION_OVERLOAD DRONE_BANDWIDTH SLOTS_EXCEEDED TURRET_HARDPOINTS
@@ -374,3 +406,5 @@ case's `_fields` param lists the fields it scores).
   buff ids, `nothing to optimize`).
 - v1.4.7 (2026-10-06, applies on top of 1.4.6): `violations[]` gains DRONE_BAY, FIGHTER_BAY, CARGO_OVERLOAD and
   FIGHTER_TUBES for resource-bar overloads (Pyfa shows these as red bars, not fit problems).
+- v1.5.0: add top-level `adjustments[]` for silent request normalization and optional `scenarios[]` /
+  `scenario_results[]` for fixed-target effective damage; scenario failures are isolated per result.

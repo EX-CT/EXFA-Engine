@@ -12,6 +12,7 @@ pub mod rr;
 
 use crate::data as d;
 use crate::engine::Fit;
+use crate::jv;
 use crate::request::FitRequest;
 use expr::{Env, Expr};
 use serde_json::{json, Map, Value};
@@ -132,6 +133,9 @@ impl<'a> Ctx<'a> {
         self.params.get(k).filter(|v| !v.is_null())
     }
     pub fn param_f(&self, k: &str) -> Option<f64> {
+        if self.axis == k {
+            return Some(self.x);
+        }
         self.param(k).and_then(|v| v.as_f64().or_else(|| v.as_bool().map(|b| b as u8 as f64)))
     }
     pub fn setting_b(&self, k: &str, default: bool) -> bool {
@@ -279,6 +283,8 @@ pub fn graph(req: &Value) -> Value {
         }
     }
     let settings = req.get("settings").and_then(|s| s.as_object()).cloned().unwrap_or_default();
+    let mut caches = kernels::Caches::default();
+    caches.drains = drains;
     let mut ctx = Ctx {
         graph,
         req,
@@ -290,7 +296,7 @@ pub fn graph(req: &Value) -> Value {
         params,
         settings,
         defs_memo: HashMap::new(),
-        k: kernels::Caches { drains, ..Default::default() },
+        k: caches,
     };
     let mut out: Vec<Vec<Value>> = vec![Vec::with_capacity(xs.len()); ys.len()];
     for &x in &xs {
@@ -326,6 +332,148 @@ pub fn graph(req: &Value) -> Value {
         }
     }
     json!({"graph": gname, "x_axis": axis, "x": req.pointer("/x/values").cloned().unwrap_or(Value::Null), "series": series})
+}
+
+fn scenario_error(id: Option<&str>, code: &str, message: impl Into<String>, path: String) -> crate::j::J {
+    let message = message.into();
+    let mut result = jv!({"error": {"code": code.to_string(), "message": message, "path": path}});
+    result["id"] = id.map(|s| crate::j::J::from(s.to_string())).unwrap_or(crate::j::J::Null);
+    result
+}
+
+fn scenario_point(fit_req: &FitRequest, scenario: &Value, index: usize) -> crate::j::J {
+    let base = format!("/scenarios/{index}");
+    if scenario.as_object().is_none() {
+        return scenario_error(None, "BAD_REQUEST", "scenario must be an object", base);
+    }
+    let id = scenario.get("id").and_then(Value::as_str);
+    let Some(id) = id else {
+        return scenario_error(None, "BAD_REQUEST", "scenario id must be a string", format!("{base}/id"));
+    };
+    let Some(target) = scenario.get("target").filter(|v| v.is_object()) else {
+        return scenario_error(Some(id), "BAD_REQUEST", "target must be an object", format!("{base}/target"));
+    };
+    if !target.get("fit").map_or(false, Value::is_object) && !target.get("profile").map_or(false, Value::is_object) {
+        return scenario_error(Some(id), "BAD_REQUEST", "target must contain a profile or fit object", format!("{base}/target"));
+    }
+    if target.get("fit").map_or(false, Value::is_object) && target.get("profile").map_or(false, Value::is_object) {
+        return scenario_error(Some(id), "BAD_REQUEST", "target must contain either profile or fit", format!("{base}/target"));
+    }
+    if let Some(mode) = target.get("resist_mode").filter(|v| !v.is_null()) {
+        if !mode.as_str().map_or(false, |s| ["auto", "shield", "armor", "hull", "weighted_average"].contains(&s)) {
+            return scenario_error(Some(id), "BAD_REQUEST", "unrecognised target.resist_mode", format!("{base}/target/resist_mode"));
+        }
+    }
+    if let Some(profile) = target.get("profile").and_then(Value::as_object) {
+        for key in ["em", "thermal", "kinetic", "explosive", "max_velocity", "signature_radius", "radius", "hp"] {
+            if let Some(value) = profile.get(key).filter(|v| !v.is_null()) {
+                if value.as_f64().filter(|n| n.is_finite()).is_none() {
+                    return scenario_error(Some(id), "BAD_REQUEST", format!("target.profile.{key} must be a finite number or null"), format!("{base}/target/profile/{key}"));
+                }
+            }
+        }
+    }
+    if let Some(target_fit) = target.get("fit").filter(|v| v.is_object()) {
+        match serde_json::from_value::<FitRequest>(target_fit.clone()) {
+            Ok(target_req) => {
+                if let Err(e) = Fit::build(&target_req) {
+                    return scenario_error(Some(id), e.code, e.message, format!("{base}/target/fit{}", e.path));
+                }
+            }
+            Err(e) => return scenario_error(Some(id), "BAD_REQUEST", e.to_string(), format!("{base}/target/fit")),
+        }
+    }
+
+    let empty = Map::new();
+    let Some(params_obj) = scenario.get("params").map_or(Some(&empty), Value::as_object) else {
+        return scenario_error(Some(id), "BAD_REQUEST", "params must be an object", format!("{base}/params"));
+    };
+    let graph = spec().graphs.get("damage").unwrap();
+    let allowed: [&str; 9] = ["distance_m", "time_s", "tgt_speed_mps", "tgt_speed_pct", "tgt_sig_m", "atk_speed_mps", "atk_speed_pct", "atk_angle_deg", "tgt_angle_deg"];
+    let mut params = graph.params.clone();
+    for (key, value) in params_obj {
+        if !allowed.contains(&key.as_str()) {
+            return scenario_error(Some(id), "BAD_REQUEST", format!("unknown damage parameter '{key}'"), format!("{base}/params/{key}"));
+        }
+        if !value.is_null() && value.as_f64().filter(|n| n.is_finite()).is_none() {
+            return scenario_error(Some(id), "BAD_REQUEST", format!("params.{key} must be a finite number or null"), format!("{base}/params/{key}"));
+        }
+        if let Some(n) = value.as_f64() {
+            let valid = match key.as_str() {
+                "distance_m" | "tgt_speed_mps" | "tgt_speed_pct" | "atk_speed_mps" | "atk_speed_pct" => n >= 0.0,
+                "time_s" => (0.0..=2500.0).contains(&n),
+                "tgt_sig_m" => n > 0.0,
+                "atk_angle_deg" | "tgt_angle_deg" => (0.0..=360.0).contains(&n),
+                _ => true,
+            };
+            if !valid {
+                return scenario_error(Some(id), "BAD_REQUEST", format!("params.{key} is outside its valid range"), format!("{base}/params/{key}"));
+            }
+        }
+        params.insert(key.clone(), value.clone());
+    }
+    let Some(settings_obj) = scenario.get("settings").map_or(Some(&empty), Value::as_object) else {
+        return scenario_error(Some(id), "BAD_REQUEST", "settings must be an object", format!("{base}/settings"));
+    };
+    let mut settings = settings_obj.clone();
+    for key in ["ignore_resists", "apply_projected", "ignore_lock_range", "ignore_drone_control_range"] {
+        if settings.get(key).is_some_and(|v| !v.is_boolean()) {
+            return scenario_error(Some(id), "BAD_REQUEST", format!("settings.{key} must be a boolean"), format!("{base}/settings/{key}"));
+        }
+    }
+    if let Some(mode) = settings.get("mobile_drone_mode").filter(|v| !v.is_null()) {
+        if !mode.as_str().map_or(false, |s| ["auto", "follow_attacker", "follow_target"].contains(&s)) {
+            return scenario_error(Some(id), "BAD_REQUEST", "unrecognised settings.mobile_drone_mode", format!("{base}/settings/mobile_drone_mode"));
+        }
+    }
+    settings.entry("ignore_resists").or_insert(json!(false));
+
+    let graph_req = json!({"graph": "damage", "target": target, "params": params, "settings": settings});
+    let fit = match Fit::build(fit_req) {
+        Ok(f) => f,
+        Err(e) => return scenario_error(Some(id), e.code, e.message, e.path),
+    };
+    let stats = fit.compute_stats(fit_req).to_value_raw();
+    let settings = graph_req.get("settings").and_then(Value::as_object).cloned().unwrap_or_default();
+    let params = graph_req.get("params").and_then(Value::as_object).cloned().unwrap_or_default();
+    let ctx = Ctx {
+        graph,
+        req: &graph_req,
+        fit_req: fit_req.clone(),
+        fit,
+        stats,
+        axis: String::new(),
+        x: 0.0,
+        params,
+        settings,
+        defs_memo: HashMap::new(),
+        k: kernels::Caches::default(),
+    };
+    match dmg::point_values(
+        &ctx,
+        ctx.param_f("time_s"),
+        ctx.param_f("distance_m"),
+        None,
+        None,
+    ) {
+        Ok(values) => jv!({
+            "id": id.to_string(),
+            "dps": values[0].map(crate::j::J::RawF).unwrap_or(crate::j::J::Null),
+            "volley": values[1].map(crate::j::J::RawF).unwrap_or(crate::j::J::Null)
+        }),
+        Err(message) => scenario_error(Some(id), "GRAPH_EVAL", message, format!("{base}/target")),
+    }
+}
+
+pub fn scenario_results(fit_req: &FitRequest) -> Option<crate::j::J> {
+    let scenarios = fit_req.scenarios.as_ref()?;
+    let Some(scenarios) = scenarios.as_array() else {
+        return Some(crate::j::J::A(vec![scenario_error(None, "BAD_REQUEST", "scenarios must be an array", "/scenarios".into())]));
+    };
+    if scenarios.is_empty() {
+        return None;
+    }
+    Some(crate::j::J::A(scenarios.iter().enumerate().map(|(i, s)| scenario_point(fit_req, s, i)).collect()))
 }
 
 pub fn graph_json(line: &str) -> String {
