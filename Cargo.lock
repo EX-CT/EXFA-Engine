@@ -38,6 +38,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "exfa-codegen"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "serde_json",
+]
+
+[[package]]
 name = "exfa-core"
 version = "0.1.0"
 dependencies = [
@@ -50,14 +58,6 @@ dependencies = [
  "serde",
  "serde_json",
  "zmij",
-]
-
-[[package]]
-name = "exfa-codegen"
-version = "0.1.0"
-dependencies = [
- "flate2",
- "serde_json",
 ]
 
 [[package]]
