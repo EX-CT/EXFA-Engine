@@ -25,11 +25,11 @@ dependencies = [
 
 [[package]]
 name = "exfa-capsim"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "exfa-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "exfa-core",
  "exfa-formats",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "flate2",
  "serde_json",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "exfa-capsim",
  "exfa-codegen",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-formats"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "exfa-core",
  "exfa-model",
@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-formats-wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "exfa-formats",
  "serde_json",
@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-model"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -88,7 +88,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-optimizer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "exfa-core",
  "exfa-model",
@@ -98,14 +98,14 @@ dependencies = [
 
 [[package]]
 name = "exfa-sde"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "exfa-codegen",
 ]
 
 [[package]]
 name = "exfa-wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "exfa-core",
  "exfa-optimizer",
