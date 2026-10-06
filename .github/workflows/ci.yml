@@ -158,7 +158,9 @@ jobs:
       - name: Suites
         run: |
           export PATH="$HOME/.wasmtime/bin:$PATH"
-          bash ci/run_suites.sh wasm "wasmtime run --env EXFA_DATASET=$EXFA_DATASET $PWD/target/wasm32-wasip1/release/exfa.wasm" ${{ inputs.skip_round1_sha && 'skip-round1' || '' }}
+          # --dir $PWD: the contract's file APIs (--prices/--sde/prices_load/sde_override paths) must read case files
+          # inside the checkout (_bench/, _data/); without a preopen the wasm guest sees every path as missing
+          bash ci/run_suites.sh wasm "wasmtime run --dir $PWD --env EXFA_DATASET=$EXFA_DATASET $PWD/target/wasm32-wasip1/release/exfa.wasm" ${{ inputs.skip_round1_sha && 'skip-round1' || '' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
