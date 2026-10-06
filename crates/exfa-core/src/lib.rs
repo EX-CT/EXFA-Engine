@@ -187,9 +187,19 @@ pub fn type_info(key: &str) -> Value {
             json!({"id": data::EFF_IDS[ei], "name": data::eff_name(ei), "default": x & 1 != 0})
         })
         .collect();
+    // Light feedback for UIs: states this type can actually be put in (Pyfa isValidState). Edit-time
+    // constraint so a request never has to be corrected (add_module normalizes silently instead).
+    let can_active = data::type_effects(ix).iter().any(|&x| matches!(data::EFF_META[(x >> 1) as usize].cat, 1 | 2))
+        && data::type_attr(ix, data::a::activationBlocked).unwrap_or(0.0) <= 0.0;
+    let can_heat = data::type_effects(ix).iter().any(|&x| data::EFF_META[(x >> 1) as usize].cat == 5);
+    let allowed_states: Vec<&str> = if can_active {
+        if can_heat { vec!["offline", "online", "active", "overheated"] } else { vec!["offline", "online", "active"] }
+    } else {
+        vec!["offline", "online"]
+    };
     let mut v = json!({"type_id": data::TYPE_IDS[ix], "name": data::type_name(ix), "name_zh": data::type_name_zh(ix), "group": data::group_name(t.group), "group_id": t.group,
            "category_id": t.category, "published": data::type_published(ix), "mass": data::type_mass(ix), "volume": data::type_volume(ix),
-           "capacity": data::type_capacity(ix), "slot": engine::infer_slot(ix), "attributes": attrs, "effects": effects});
+           "capacity": data::type_capacity(ix), "slot": engine::infer_slot(ix), "allowed_states": allowed_states, "attributes": attrs, "effects": effects});
     if let Value::Object(o) = &mut v {
         lookup::type_extra(ix, o);
     }

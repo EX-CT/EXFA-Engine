@@ -148,11 +148,10 @@ earlier "unusable state keeps requested value" ruling; principle: align with Pyf
   `overheated` module with no overload effect (e.g. Bastion Module, doomsdays) becomes `online`, not `active`.
 - The module then gets exactly the effects of the corrected state. The response reports the **corrected** state in
   `modules[N].state`.
-- Each correction emits one entry in `warnings[]`, in request order, with the exact text
-  `/modules/N: state '<requested>' not possible for this module, using online` (N = index in the request's
-  `modules[]`, `<requested>` = `active` | `overheated`).
-- Projected modules (`projected[kind=module]` and modules inside projected / booster fits) follow the same correction;
-  warnings for them are optional.
+- Corrections are **silent** (v1.4.6): no `warnings[]` entry is emitted — an impossible requested state is a request
+  normalisation, not an error condition, exactly like the `rig`/`subsystem` rule. Clients that need the feedback read
+  the corrected `modules[N].state` (or `type` RPC `allowed_states`, added alongside).
+- Projected modules (`projected[kind=module]` and modules inside projected / booster fits) follow the same correction.
 
 ## Search (`search` RPC / CLI), interim
 
@@ -363,3 +362,10 @@ case's `_fields` param lists the fields it scores).
   corrected state, and a `warnings[]` entry `/modules/N: state '<requested>' not possible for this module, using online`
   is emitted. Reverses the 2026-10-03 ruling that kept the requested value. Values are unchanged for every scored case
   (the Pyfa oracle already corrects the state); only `modules[].state` / `warnings[]` change for engines that echoed it.
+- v1.4.6 (2026-10-06, applies on top of 1.4.5): request normalisation is now **silent** — corrections no longer emit
+  `warnings[]` entries. Behaviour and `modules[].state` are unchanged; only `warnings[]` shrinks. Covers the 1.4.5
+  state correction plus: fighter squadron quantity clamps to `fighterSquadronMaxSize`, implant/booster entries for an
+  already-occupied slot are skipped, and an unknown `environment.system_security` falls back to null-sec — all
+  previously warning-side-channel corrections now silent. `type` RPC gains `allowed_states` (additive) for edit-time
+  constraints. `warnings[]` remains for genuine gaps (missing skills, unsupported projected kinds, unknown warfare
+  buff ids, `nothing to optimize`).

@@ -215,15 +215,6 @@ pub struct EngineError {
     pub path: String,
 }
 
-fn state_name(s: State) -> &'static str {
-    match s {
-        State::Offline => "offline",
-        State::Online => "online",
-        State::Active => "active",
-        State::Overheated => "overheated",
-    }
-}
-
 fn state_ok(category: u8, state: State) -> bool {
     match category {
         0 | 4 => state >= State::Online,
@@ -878,9 +869,10 @@ impl Fit {
                     && d::type_attr(it.ty, a::activationBlocked).unwrap_or(0.0) <= 0.0;
                 let can_heat = it.effects().any(|(ei, _)| d::EFF_META[ei].cat == 5);
                 if !can_active || (st == State::Overheated && !can_heat) {
-                    let msg = format!("{path}: state '{}' not possible for this module, using online", state_name(st));
+                    // Corrected silently (Pyfa isValidState clamp; rigs/subsystems already normalize the
+                    // same way) — a request asking for a state a module cannot use is a normalization
+                    // concern, not a user-facing problem, so no warnings[] entry.
                     self.items[idx].state = State::Online;
-                    self.warnings.push(msg);
                 }
             }
         }
@@ -988,9 +980,6 @@ impl Fit {
         for (i, f) in req.fighters.iter().enumerate() {
             let idx = fit.new_item(f.type_id, Kind::Fighter, Loc::Space, &format!("/fighters/{i}"))?;
             let maxsq = fit.base_opt(idx, a::fighterSquadronMaxSize).map(|v| v as u32).unwrap_or(1);
-            if f.quantity.unwrap_or(0) > maxsq {
-                fit.warnings.push(format!("fighters/{i}: squadron size {} capped to {maxsq}", f.quantity.unwrap_or(0)));
-            }
             let it = &mut fit.items[idx];
             it.quantity = f.quantity.unwrap_or(maxsq).clamp(1, maxsq.max(1));
             it.active_count = if f.active { it.quantity } else { 0 };
@@ -1014,7 +1003,6 @@ impl Fit {
         for (i, imp) in implants.iter().enumerate() {
             if let Some(sl) = slot_of_type(*imp, a::implantness) {
                 if taken.contains(&sl) {
-                    fit.warnings.push(format!("{ipath}/{i}: implant slot {sl} already taken, ignored (Pyfa)"));
                     continue;
                 }
                 taken.push(sl);
@@ -1027,7 +1015,6 @@ impl Fit {
         for (i, b) in req.boosters.iter().enumerate() {
             if let Some(sl) = slot_of_type(b.type_id, a::boosterness) {
                 if taken.contains(&sl) {
-                    fit.warnings.push(format!("boosters/{i}: booster slot {sl} already taken, ignored (Pyfa)"));
                     continue;
                 }
                 taken.push(sl);
@@ -1113,8 +1100,8 @@ impl Fit {
                 "hisec" | "highsec" | "high" => a::hiSecModifier,
                 "lowsec" | "low" => a::lowSecModifier,
                 "nullsec" | "null" | "wspace" | "wormhole" | "w-space" => a::nullSecModifier,
-                other => {
-                    fit.warnings.push(format!("unknown system_security '{other}', using nullsec"));
+                _other => {
+                    // Unknown system security silently falls back to nullsec (same as omitting it).
                     a::nullSecModifier
                 }
             };

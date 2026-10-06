@@ -119,9 +119,9 @@ For every module of the source fit, of `target.fit`, and of projected / booster 
   active/target) and `activationBlocked` ≤ 0; `overheated` additionally needs an overload effect. An `overheated`
   module with no overload effect (Bastion Module, doomsdays) therefore becomes `online`, not `active`.
 - The graph is computed with the corrected state. Graph results have no `modules[]` echo; where an engine also returns
-  the stats response for the same request (`calc`), that response reports the corrected state in `modules[N].state` and
-  emits the warning `/modules/N: state '<requested>' not possible for this module, using online` (base contract 1.4.5).
-  Warnings are not scored in the graph corpus.
+  the stats response for the same request (`calc`), that response reports the corrected state in `modules[N].state`.
+  The correction is silent — no `warnings[]` entry is emitted (base contract 1.4.6; the 1.4.5 warning text is
+  superseded). Warnings are not scored in the graph corpus.
 - Expected values come from the unchanged Pyfa graph oracle on the request as written (Pyfa applies the same
   correction). Case: `dmg_dist_vargur_bastion_overheated_state` (Vargur, Bastion Module I requested `overheated` →
   corrected to `online`: no Bastion bonuses, so dps is about half of the Bastion-active value).
