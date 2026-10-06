@@ -1,5 +1,7 @@
 # EXFA-Engine — EXFA · 精密装配助理 解算引擎
 
+[![CI](https://github.com/EX-CT/EXFA-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/EX-CT/EXFA-Engine/actions/workflows/ci.yml) [![release](https://img.shields.io/github/v/release/EX-CT/EXFA-Engine)](https://github.com/EX-CT/EXFA-Engine/releases)
+
 Stateless EVE Online fitting engine (Rust, native + WASM), migrated 2026-10-05 from
 `EX-CT/eve-dogma@d70e371` with full history. Provenance line before that: `eve-dogma-lab`
 `variant-f-features` (engine variant F + graphs layer); the previous C++ engine (variant J) is in
@@ -11,7 +13,7 @@ black-box oracle and behaviour reference; no Pyfa code.
 One JSON `FitRequest` on stdin → one JSON `FitStats` on stdout, stateless and deterministic
 (contract: [contract/](contract/README.md)).
 
-The SDE dataset (`dataset-3569502-r5.json.gz`, `exct-eve-dataset` format v1, `EX-CT/EXFA-Data` release `sde-3569502-r5`, pinned in `sde.lock`) is **compiled into the binary**: the code
+The SDE dataset (`exct-eve-dataset` format v1; the release tag is pinned in `sde.lock`, currently `sde-3569502-r7`) is **compiled into the binary**: the code
 generator turns every effect's modifier list into straight-line Rust code and every type/attribute/group into static
 tables. The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.md).
 
@@ -40,7 +42,7 @@ The engine never depends on `exfa-formats` (structured input only); `exfa-format
 ## Build & run
 
 ```bash
-export EXFA_DATASET=/abs/path/dataset-3569502-r5.json.gz   # default ../../../data/… relative to crates/exfa-core
+export EXFA_DATASET=/abs/path/dataset-3569502-r7.json.gz   # default ../../../data/… relative to crates/exfa-core
 cargo build --release
 cargo install --path crates/exfa-cli --locked                       # installs the binary `exfa` (package exfa-cli)
 ./target/release/exfa calc < request.json > response.json

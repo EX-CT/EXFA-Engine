@@ -3,3 +3,4 @@ target/
 !dist/*.wasm
 ci-results/
 _suites/
+_data/
