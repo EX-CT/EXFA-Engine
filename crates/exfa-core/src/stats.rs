@@ -1136,6 +1136,12 @@ impl Fit {
                 [tubes_used as f64, class_used("light"), class_used("support"), class_used("heavy")],
             )));
         }
+        out.push_kv(
+            "adjustments".into(),
+            J::A(self.adjustments.iter().map(|a| jv!({
+                "code": a.code, "path": a.path.clone(), "from": a.from.clone(), "to": a.to.clone(), "message": a.message
+            })).collect()),
+        );
         if !self.warnings.is_empty() {
             out.push_kv("warnings".into(), jv!(self.warnings.clone()));
         }

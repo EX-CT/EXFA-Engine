@@ -9,3 +9,4 @@ modules[].heat
 violations[].skill_type_id
 violations[].level
 provenance
+adjustments

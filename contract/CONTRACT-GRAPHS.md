@@ -1,9 +1,9 @@
-# eve-dogma graphs contract (round 2, revision 0.3)
+# eve-dogma graphs contract (round 2, revision 0.4)
 
 > **Released 2026-10-03 CST** (branch `graphs-round2`, tag `graphs-v0.3`). Changes against 0.2 are marked **(0.3)**.
 > Round 2 was scored on 0.2 (frozen at bench commit `0397d95`); 0.2 scores are not comparable with 0.3 scores.
 
-Extension of the eve-dogma request/response contract (`CONTRACT.md`, revision 1.4.3) with **Pyfa's graph
+Extension of the eve-dogma request/response contract (`CONTRACT.md`, revision 1.5.0) with **Pyfa's graph
 subsystem** (`graphs/data/*` in Pyfa). Same style and rules as the base contract: stateless, **one JSON
 `GraphRequest` in → one JSON `GraphResult` out**, no clocks, no network, byte-identical output for identical input on
 the same dataset, unknown request fields ignored. Expected values come from Pyfa itself
@@ -136,6 +136,10 @@ For every module of the source fit, of `target.fit`, and of projected / booster 
 | `tgt_speed_pct` | % | ≥ 0 | 0.2: % of the target's max velocity (Pyfa `('tgtSpeed', '%')` normaliser: x/100 × target maxVelocity — profile `max_velocity` or the target fit's calculated speed, before the source's webs), then as `tgt_speed_mps` |
 | `tgt_sig_m` | m | > 0 (else `null`) | target signature radius before the source's TPs |
 | `tgt_sig_pct` | % | > 0 (else `null`) | 0.2: % of the target's signature radius (x/100 × profile `signature_radius` or the target fit's signatureRadius), then as `tgt_sig_m`; `null` at every point for an infinite-signature target (profile `signature_radius: null`) |
+| `atk_speed_mps` | m/s | ≥ 0 | attacker speed |
+| `atk_speed_pct` | % | ≥ 0 | attacker speed as a percentage of its max velocity |
+| `atk_angle_deg` | deg | 0 … 360 | attacker's movement angle |
+| `tgt_angle_deg` | deg | 0 … 360 | target's movement angle |
 
 | y | unit | definition |
 |---|---|---|
@@ -201,7 +205,12 @@ with the same application math and target parameters as `damage` (settings `igno
 `apply_projected` map to Pyfa's `ammoOptimal*` settings). Returns `<y>_charge_type_id` per point:
 **informational only** — Pyfa breaks exact DPS ties between equal-stat faction charges (e.g. Dark Blood vs True
 Sansha) by set iteration order, so the id is not well defined. Params: `tgt_speed_*`, `atk_speed_*`, angles as for
-`damage`.
+`damage`. Axes `atk_speed_mps`, `atk_speed_pct`, `atk_angle_deg`, and `tgt_angle_deg` are also available; as in
+`damage`, an axis value overrides the parameter of the same name.
+
+FitRequest scenarios evaluate the same damage point function used by the `damage` graph sweep, not a synthetic
+x-axis. For identical fit, target, point parameters, and settings, scenario `dps` and `volley` equal the graph's
+`dps` and `volley` at that point.
 
 **(0.3) Quality tiers** (Pyfa `filterChargesByQuality`; cumulative):
 - `t1`: charges with metaGroup 1 (Tech I) or no metaGroup.
@@ -368,6 +377,8 @@ in group `errors`, correct when the response is `{"error":{"code":CODE,…}}`. C
 
 ## Changelog
 
+- 0.4: add the attacker speed and attacker/target angle axes to `damage` and `application_profile`; document
+  parameter override behavior and equivalence between FitRequest scenarios and damage-graph points.
 - 0.3 (released 2026-10-03, tag `graphs-v0.3`): wording fixes from G2's probe findings (graphs/pending.md items 1–4, 6),
   following eve's rulings:
   - sentry drones never follow;

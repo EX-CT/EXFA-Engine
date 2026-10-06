@@ -54,6 +54,11 @@ pub fn calc_priced(req: &FitRequest, variant: &[request::PriceOverride], batch_w
     match engine::Fit::build(req) {
         Ok(fit) => {
             let mut out = fit.compute_stats(req);
+            if let Some(results) = graphs::scenario_results(req) {
+                if let j::J::O(o) = &mut out {
+                    o.push(("scenario_results".into(), results));
+                }
+            }
             if let j::J::O(o) = &mut out {
                 let (use_market, table) = price::request_state(req, batch_prices);
                 o.push(("provenance".into(), prov::provenance_j(use_market, table)));
