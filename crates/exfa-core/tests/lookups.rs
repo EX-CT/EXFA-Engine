@@ -29,7 +29,12 @@ fn search_without_and_with_jargon() {
     assert!(r.contains(&2048) && !r.contains(&52227), "abyssal items are unpublished in Pyfa");
     let r = ids(&rpc("market.search", json!({"query": "re:^Small Focused", "filter": "market"}))["type_ids"]);
     assert!(!r.is_empty());
-    assert_eq!(rpc("market.search", json!({"query": "ab"}))["type_ids"], json!([]));
+    // EX-CT search aliases are compiled in (data::SEARCH_ALIASES, dataset r7+): shorthand works with no
+    // Pyfa data; the `dc` alias excludes assault variants via its lookbehind.
+    let ab = ids(&rpc("market.search", json!({"query": "ab", "filter": "market"}))["type_ids"]);
+    assert!(ab.contains(&438), "builtin alias 'ab' -> afterburners");
+    let dcb = ids(&rpc("market.search", json!({"query": "dc", "filter": "market"}))["type_ids"]);
+    assert!(dcb.contains(&2048) && !dcb.contains(&47257));
     let st = rpc("pyfa_data_load", json!({"data": {"jargon": {"items": {"dc": ["dc", "damage control"]}}}}));
     assert_eq!(st["jargon"], 1);
     let r = ids(&rpc("market.search", json!({"query": "dc", "filter": "market"}))["type_ids"]);
