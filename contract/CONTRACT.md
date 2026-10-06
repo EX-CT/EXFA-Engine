@@ -1,4 +1,4 @@
-# eve-dogma request/response contract (v1, revision 1.4.5)
+# eve-dogma request/response contract (v1, revision 1.4.7)
 
 Stateless: **one JSON `FitRequest` in → one JSON `FitStats` out.** No hidden state, no clocks, no network.
 The same request with the same dataset must give byte-identical output. Unknown request fields are ignored.
@@ -273,6 +273,9 @@ Existing FitStats fields, now scored against Pyfa (oracle `ORACLE_EXTRA=profile,
   capacity / chargeSize / chargeGroup1–4 → CHARGE_CAPACITY / CHARGE_SIZE / CHARGE_GROUP (each checked on its own);
   `checkRequirements` → MISSING_SKILL. A fit with violations is still computed in full ("Disable Fitting
   Restrictions", ENG-VAL-005): the `val_*` cases also score every bench metric. Cases `val_*`.
+  Engine-side additions (Pyfa shows these only as red resource bars, not fit problems): drone bay / fighter bay /
+  cargo volume over capacity → DRONE_BAY / FIGHTER_BAY / CARGO_OVERLOAD; fighter squads over the ship's tubes
+  (total and per light/support/heavy class) → FIGHTER_TUBES. These fire in addition to the mapped set.
 - Draft (reported, not part of pass): per-module codes carry the `module_index` of **every** module that breaks
   the rule (Pyfa flags all modules of an over-limit group, not just the ones past the limit); SLOTS_EXCEEDED may
   carry `slot`; MISSING_SKILL is one entry per missing skill with `skill_type_id` and `level`, following Pyfa
@@ -369,3 +372,5 @@ case's `_fields` param lists the fields it scores).
   previously warning-side-channel corrections now silent. `type` RPC gains `allowed_states` (additive) for edit-time
   constraints. `warnings[]` remains for genuine gaps (missing skills, unsupported projected kinds, unknown warfare
   buff ids, `nothing to optimize`).
+- v1.4.7 (2026-10-06, applies on top of 1.4.6): `violations[]` gains DRONE_BAY, FIGHTER_BAY, CARGO_OVERLOAD and
+  FIGHTER_TUBES for resource-bar overloads (Pyfa shows these as red bars, not fit problems).

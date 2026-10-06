@@ -1131,7 +1131,10 @@ impl Fit {
         out.push_kv("bombing".into(), bombing);
         out.push_kv("modules".into(), J::A(module_rows));
         if req.options.validate {
-            out.push_kv("violations".into(), J::A(self.validate(cpu_used, pg_used, calib_used, bw_used)));
+            out.push_kv("violations".into(), J::A(self.validate(
+                cpu_used, pg_used, calib_used, bw_used, bay_used, fbay_used, cargo_used,
+                [tubes_used as f64, class_used("light"), class_used("support"), class_used("heavy")],
+            )));
         }
         if !self.warnings.is_empty() {
             out.push_kv("warnings".into(), jv!(self.warnings.clone()));
@@ -1184,7 +1187,7 @@ impl Fit {
         J::O(m)
     }
 
-    fn validate(&self, cpu: f64, pg: f64, calib: f64, bw: f64) -> Vec<J> {
+    fn validate(&self, cpu: f64, pg: f64, calib: f64, bw: f64, bay: f64, fbay: f64, cargo: f64, tubes: [f64; 4]) -> Vec<J> {
         let ship = self.ship;
         let g = |i: usize, x: u16| self.get(i, x);
         let mut v = Vec::new();
@@ -1200,6 +1203,26 @@ impl Fit {
         }
         if bw > g(ship, a::droneBandwidth) + 1e-9 {
             push("DRONE_BANDWIDTH", format!("Drone bandwidth used {bw} > {}", g(ship, a::droneBandwidth)), None);
+        }
+        if bay > g(ship, a::droneCapacity) + 1e-9 {
+            push("DRONE_BAY", format!("Drone bay used {bay:.1} m3 > capacity {:.1}", g(ship, a::droneCapacity)), None);
+        }
+        if fbay > g(ship, a::fighterCapacity) + 1e-9 {
+            push("FIGHTER_BAY", format!("Fighter bay used {fbay:.1} m3 > capacity {:.1}", g(ship, a::fighterCapacity)), None);
+        }
+        if cargo > g(ship, a::capacity) + 1e-9 {
+            push("CARGO_OVERLOAD", format!("Cargo used {cargo:.1} m3 > capacity {:.1}", g(ship, a::capacity)), None);
+        }
+        for (u, attr, label) in [
+            (tubes[0], a::fighterTubes, "fighter"),
+            (tubes[1], a::fighterLightSlots, "light fighter"),
+            (tubes[2], a::fighterSupportSlots, "support fighter"),
+            (tubes[3], a::fighterHeavySlots, "heavy fighter"),
+        ] {
+            let lim = g(ship, attr);
+            if u > lim + 1e-9 {
+                push("FIGHTER_TUBES", format!("{label} squads {u} > tubes {lim}"), None);
+            }
         }
         let modules: Vec<usize> = (0..self.items.len()).filter(|&i| self.items[i].kind == Kind::Module).collect();
         for (slot, attr) in [
