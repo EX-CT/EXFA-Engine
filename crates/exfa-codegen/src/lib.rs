@@ -176,6 +176,38 @@ pub fn sha256_hex(data: &[u8]) -> String {
     h.iter().map(|x| format!("{x:08x}")).collect()
 }
 
+/// Escape a literal for use inside a Pyfa-jargon-style regex pattern (same metachar set as
+/// presets/make_presets.py `alias_pattern`'s escape; keep in sync).
+fn re_escape(s: &str) -> String {
+    s.chars().map(|c| if "()[]{}.*+?|^$\\".contains(c) { format!("\\{c}") } else { c.to_string() }).collect()
+}
+
+/// `search_aliases` expansion + exclude words -> ready regex over an English type name (canonical rule,
+/// mirrored by `presets/make_presets.py::alias_pattern`):
+///   * a bare meta suffix anchors at the name end (" ii" -> ` ii$`);
+///   * each exclude word gets a lookbehind before the phrase start;
+///   * a multi-word phrase allows a middle word after the first word ("large shield extender" ->
+///     `large (.+ )?shield extender`, like Pyfa's hand-written jargon pattern).
+fn alias_pattern(expansion: &str, exclude: &[String]) -> String {
+    let e = expansion.trim().to_lowercase();
+    if e.is_empty() {
+        return e;
+    }
+    if matches!(e.as_str(), "i" | "ii" | "iii" | "iv" | "v") {
+        return format!(" {e}$");
+    }
+    let mut words = e.split_whitespace();
+    let mut p = exclude.iter().map(|x| format!("(?<!{} )", re_escape(&x.to_lowercase()))).collect::<String>();
+    let Some(first) = words.next() else { return e };
+    p.push_str(&re_escape(first));
+    let rest: Vec<&str> = words.collect();
+    if !rest.is_empty() {
+        p.push_str(" (.+ )?");
+        p.push_str(&rest.iter().map(|w| re_escape(w)).collect::<Vec<_>>().join(" "));
+    }
+    p
+}
+
 /// String blob with offsets: returns (blob, offsets[n+1])
 fn blob(names: &[String]) -> (String, Vec<u32>) {
     let mut s = String::new();
@@ -862,6 +894,22 @@ fn generate() -> String {
     writeln!(out, "pub const HAS_MARKET_GROUP_TREE: bool = {};", d["market_groups"].is_object()).unwrap();
     arr(&mut out, "MARKET_GROUP_IDS", "u32", &mgl.iter().map(|g| g.0).collect::<Vec<_>>());
     arr(&mut out, "MARKET_GROUP_PARENT", "u32", &mgl.iter().map(|g| g.1).collect::<Vec<_>>());
+
+    // EX-CT search aliases (dataset `search_aliases`, pipeline r7+): built-in product shorthand for
+    // `market.search` — alias -> ready regex pattern over English type names, used exactly like Pyfa jargon
+    // patterns. License-clean (LGPL) so it can be compiled in, unlike the Pyfa jargon table which stays a
+    // run-time load. Pattern rule mirrors presets/make_presets.py `alias_pattern` (keep in sync).
+    let mut aliases: Vec<(String, String)> = d["search_aliases"]
+        .as_object()
+        .map(|o| o.iter().filter_map(|(k, v)| {
+            let e = v["expansion"].as_str()?.trim().to_lowercase();
+            let excl: Vec<String> = v["exclude"].as_array().map(|x| x.iter().filter_map(|w| w.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+            Some((k.clone(), alias_pattern(&e, &excl)))
+        }).collect())
+        .unwrap_or_default();
+    aliases.sort();
+    writeln!(out, "pub const HAS_SEARCH_ALIASES: bool = {};", !aliases.is_empty()).unwrap();
+    writeln!(out, "pub static SEARCH_ALIASES: &[(&str, &str)] = &[{}];", aliases.iter().map(|(a, e)| format!("({a:?}, {e:?})")).collect::<Vec<_>>().join(", ")).unwrap();
 
     // lookups (ext/rpc, Pyfa item stats): radius (0 = absent in the SDE; Pyfa shows 1.0), the Traits tab rendered
     // like Pyfa's `traits.display`, and the English description when the dataset carries one (`descriptions`)

@@ -401,7 +401,7 @@ pub fn pyfa_data_load(p: &Value) -> Value {
 
 pub fn pyfa_data_status() -> Value {
     let pd = pyfa_data().read().unwrap();
-    json!({"loaded": pd.source.is_some() || !pd.jargon.is_empty() || !pd.damage_patterns.is_empty(), "source": pd.source, "jargon": pd.jargon.len(), "conversions": pd.conversions.len(), "damage_patterns": pd.damage_patterns.len(), "target_profiles": pd.target_profiles.len()})
+    json!({"loaded": pd.source.is_some() || !pd.jargon.is_empty() || !pd.damage_patterns.is_empty(), "source": pd.source, "jargon": pd.jargon.len(), "conversions": pd.conversions.len(), "damage_patterns": pd.damage_patterns.len(), "target_profiles": pd.target_profiles.len(), "builtin_aliases": builtin_aliases().len()})
 }
 
 /// Resolve `damage_pattern.builtin` / `target_profile.builtin` (bench draft 1.11) against the runtime Pyfa data.
@@ -507,8 +507,17 @@ fn search_filter(ix: usize, f: &str) -> bool {
     }
 }
 
+/// Built-in EX-CT search aliases (dataset `search_aliases`, embedded by codegen as ready patterns in
+/// `data::SEARCH_ALIASES`): alias -> regex over English type names. License-clean (LGPL), so unlike the
+/// Pyfa jargon table it ships compiled into every build — including the browser wasm.
+fn builtin_aliases() -> &'static HashMap<String, String> {
+    static M: OnceLock<HashMap<String, String>> = OnceLock::new();
+    M.get_or_init(|| d::SEARCH_ALIASES.iter().map(|(a, e)| (a.to_lowercase(), e.to_string())).collect())
+}
+
 /// `market.search {query, filter}` -> `{type_ids}` (Pyfa SearchWorkerThread.processSearches, jargon applied when
-/// Pyfa data is loaded).
+/// Pyfa data is loaded). The EX-CT alias table (`data::SEARCH_ALIASES`) is always on: patterns from both
+/// sources are OR-ed per query token.
 pub fn market_search(p: &Value) -> Value {
     let q = p.get("query").and_then(|x| x.as_str()).unwrap_or("");
     let filter = p.get("filter").and_then(|x| x.as_str()).unwrap_or("market");
@@ -518,9 +527,18 @@ pub fn market_search(p: &Value) -> Value {
     };
     {
         let pd = pyfa_data().read().unwrap();
+        let builtins = builtin_aliases();
         for t in toks.iter_mut() {
-            if let Some(r) = pd.jargon.get(&t.to_lowercase()).filter(|r| !r.is_empty()) {
-                *t = format!("({})", r.join("|"));
+            let tl = t.to_lowercase();
+            let mut pats: Vec<&str> = Vec::new();
+            if let Some(r) = pd.jargon.get(&tl) {
+                pats.extend(r.iter().map(|s| s.as_str()));
+            }
+            if let Some(r) = builtins.get(&tl) {
+                pats.push(r.as_str());
+            }
+            if !pats.is_empty() {
+                *t = format!("({})", pats.join("|"));
             }
         }
     }
