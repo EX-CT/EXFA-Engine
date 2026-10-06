@@ -10,7 +10,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 license = "LGPL-3.0-or-later"
 repository = "https://github.com/EX-CT/EXFA-Engine"
