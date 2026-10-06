@@ -1,8 +1,8 @@
 //! Minimal EFT text import/export. Adapted from eve-dogma-rs `src/eft.rs` (LGPL-3.0-or-later; written clean-room
 //! there from the public EVE fitting text format), using this crate's compiled data tables.
-use exfa_sde as d;
+use exfa_core::sde as d;
 use crate::infer_slot;
-use exfa_model::*;
+use exfa_core::model::*;
 use std::collections::HashMap;
 
 const CAT_IMPLANT: u32 = 20;

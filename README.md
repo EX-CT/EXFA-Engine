@@ -19,33 +19,28 @@ tables. The runtime never loads or parses dataset JSON. See [DESIGN.md](DESIGN.m
 
 | crate | what | depends on |
 |---|---|---|
-| `crates/exfa-codegen` | build-time generator: dataset → `tables.rs` (for exfa-sde) + `effects.rs` (for exfa-core) | — |
-| `crates/exfa-sde` | static data compiled in: types, attributes, groups, names (en/zh), mutaplasmids, … (no engine code) | (build: codegen) |
-| `crates/exfa-model` | structured fit input: `FitRequest` v1 serde types | serde |
-| `crates/exfa-capsim` | capacitor simulator (+ Pyfa `round`) | — |
-| `crates/exfa-core` | **engine**: core, stats, graphs, JSON-RPC (calc, graph, graph_specs, search, type, meta); structured input only | exfa-sde, exfa-model, exfa-capsim |
-| `crates/exfa-formats` | fit formats: EFT (+cfg, mutations), DNA (+alt, link), ESI JSON, XML, multibuy, ship-stats text, item lists, auto-detect; RPC eft_parse, eft_export, format_import, format_export | exfa-sde, exfa-model (**not** exfa-core) |
-| `crates/exfa-optimizer` | skill-based fit optimizer (EXFA-Docs docs/21 v1): `optimize`, `Evaluator` trait, RPC `optimize` | exfa-core, exfa-model |
+| `crates/exfa-codegen` | build-time generator: dataset → `tables.rs` + `effects.rs` (both for exfa-core) | — |
+| `crates/exfa-core` | **engine**: core, stats, graphs, JSON-RPC (calc, graph, graph_specs, search, type, meta); structured input only. Contains the modules `sde` (compiled static data: types, attributes, groups, names en/zh, mutaplasmids, search aliases), `model` (`FitRequest` v1 serde types) and `capsim` (capacitor simulator) — formerly the thin `exfa-sde`/`exfa-model`/`exfa-capsim` crates | serde, (build: codegen) |
+| `crates/exfa-formats` | fit formats: EFT (+cfg, mutations), DNA (+alt, link), ESI JSON, XML, multibuy, ship-stats text, item lists, auto-detect; RPC eft_parse, eft_export, format_import, format_export | exfa-core (data modules only — engine eval is dead-stripped) |
+| `crates/exfa-optimizer` | skill-based fit optimizer (EXFA-Docs docs/21 v1): `optimize`, `Evaluator` trait, RPC `optimize` | exfa-core |
 | `crates/exfa-cli` | binary `exfa` (calc, batch, serve-stdio, optimize, graph, graph-batch, eft, search, type, meta, bench): links engine + formats + optimizer | exfa-core, exfa-formats, exfa-optimizer |
 | `crates/exfa-wasm` | engine wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `calc`, `rpc` incl. `optimize`) | exfa-core, exfa-optimizer |
 | `crates/exfa-formats-wasm` | formats wasm32-unknown-unknown C ABI (`alloc`, `dealloc`, `rpc`), for the frontend | exfa-formats |
 
 ```
-exfa-model ──┬──────────────► exfa-formats ──► exfa-formats-wasm
-exfa-sde ────┤                        │
-             └──► exfa-core ──┬───────┴──► exfa-cli (exfa)
-exfa-capsim ──────►┘          └──► exfa-wasm
-exfa-codegen (build-time) ──► exfa-sde, exfa-core
+exfa-codegen ──(build-time)──► exfa-core ──┬──► exfa-formats ──┬──► exfa-formats-wasm
+                                           ├──► exfa-optimizer  └──► exfa-cli (exfa)
+                                           └──────────────────► exfa-wasm
 ```
 
 Fit formats are not part of the engine (architecture ruling 2026-10-03): the engine takes the structured fit and the
 skills input and only calculates. What moved out of the engine: [docs/FORMATS-SPLIT.md](docs/FORMATS-SPLIT.md).
-CI checks the boundary (`cargo tree`: no exfa-core under exfa-formats, no formats under exfa-core / exfa-wasm).
+The engine never depends on `exfa-formats` (structured input only); `exfa-formats` links `exfa-core` for the shared `sde`/`model` data modules — its wasm bundle keeps only what it uses.
 
 ## Build & run
 
 ```bash
-export EXFA_DATASET=/abs/path/dataset-3569502-r5.json.gz   # default ../../../data/… relative to crates/exfa-sde, crates/exfa-core
+export EXFA_DATASET=/abs/path/dataset-3569502-r5.json.gz   # default ../../../data/… relative to crates/exfa-core
 cargo build --release
 cargo install --path crates/exfa-cli --locked                       # installs the binary `exfa` (package exfa-cli)
 ./target/release/exfa calc < request.json > response.json

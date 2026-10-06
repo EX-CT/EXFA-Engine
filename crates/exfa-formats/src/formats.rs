@@ -1,10 +1,10 @@
 //! Fit text/JSON formats besides EFT: DNA (+ chat link), ESI fitting JSON, EVE client XML, multibuy.
 //! Output layout follows the formats as Pyfa writes them (behaviour verified against Pyfa-generated cases in
 //! EXFA-Bench `suites/formats`; no Pyfa code is used here).
-use exfa_sde as d;
+use exfa_core::sde as d;
 use crate::eft;
 use crate::infer_slot;
-use exfa_model::*;
+use exfa_core::model::*;
 use serde_json::Value;
 
 const CAT_CHARGE: u32 = 8;

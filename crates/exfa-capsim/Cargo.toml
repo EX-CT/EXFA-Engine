@@ -1,8 +1,0 @@
-[package]
-name = "exfa-capsim"
-description = "Pyfa-compatible capacitor simulator (event heap), used by exfa-core stats and graphs"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]

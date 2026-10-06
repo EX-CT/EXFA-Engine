@@ -1,8 +1,9 @@
 //! exfa-formats — fit text/JSON formats: EFT (+ mutations, EFT config), DNA (+ alt, chat link), ESI fitting JSON,
 //! EVE client XML, multibuy, Pyfa "ship stats" text, item lists and format auto-detection.
 //!
-//! Formats are not part of the engine: this crate turns text into the structured fit input (`exfa-model`) and back.
-//! It depends on `exfa-model` and the static data (`exfa-sde`) only, never on the `exfa-core` engine. The one
+//! Formats are not part of the engine: this crate turns text into the structured fit input (`exfa_core::model`)
+//! and back, over the compiled static data (`exfa_core::sde`). It links `exfa-core` for those data modules only —
+//! the engine eval code is dead-stripped from consumers like the formats-only wasm bundle. The one
 //! export that needs computed stats (`shipstats`) takes them from the caller (a callback or `params.stats`).
 //!
 //! Output layout follows the formats as Pyfa writes them (verified against Pyfa-generated cases in EXFA-Bench
@@ -12,8 +13,8 @@ pub mod fitting;
 pub mod formats;
 pub mod json_exact;
 
-use exfa_model::*;
-use exfa_sde as d;
+use exfa_core::model::*;
+use exfa_core::sde as d;
 use serde_json::{json, Value};
 
 /// Slot of a module type from its slot effect (hi/med/lo power, rig, subsystem, service).

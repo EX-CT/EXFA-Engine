@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/exfa-codegen", "crates/exfa-sde", "crates/exfa-model", "crates/exfa-capsim", "crates/exfa-core",
+    "crates/exfa-codegen", "crates/exfa-core",
     "crates/exfa-formats", "crates/exfa-cli", "crates/exfa-wasm", "crates/exfa-formats-wasm", "crates/exfa-optimizer",
 ]
 default-members = [
-    "crates/exfa-codegen", "crates/exfa-sde", "crates/exfa-model", "crates/exfa-capsim", "crates/exfa-core",
+    "crates/exfa-codegen", "crates/exfa-core",
     "crates/exfa-formats", "crates/exfa-cli", "crates/exfa-optimizer",
 ]
 
@@ -16,11 +16,8 @@ license = "LGPL-3.0-or-later"
 repository = "https://github.com/EX-CT/EXFA-Engine"
 
 [workspace.dependencies]
-exfa-capsim = { path = "crates/exfa-capsim" }
 exfa-core = { path = "crates/exfa-core" }
 exfa-codegen = { path = "crates/exfa-codegen" }
-exfa-sde = { path = "crates/exfa-sde" }
-exfa-model = { path = "crates/exfa-model" }
 exfa-formats = { path = "crates/exfa-formats" }
 exfa-optimizer = { path = "crates/exfa-optimizer" }
 serde = { version = "1", features = ["derive"] }

@@ -2,16 +2,16 @@
 
 Architecture ruling (user, via eve, 2026-10-03): fit formats (EFT, DNA, XML, ESI fitting JSON, EFS/HTML export,
 Pyfa saved-fit import, …) are **not** part of the engine. The engine takes the structured fit plus the skills
-input (`exfa-model` `FitRequest`) and only calculates.
+input (`exfa_core::model` `FitRequest`) and only calculates.
 
 ## Crates
 
 | crate | role |
 |---|---|
-| `exfa-sde` | static data tables (from `exfa-codegen`, `tables.rs`); no engine code |
-| `exfa-model` | `FitRequest` v1 serde types (formerly `exfa_core::request`, still re-exported there) |
-| `exfa-core` | engine; compiled effect code (`effects.rs`) over `exfa-sde` tables; **no format code** |
-| `exfa-formats` | all fit formats; depends on `exfa-sde` + `exfa-model` only |
+| `exfa_core::sde` | static data tables (from `exfa-codegen`, `tables.rs`); no engine code. Was the `exfa-sde` crate |
+| `exfa_core::model` | `FitRequest` v1 serde types (still re-exported as `exfa_core::request`). Was the `exfa-model` crate |
+| `exfa-core` | engine; compiled effect code (`effects.rs`) over `sde` tables; **no format code** |
+| `exfa-formats` | all fit formats; links `exfa-core` for `sde`/`model` only (engine eval dead-stripped) |
 | `exfa-formats-wasm` | formats C ABI for the frontend (`alloc`, `dealloc`, `rpc`) |
 | `exfa-cli` (`exfa`) | convenience tool linking engine + formats |
 | `exfa-wasm` | engine C ABI (`alloc`, `dealloc`, `calc`, `rpc`); no formats |
@@ -22,8 +22,8 @@ input (`exfa-model` `FitRequest`) and only calculates.
 |---|---|
 | `exfa_core::eft` (`parse`, `export`, `export_opts`, `EftOpts`, `py_float`, `float_unerr`, `mutator_lines`) | `exfa_formats::eft` |
 | `exfa_core::formats` (DNA, ESI, XML, multibuy, shipstats, EFT import, EFT cfg, detect, items lists, …) | `exfa_formats::formats` |
-| `exfa_core::request` (FitRequest types) | `exfa_model` (re-exported as `exfa_core::request`) |
-| `exfa_core::data` static tables | `exfa_sde` (re-exported by `exfa_core::data` together with the effect code) |
+| `exfa_core::request` (FitRequest types) | `exfa_core::model` (re-exported as `exfa_core::request`) |
+| `exfa_core::data` static tables | `exfa_core::sde` (re-exported by `exfa_core::data` together with the effect code) |
 | engine RPC `eft_parse {text}` | `exfa_formats::eft_parse` / `rpc_method("eft_parse", ..)` |
 | engine RPC `eft_export {fit, name}` | `exfa_formats::eft_export` |
 | engine RPC `format_import {text, format, path?}` | `exfa_formats::format_import` |
