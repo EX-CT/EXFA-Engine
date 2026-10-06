@@ -25,7 +25,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "exfa-core",
  "exfa-formats",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-codegen"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "flate2",
  "serde_json",
@@ -43,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "exfa-codegen",
  "flate2",
@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-formats"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "exfa-core",
  "serde_json",
@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-formats-wasm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "exfa-formats",
  "serde_json",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-optimizer"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "exfa-core",
  "serde",
@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "exfa-wasm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "exfa-core",
  "exfa-optimizer",
