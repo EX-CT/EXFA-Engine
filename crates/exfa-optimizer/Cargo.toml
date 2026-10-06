@@ -7,6 +7,5 @@ license.workspace = true
 
 [dependencies]
 exfa-core.workspace = true
-exfa-model.workspace = true
 serde.workspace = true
 serde_json.workspace = true

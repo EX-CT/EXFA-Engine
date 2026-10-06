@@ -134,7 +134,7 @@ fn eftcfg_import() {
     for f in fits {
         assert_eq!(f["ship"]["type_id"], json!(587));
     }
-    assert_eq!(stacks(&fits[0], "drones", "quantity"), vec![(exfa_sde::type_by_name("Warrior II").unwrap() as u64, 2)]);
+    assert_eq!(stacks(&fits[0], "drones", "quantity"), vec![(exfa_core::sde::type_by_name("Warrior II").unwrap() as u64, 2)]);
     assert_eq!(fits[0]["implants"].as_array().unwrap().len(), 1);
     assert_eq!(fits[0]["boosters"].as_array().unwrap().len(), 1);
     // and the imported fits go through EFT export -> import unchanged
@@ -258,7 +258,7 @@ fn multibuy_export_counts_everything() {
     // every line names a real type
     for l in &lines[1..] {
         let name = l.rsplit_once(" x").filter(|(_, n)| n.parse::<u32>().is_ok()).map(|(a, _)| a).unwrap_or(l);
-        assert!(exfa_sde::type_by_name(name).is_some(), "unknown type {name:?}");
+        assert!(exfa_core::sde::type_by_name(name).is_some(), "unknown type {name:?}");
     }
 }
 
@@ -280,7 +280,7 @@ fn item_lists_import_and_export_back() {
 #[test]
 fn shipstats_export_and_errors() {
     let f = import(VEXOR, "eft");
-    let stats = |r: &exfa_model::FitRequest| -> Value { serde_json::from_str(&exfa_core::calc_json(&serde_json::to_string(r).unwrap())).unwrap() };
+    let stats = |r: &exfa_core::model::FitRequest| -> Value { serde_json::from_str(&exfa_core::calc_json(&serde_json::to_string(r).unwrap())).unwrap() };
     let r = format_export(&json!({"fit": f, "name": "Unit Vexor", "format": "shipstats"}), Some(&stats));
     let t = r["text"].as_str().unwrap_or_else(|| panic!("{r}"));
     assert!(t.starts_with("Unit Vexor (Vexor)"), "{t}");
@@ -288,7 +288,7 @@ fn shipstats_export_and_errors() {
         assert!(t.contains(k), "missing {k} in\n{t}");
     }
     // the same with the stats passed as text (callers without the engine)
-    let req: exfa_model::FitRequest = serde_json::from_value(f.clone()).unwrap();
+    let req: exfa_core::model::FitRequest = serde_json::from_value(f.clone()).unwrap();
     let st = exfa_core::calc_json(&serde_json::to_string(&exfa_formats::shipstats_request(&req)).unwrap());
     let r2 = format_export(&json!({"fit": f, "name": "Unit Vexor", "format": "shipstats", "stats_json": st}), None);
     assert_eq!(r2["text"], r["text"]);

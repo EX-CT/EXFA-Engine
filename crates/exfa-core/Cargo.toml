@@ -7,9 +7,6 @@ license.workspace = true
 build = "build.rs"
 
 [dependencies]
-exfa-capsim.workspace = true
-exfa-sde.workspace = true
-exfa-model.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 itoa.workspace = true

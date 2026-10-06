@@ -1,7 +1,7 @@
 //! exfa-codegen: build-time code generator (formerly variant F `build.rs`).
 //!
 //! Reads the EXCT dataset (`dataset-<build>.json.gz`, `exct-eve-dataset` v1, from EX-CT/EXFA-Data releases) and emits two files:
-//! - `tables.rs` for `exfa-sde`: static tables (types, attributes, groups, names, mutaplasmids, …);
+//! - `tables.rs` for the `sde` module of `exfa-core`: static tables (types, attributes, groups, names, mutaplasmids, …);
 //! - `effects.rs` for `exfa-core`: every SDE effect's modifier list compiled into straight-line Rust
 //!   (`apply_local`, `apply_projected`, `apply_skill`, `apply_dbuff`).
 //!
@@ -241,14 +241,14 @@ struct Eff {
     mods: Vec<[i64; 6]>,
 }
 
-/// Generate `$OUT_DIR/tables.rs` (static data only; called from `crates/exfa-sde/build.rs`).
+/// Generate `$OUT_DIR/tables.rs` (static data only; called from `crates/exfa-core/build.rs`).
 pub fn run_tables() {
     let (tables, _) = split(&generate());
     write_out("tables.rs", tables);
 }
 
 /// Generate `$OUT_DIR/effects.rs` (compiled effect/skill/buff code over the engine's `Fit`; called from
-/// `crates/exfa-core/build.rs`). The tables it refers to come from `exfa-sde`.
+/// `crates/exfa-core/build.rs`). The tables it refers to live in `exfa-core::sde`.
 pub fn run_effects() {
     let (_, code) = split(&generate());
     write_out("effects.rs", code);

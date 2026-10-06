@@ -4,8 +4,8 @@
 //! The only modifiers on these attributes are the subsystems' `slotModifier` / `hardPointModifierEffect` (modAdd of
 //! hi/med/lowSlotModifier and turret/launcherHardPointModifier onto the ship), so base + sum is exact. The view
 //! mirrors the engine's build: it is `None` when any fitted type is unknown (the engine refuses such a fit).
-use exfa_model::*;
-use exfa_sde as d;
+use exfa_core::model::*;
+use exfa_core::sde as d;
 
 pub struct StaticFit<'a> {
     req: &'a FitRequest,

@@ -1,5 +1,5 @@
-//! exfa-model — the structured fit input (FitRequest v1, contract: eve-dogma-rs/docs/contract.md) shared by the
-//! engine (`exfa-core`), the fit formats (`exfa-formats`) and tools. Plain serde types; no data, no engine.
+//! The structured fit input (FitRequest v1, contract: eve-dogma-rs/docs/contract.md), shared by the
+//! engine and the fit formats (`exfa-formats`). Plain serde types; no data, no engine (was `exfa-model`).
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

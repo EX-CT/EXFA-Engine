@@ -24,10 +24,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "exfa-capsim"
-version = "0.1.1"
-
-[[package]]
 name = "exfa-cli"
 version = "0.1.1"
 dependencies = [
@@ -49,10 +45,7 @@ dependencies = [
 name = "exfa-core"
 version = "0.1.1"
 dependencies = [
- "exfa-capsim",
  "exfa-codegen",
- "exfa-model",
- "exfa-sde",
  "flate2",
  "itoa",
  "serde",
@@ -65,8 +58,6 @@ name = "exfa-formats"
 version = "0.1.1"
 dependencies = [
  "exfa-core",
- "exfa-model",
- "exfa-sde",
  "serde_json",
 ]
 
@@ -79,28 +70,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "exfa-model"
-version = "0.1.1"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "exfa-optimizer"
 version = "0.1.1"
 dependencies = [
  "exfa-core",
- "exfa-model",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "exfa-sde"
-version = "0.1.1"
-dependencies = [
- "exfa-codegen",
 ]
 
 [[package]]

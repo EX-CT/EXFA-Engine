@@ -1,11 +1,13 @@
 //! exfa-core — EVE Online dogma engine (EXCT Rust mainline, formerly variant F). Engine core + stats + graphs + RPC.
 //!
-//! Input is the structured fit (`exfa-model` FitRequest) only. Fit text formats (EFT, DNA, ESI, XML, …) live in
+//! Input is the structured fit (`model::FitRequest`) only. Fit text formats (EFT, DNA, ESI, XML, …) live in
 //! the separate `exfa-formats` crate; the `exfa` CLI links both.
 //!
-//! The SDE dataset is compiled into this crate by `build.rs`: static tables plus generated Rust code for every
-//! effect's modifiers. `calc(request) -> stats` is pure: no I/O, no clocks, no global state, no data loading.
-pub use exfa_capsim as capsim;
+//! The SDE dataset is compiled into this crate by `build.rs`: the `sde` static tables plus the generated
+//! Rust code for every effect's modifiers. `calc(request) -> stats` is pure: no I/O, no clocks, no global state, no data loading.
+pub mod capsim;
+pub mod model;
+pub mod sde;
 pub mod data;
 pub mod graphs;
 pub mod engine;

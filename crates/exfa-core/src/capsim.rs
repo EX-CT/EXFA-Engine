@@ -1,4 +1,5 @@
-//! Event-driven capacitor simulator. Behaviour-compatible with Pyfa eos/capSim.py; taken from eve-dogma-rs (LGPL-3.0-or-later).
+//! Event-driven capacitor simulator. Behaviour-compatible with Pyfa eos/capSim.py; taken from
+//! eve-dogma-rs (LGPL-3.0-or-later). Was the `exfa-capsim` crate.
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy)]

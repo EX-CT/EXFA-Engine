@@ -1,5 +1,5 @@
-//! exfa-sde — EVE static data compiled in from the EXCT dataset: generated tables + thin accessors.
-//! Nothing is parsed at runtime. No engine code: the compiled effect code lives in `exfa-core`.
+//! Compiled-in EVE static data: generated tables + thin accessors (was the `exfa-sde` crate).
+//! Nothing is parsed at runtime. The generated effect code lives in this crate too.
 #![allow(clippy::all, dead_code, non_upper_case_globals)]
 
 #[derive(Clone, Copy)]

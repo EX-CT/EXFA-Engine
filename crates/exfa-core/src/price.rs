@@ -11,7 +11,7 @@
 use crate::data as d;
 use crate::j::J;
 use crate::request::FitRequest;
-use exfa_model::PriceOverride;
+use crate::model::PriceOverride;
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
@@ -277,7 +277,7 @@ struct Resolved {
 const LAYER_NAMES: [&str; 2] = ["variant", "request"];
 
 impl Ctx {
-    pub fn from_request(req: &FitRequest, variant: &[PriceOverride], batch_wide: &[PriceOverride], batch_prices: Option<&exfa_model::Prices>) -> Result<Ctx, PriceError> {
+    pub fn from_request(req: &FitRequest, variant: &[PriceOverride], batch_wide: &[PriceOverride], batch_prices: Option<&crate::model::Prices>) -> Result<Ctx, PriceError> {
         validate(variant)?;
         validate(&req.price_overrides)?;
         validate(batch_wide)?;
@@ -382,7 +382,7 @@ impl Ctx {
 
 /// Is a price block wanted for this request (docs/23 §6.1)? The embedded snapshot alone does not trigger it.
 /// (use_market, request_table) of a request (+ batch-wide table) without building a full Ctx.
-pub fn request_state(req: &FitRequest, batch_prices: Option<&exfa_model::Prices>) -> (bool, bool) {
+pub fn request_state(req: &FitRequest, batch_prices: Option<&crate::model::Prices>) -> (bool, bool) {
     let mut use_market = true;
     let mut table = false;
     for p in [batch_prices, req.prices.as_ref()].into_iter().flatten() {
