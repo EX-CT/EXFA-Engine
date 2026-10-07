@@ -205,7 +205,7 @@ fn embedded_snapshot_identity_and_jcs() {
     // provenance: embedded snapshot by default, none with use_snapshot false
     let out = calc(&json!({"ship":{"type_id":587},"options":{"price":true}}));
     assert_eq!(out["provenance"]["price_source"], "snapshot");
-    assert_eq!(out["provenance"]["sde_build"], 3569502);
+    assert_eq!(out["provenance"]["sde_build"], exfa_core::data::SDE_BUILD);
     assert_eq!(line(&out["price"], "ship", 0)["source"], "snapshot");
     let out = calc(&json!({"ship":{"type_id":587},"prices":{"isk":{"587":5.0}}}));
     assert_eq!(out["provenance"]["price_source"], "request");
