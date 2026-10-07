@@ -17,6 +17,10 @@ on:
       tag:
         description: 'EXFA-Data SDE release tag, e.g. sde-3569502-r6'
         required: true
+      bench_sha:
+        description: 'EXFA-Bench commit to gate against (default: bench.lock); also written into bench.lock on update'
+        required: false
+        default: ''
 
 concurrency:
   group: sde-update
@@ -60,6 +64,7 @@ jobs:
     secrets: inherit
     with:
       sde_tag: ${{ needs.check.outputs.tag }}
+      bench_sha: ${{ inputs.bench_sha }}
       skip_round1_sha: true
 
   update:
@@ -77,16 +82,18 @@ jobs:
         with:
           python-version: '3.13'
       - name: bench.lock + EXFA-Bench checkout
+        env:
+          BENCH_OVERRIDE: ${{ inputs.bench_sha }}
         run: |
           set -euo pipefail
           grep '^BENCH_' bench.lock
-          echo "BENCH_SHA=$(grep '^BENCH_SHA=' bench.lock | cut -d= -f2)" >> "$GITHUB_ENV"
+          echo "BENCH_SHA=${BENCH_OVERRIDE:-$(grep '^BENCH_SHA=' bench.lock | cut -d= -f2)}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           repository: EX-CT/EXFA-Bench
           path: _bench
           fetch-depth: 0
-      - name: Pin EXFA-Bench to bench.lock
+      - name: Pin EXFA-Bench
         run: git -C _bench checkout -q "$BENCH_SHA"
       - name: New dataset ($NEW_TAG)
         run: |
@@ -95,9 +102,16 @@ jobs:
           echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
       - name: sde.lock + version bump + rebuild
         id: b
+        env:
+          BENCH_OVERRIDE: ${{ inputs.bench_sha }}
         run: |
           set -euo pipefail
           sed -i "s/^SDE_TAG=.*/SDE_TAG=$NEW_TAG/" sde.lock
+          # keep bench.lock consistent with the pin the gate ran against (workflow_dispatch override)
+          if [ -n "${BENCH_OVERRIDE:-}" ]; then
+            sed -i "s/^BENCH_SHA=.*/BENCH_SHA=$BENCH_OVERRIDE/" bench.lock
+            echo "bench.lock -> $BENCH_OVERRIDE"
+          fi
           NEW_VER=$(python3 - <<'EOF'
           import re, pathlib
           p = pathlib.Path("Cargo.toml"); t = p.read_text()
@@ -126,7 +140,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add sde.lock Cargo.toml Cargo.lock ci/round1.sha256 ci/round1-base.sha256
+          git add sde.lock bench.lock Cargo.toml Cargo.lock ci/round1.sha256 ci/round1-base.sha256
           git commit -m "Update SDE to $NEW_TAG"
           git push origin main
           git tag "$TAG_OUT"
