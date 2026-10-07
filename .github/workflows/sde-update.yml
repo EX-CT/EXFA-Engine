@@ -9,14 +9,20 @@ name: sde-update
 # On green: update sde.lock, regenerate the two round-1 shas from the new output, bump the workspace
 # patch version, commit "Update SDE to <tag>", tag v<version> and call release.yml (GITHUB_TOKEN-pushed
 # tags do not fire on:push tag triggers). On gate failure: open an issue, main untouched.
+#
+# The repository_dispatch path needs a PAT (EXFA_DISPATCH_TOKEN) on the EXFA-Data side; the 6-hourly
+# schedule below polls the latest public sde-* release instead, so upgrades happen either way.
 on:
   repository_dispatch:
     types: [sde-release]
+  schedule:
+    - cron: '23 */6 * * *'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'EXFA-Data SDE release tag, e.g. sde-3569502-r6'
-        required: true
+        description: 'EXFA-Data SDE release tag (default: latest sde-* release)'
+        required: false
+        default: ''
       bench_sha:
         description: 'EXFA-Bench commit to gate against (default: bench.lock); also written into bench.lock on update'
         required: false
@@ -38,20 +44,29 @@ jobs:
     outputs:
       proceed: ${{ steps.c.outputs.proceed }}
       tag: ${{ steps.c.outputs.tag }}
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - id: c
         run: |
           set -euo pipefail
           cur=$(cut -d= -f2 sde.lock)
-          echo "sde.lock pins $cur; incoming ${NEW_TAG:-<none>}"
-          if [ -z "$NEW_TAG" ]; then
-            echo "::error::no tag given (repository_dispatch client_payload.tag or workflow_dispatch input 'tag')"
-            exit 1
+          tag="$NEW_TAG"
+          # scheduled run or manual dispatch without a tag: poll the latest sde-* release
+          if [ -z "$tag" ]; then
+            tag=$(gh release list -R EX-CT/EXFA-Data --json tagName --jq '[.[] | select(.tagName | startswith("sde-"))][0].tagName')
+            echo "polled latest EXFA-Data SDE release: ${tag:-<none>}"
           fi
-          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
-          if [ "$NEW_TAG" = "$cur" ]; then
-            echo "sde.lock already at $NEW_TAG — nothing to do"
+          echo "sde.lock pins $cur; incoming ${tag:-<none>}"
+          if [ -z "$tag" ]; then
+            echo "::notice::no sde-* release found — nothing to do"
+            echo "proceed=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "$tag" = "$cur" ]; then
+            echo "sde.lock already at $tag — nothing to do"
             echo "proceed=0" >> "$GITHUB_OUTPUT"
           else
             echo "proceed=1" >> "$GITHUB_OUTPUT"
@@ -74,6 +89,7 @@ jobs:
       tag: ${{ steps.b.outputs.tag }}
     env:
       GH_TOKEN: ${{ github.token }}
+      NEW_TAG: ${{ needs.check.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -162,6 +178,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      NEW_TAG: ${{ needs.check.outputs.tag }}
     steps:
       - name: Open a blocking issue with the gate summary
         run: |
