@@ -98,7 +98,7 @@ jobs:
           ls -l
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
+          name: pkg-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error
 
@@ -138,7 +138,7 @@ jobs:
           ls -l dist
       - uses: actions/upload-artifact@v4
         with:
-          name: wasm
+          name: pkg-wasm
           path: dist/*
           if-no-files-found: error
 
@@ -152,6 +152,8 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
       - uses: actions/download-artifact@v4
         with:
+          # pkg-* only: a caller run (sde-update) also carries the gate's ci-results-* artifacts
+          pattern: 'pkg-*'
           path: dist
           merge-multiple: true
       - name: release.json (engine version / commit / SDE / dataset sha256 / price snapshot id)
