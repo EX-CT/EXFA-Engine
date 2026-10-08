@@ -478,7 +478,7 @@ impl<'a, E: Evaluator> Ctx<'a, E> {
         }
         r.modules = mods;
         if let Some((t, q, act)) = s.drones {
-            r.drones = vec![DroneReq { type_id: t, quantity: q, active: Some(act), mutation: None }];
+            r.drones = vec![DroneReq { type_id: t, id: None, quantity: q, active: Some(act), mutation: None }];
         }
         (r, at)
     }
@@ -492,7 +492,7 @@ impl<'a, E: Evaluator> Ctx<'a, E> {
             return m;
         }
         let state = if pos.slot == Slot::Rig { State::Online } else { pos.base_state.filter(|s| *s != State::Offline).unwrap_or(State::Active) };
-        ModuleReq { type_id: pk.type_id, slot: Some(pos.slot), state: Some(state), charge_type_id: pk.charge, mutation: None, spool: None }
+        ModuleReq { type_id: pk.type_id, id: None, slot: Some(pos.slot), state: Some(state), charge_type_id: pk.charge, mutation: None, spool: None }
     }
 
     fn price_of(&self, r: &FitRequest) -> Result<Option<f64>, OptError> {

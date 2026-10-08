@@ -6,6 +6,7 @@
 //! The SDE dataset is compiled into this crate by `build.rs`: the `sde` static tables plus the generated
 //! Rust code for every effect's modifiers. `calc(request) -> stats` is pure: no I/O, no clocks, no global state, no data loading.
 pub mod capsim;
+pub mod compute;
 pub mod model;
 pub mod sde;
 pub mod data;
@@ -242,6 +243,12 @@ pub fn batch_json(s: &str) -> String {
     batch::run_json(s)
 }
 
+/// Unified compute envelope `exfa/compute@1` (docs/27 §5.3): JSON string in, one
+/// `exfa/compute-result@1` JSON line out; never panics (any failure is the error envelope).
+pub fn compute_json(input: &str) -> String {
+    compute::compute_json(input)
+}
+
 /// JSONL RPC line: {"id","method","params"} -> {"id","result"}
 pub fn rpc(line: &str) -> Value {
     let v: Value = match serde_json::from_str(line) {
@@ -257,6 +264,7 @@ pub fn rpc(line: &str) -> Value {
             Err(e) => json!({"error": {"code": "BAD_REQUEST", "message": e.to_string()}}),
         },
         "batch" | "calc_batch" => batch::run(&p),
+        "compute" => compute::compute(&p),
         "prices_load" => prices_load(&p),
         "version" => prov::version(),
         "sde_override" => prov::sde_override(&p),
