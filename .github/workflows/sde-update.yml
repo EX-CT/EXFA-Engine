@@ -116,6 +116,38 @@ jobs:
           set -euo pipefail
           gh release download "$NEW_TAG" -R EX-CT/EXFA-Data --pattern 'dataset-*.json.gz' -D _data
           echo "EXFA_DATASET=$(ls $PWD/_data/dataset-*.json.gz | head -1)" >> "$GITHUB_ENV"
+      - name: Refresh embedded price snapshot (its sde_build stamp should match this build)
+        # EXFA-Data's sde.yml produces a snapshot on this SDE right after the dataset release, so the newest
+        # prices-* tag normally carries the same sde_build. If it doesn't (snapshot failed / not published
+        # yet) embed it anyway — freshest prices beat a stale file; the engine just warns at runtime.
+        run: |
+          set -euo pipefail
+          B=${NEW_TAG#sde-}; B=${B%%-*}
+          PTAG=$(gh release list -R EX-CT/EXFA-Data --json tagName --jq '[.[] | select(.tagName | startswith("prices-"))][0].tagName')
+          echo "price snapshot release: ${PTAG:-<none>}"
+          [ -z "$PTAG" ] && { echo "::warning::no prices-* release in EXFA-Data — keeping the current embedded snapshot"; exit 0; }
+          gh release download "$PTAG" -R EX-CT/EXFA-Data -D _prices -p 'prices-*.json.gz'
+          python3 - "$(ls _prices/prices-*.json.gz | head -1)" "$B" <<'EOF'
+          import gzip, json, re, sys, pathlib
+          f, want_build = sys.argv[1], int(sys.argv[2])
+          s = json.loads(gzip.decompress(pathlib.Path(f).read_bytes()))
+          sid, mtime, chash, ntypes = s["snapshot_id"], s["market_time"], s["content_hash"], s["type_count"]
+          data = pathlib.Path("crates/exfa-core/data")
+          for old in data.glob("prices-*.json.gz"):
+              old.unlink()
+          dest = data / f"prices-{sid}.json.gz"
+          dest.write_bytes(pathlib.Path(f).read_bytes())
+          p = pathlib.Path("crates/exfa-core/src/price.rs"); t = p.read_text(encoding="utf-8")
+          t = re.sub(r'include_bytes!\("\.\./data/prices-[^"]+"\)', f'include_bytes!("../data/{dest.name}")', t)
+          t = re.sub(r'EMBEDDED_ID: &str = "[^"]+"', f'EMBEDDED_ID: &str = "{sid}"', t)
+          t = re.sub(r'EMBEDDED_TIME: &str = "[^"]+"', f'EMBEDDED_TIME: &str = "{mtime}"', t)
+          t = re.sub(r'EMBEDDED_HASH: &str = "[^"]+"', f'EMBEDDED_HASH: &str = "{chash}"', t)
+          t = re.sub(r'EMBEDDED_TYPES: usize = \d+', f'EMBEDDED_TYPES: usize = {ntypes}', t)
+          p.write_text(t, encoding="utf-8")
+          print(f"embedded snapshot -> {sid} ({ntypes} types, sde_build {s.get('sde_build')}, market_time {mtime})")
+          if s.get("sde_build") != want_build:
+              print(f"::warning::snapshot sde_build {s.get('sde_build')} != dataset build {want_build} — embedded anyway (freshest available)")
+          EOF
       - name: sde.lock + version bump + rebuild
         id: b
         env:
@@ -156,7 +188,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add sde.lock bench.lock Cargo.toml Cargo.lock ci/round1.sha256 ci/round1-base.sha256
+          git add sde.lock bench.lock Cargo.toml Cargo.lock ci/round1.sha256 ci/round1-base.sha256 crates/exfa-core/data crates/exfa-core/src/price.rs crates/exfa-core/tests/batch_prices.rs
           git commit -m "Update SDE to $NEW_TAG"
           git push origin main
           git tag "$TAG_OUT"

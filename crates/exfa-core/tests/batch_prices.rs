@@ -186,7 +186,7 @@ fn embedded_snapshot_identity_and_jcs() {
     assert_eq!(m.time.as_deref(), Some(exfa_core::price::EMBEDDED_TIME));
     assert_eq!(m.hash.as_deref(), Some(exfa_core::price::EMBEDDED_HASH));
     // every entry passes the d22/README rule invariants (half-even cents, clamp, 12-digit band_max, p0 > 0)
-    assert_eq!(m.isk.len(), 9178);
+    assert_eq!(m.isk.len(), exfa_core::price::EMBEDDED_TYPES);
     use exfa_core::price::entry_violation as ev;
     assert!(ev(4.2, 4.0, 4.2, Some(0.05), true).is_none());
     assert!(ev(4.21, 4.0, 4.2, Some(0.05), true).is_some()); // above band_max: not clamped
