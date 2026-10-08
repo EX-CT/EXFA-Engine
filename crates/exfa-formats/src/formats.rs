@@ -630,7 +630,7 @@ fn new_req(ship: u32) -> FitRequest {
 }
 
 fn module_req(t: u32, mutation: Option<Mutation>) -> ModuleReq {
-    ModuleReq { type_id: t, slot: ix(t).and_then(infer_slot), state: Some(import_state(t)), charge_type_id: None, mutation, spool: None }
+    ModuleReq { type_id: t, id: None, slot: ix(t).and_then(infer_slot), state: Some(import_state(t)), charge_type_id: None, mutation, spool: None }
 }
 
 /// An imported fit: the request plus Pyfa's fit name / notes.
@@ -696,10 +696,10 @@ pub fn dna_import(text: &str, fit_name: Option<&str>, alt: bool) -> Result<Impor
         let muta_out = d::is_muta_output(id);
         match category(id) {
             CAT_DRONE if muta_out => return Err("Passed item is not a Drone".into()),
-            CAT_DRONE => req.drones.push(DroneReq { type_id: id, quantity: amount, active: Some(0), mutation: None }),
+            CAT_DRONE => req.drones.push(DroneReq { type_id: id, id: None, quantity: amount, active: Some(0), mutation: None }),
             CAT_FIGHTER => {
                 if fighter_fits(req.ship.type_id, id) {
-                    req.fighters.push(FighterReq { type_id: id, quantity: Some(amount), active: true, abilities: None })
+                    req.fighters.push(FighterReq { type_id: id, id: None, quantity: Some(amount), active: true, abilities: None })
                 }
             }
             CAT_CHARGE => req.cargo.push(CargoReq { type_id: id, quantity: amount }),
@@ -751,7 +751,7 @@ pub fn esi_import(text: &str) -> Result<Imported, String> {
         match flag as u64 {
             FLAG_DRONE => {
                 if category(t) == CAT_DRONE {
-                    req.drones.push(DroneReq { type_id: t, quantity: q, active: Some(0), mutation: None })
+                    req.drones.push(DroneReq { type_id: t, id: None, quantity: q, active: Some(0), mutation: None })
                 }
             }
             FLAG_CARGO => req.cargo.push(CargoReq { type_id: t, quantity: q }),
@@ -759,7 +759,7 @@ pub fn esi_import(text: &str) -> Result<Imported, String> {
                 if category(t) == CAT_FIGHTER {
                     // ESI quantity is ignored: a full squadron
                     let q = base_attr(t, d::a::fighterSquadronMaxSize).map(|v| v as u32);
-                    req.fighters.push(FighterReq { type_id: t, quantity: q, active: true, abilities: None })
+                    req.fighters.push(FighterReq { type_id: t, id: None, quantity: q, active: true, abilities: None })
                 }
             }
             _ => {
@@ -992,9 +992,9 @@ pub fn xml_import(text: &str) -> Result<Vec<Imported>, String> {
             match category(t) {
                 CAT_DRONE => {
                     let tt = fitted_type(t, &mutation);
-                    req.drones.push(DroneReq { type_id: tt, quantity: qty, active: Some(0), mutation })
+                    req.drones.push(DroneReq { type_id: tt, id: None, quantity: qty, active: Some(0), mutation })
                 }
-                CAT_FIGHTER => req.fighters.push(FighterReq { type_id: t, quantity: Some(qty), active: true, abilities: None }),
+                CAT_FIGHTER => req.fighters.push(FighterReq { type_id: t, id: None, quantity: Some(qty), active: true, abilities: None }),
                 _ if attr(&ha, "slot").to_lowercase() == "cargo" => req.cargo.push(CargoReq { type_id: t, quantity: qty }),
                 _ => {
                     if !is_module_cat(t) || ix(t).and_then(infer_slot).is_none() {
@@ -1197,11 +1197,11 @@ pub fn eft_import(text: &str) -> Result<Imported, String> {
         let mutation = mutation_for(t, r);
         if mutation.is_some() {
             let tt = fitted_type(t, &mutation);
-            req.drones.push(DroneReq { type_id: tt, quantity: n, active: Some(0), mutation });
+            req.drones.push(DroneReq { type_id: tt, id: None, quantity: n, active: Some(0), mutation });
         } else {
             match req.drones.iter_mut().find(|x| x.type_id == t && x.mutation.is_none()) {
                 Some(x) => x.quantity += n,
-                None => req.drones.push(DroneReq { type_id: t, quantity: n, active: Some(0), mutation: None }),
+                None => req.drones.push(DroneReq { type_id: t, id: None, quantity: n, active: Some(0), mutation: None }),
             }
         }
     };
@@ -1245,7 +1245,7 @@ pub fn eft_import(text: &str) -> Result<Imported, String> {
         } else if all(&|x| spec_multi_cat(x, CAT_FIGHTER)) {
             for x in s.iter().flatten() {
                 if let Spec::Multi(t, n, _) = x {
-                    req.fighters.push(FighterReq { type_id: *t, quantity: Some(*n), active: true, abilities: None });
+                    req.fighters.push(FighterReq { type_id: *t, id: None, quantity: Some(*n), active: true, abilities: None });
                 }
             }
         } else if all(&|x| matches!(x, Some(Spec::Multi(..)))) {
@@ -1273,7 +1273,7 @@ pub fn eft_import(text: &str) -> Result<Imported, String> {
                         if c == CAT_DRONE && !has_drone_bay {
                             add_drone(*t, *n, *r, &mut req);
                         } else if c == CAT_FIGHTER && !has_fighter_bay {
-                            req.fighters.push(FighterReq { type_id: *t, quantity: Some(*n), active: true, abilities: None });
+                            req.fighters.push(FighterReq { type_id: *t, id: None, quantity: Some(*n), active: true, abilities: None });
                         } else {
                             add_cargo(*t, *n, &mut cargo);
                         }
@@ -1371,8 +1371,8 @@ pub fn eftcfg_import(text: &str, ship_name: &str) -> Result<Vec<Imported>, Strin
                     let (n, amount) = num(v);
                     let Some(t) = type_by_name(&n) else { continue };
                     match category(t) {
-                        CAT_DRONE => req.drones.push(DroneReq { type_id: t, quantity: amount, active: Some(if k == "Drones_Active" { amount } else { 0 }), mutation: None }),
-                        CAT_FIGHTER => req.fighters.push(FighterReq { type_id: t, quantity: Some(amount), active: true, abilities: None }),
+                        CAT_DRONE => req.drones.push(DroneReq { type_id: t, id: None, quantity: amount, active: Some(if k == "Drones_Active" { amount } else { 0 }), mutation: None }),
+                        CAT_FIGHTER => req.fighters.push(FighterReq { type_id: t, id: None, quantity: Some(amount), active: true, abilities: None }),
                         _ => {}
                     }
                 }

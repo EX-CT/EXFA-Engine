@@ -53,6 +53,9 @@ pub struct Mutation {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModuleReq {
     pub type_id: u32,
+    /// Stable caller-chosen id (exfa/compute@1 FitSpec): `projected[kind=fit].select.module_ids` refers to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(default)]
     pub slot: Option<Slot>,
     #[serde(default)]
@@ -68,6 +71,9 @@ pub struct ModuleReq {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DroneReq {
     pub type_id: u32,
+    /// Stable caller-chosen id (FitSpec): `projected[kind=fit].select.drone_ids` refers to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(default = "one")]
     pub quantity: u32,
     #[serde(default)]
@@ -82,6 +88,9 @@ fn one() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FighterReq {
     pub type_id: u32,
+    /// Stable caller-chosen id (FitSpec): `projected[kind=fit].select.fighter_ids` refers to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(default)]
     pub quantity: Option<u32>,
     #[serde(default = "yes")]
@@ -144,6 +153,18 @@ pub struct Fleet {
     pub booster_fits: Vec<FitRequest>,
 }
 
+/// Whitelist of source items a `projected[kind=fit]` entry projects (FitSpec): present = explicit selection,
+/// so a kind whose id list is absent contributes nothing. The source fit is still computed in full.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Select {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drone_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fighter_ids: Option<Vec<String>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Projected {
     pub kind: String,
@@ -159,6 +180,8 @@ pub struct Projected {
     pub amount: u32,
     #[serde(default)]
     pub distance_m: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub select: Option<Select>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

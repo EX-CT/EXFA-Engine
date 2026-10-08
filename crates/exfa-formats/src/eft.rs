@@ -125,8 +125,8 @@ pub fn parse(text: &str) -> Result<FitRequest, String> {
                 }
                 let ix = type_ix(tid).ok_or(format!("unknown item '{name}'"))?;
                 match d::ty(ix).category {
-                    CAT_DRONE => req.drones.push(DroneReq { type_id: tid, quantity: n, active: Some(n), mutation: mutation.clone() }),
-                    CAT_FIGHTER => req.fighters.push(FighterReq { type_id: tid, quantity: Some(n), active: true, abilities: None }),
+                    CAT_DRONE => req.drones.push(DroneReq { type_id: tid, id: None, quantity: n, active: Some(n), mutation: mutation.clone() }),
+                    CAT_FIGHTER => req.fighters.push(FighterReq { type_id: tid, id: None, quantity: Some(n), active: true, abilities: None }),
                     _ => req.cargo.push(CargoReq { type_id: tid, quantity: n }),
                 }
                 continue;
@@ -149,7 +149,7 @@ pub fn parse(text: &str) -> Result<FitRequest, String> {
                     req.implants.push(tid)
                 }
             }
-            CAT_DRONE => req.drones.push(DroneReq { type_id: tid, quantity: 1, active: Some(1), mutation: mutation.clone() }),
+            CAT_DRONE => req.drones.push(DroneReq { type_id: tid, id: None, quantity: 1, active: Some(1), mutation: mutation.clone() }),
             CAT_CHARGE => req.cargo.push(CargoReq { type_id: tid, quantity: 1 }),
             _ => {
                 if t.group == GROUP_T3D_MODE {
@@ -171,7 +171,7 @@ pub fn parse(text: &str) -> Result<FitRequest, String> {
                 } else {
                     crate::formats::import_state(tid)
                 };
-                req.modules.push(ModuleReq { type_id: tid, slot, state: Some(state), charge_type_id, mutation: mutation.clone(), spool: None });
+                req.modules.push(ModuleReq { type_id: tid, id: None, slot, state: Some(state), charge_type_id, mutation: mutation.clone(), spool: None });
             }
         }
     }

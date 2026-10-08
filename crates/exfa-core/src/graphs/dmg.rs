@@ -724,7 +724,7 @@ fn tgt_fit_attrs(ctx: &Ctx, t: &TargetFit, dist: Option<f64>, scrammed: bool) ->
             }
         }
     }
-    req.projected.push(crate::request::Projected { kind: "fit".into(), module: None, drone: None, fit: Some(Box::new(ctx.fit_req.clone())), fighter: None, amount: 1, distance_m: dist });
+    req.projected.push(crate::request::Projected { kind: "fit".into(), module: None, drone: None, fit: Some(Box::new(ctx.fit_req.clone())), fighter: None, amount: 1, distance_m: dist, select: None });
     match Fit::build(&req) {
         Ok(f) => (attr(&f, f.ship, "maxVelocity"), attr(&f, f.ship, "signatureRadius")),
         Err(_) => (attr(&t.fit, t.fit.ship, "maxVelocity"), attr(&t.fit, t.fit.ship, "signatureRadius")),

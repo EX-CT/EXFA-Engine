@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use crate::data::{self as d, a, e};
 use crate::j::J;
-use crate::request::{FitRequest, ModuleReq, Slot, Spool, State};
+use crate::request::{FitRequest, ModuleReq, Select, Slot, Spool, State};
 use std::cell::Cell;
 
 /// Source categories exempt from stacking penalties: Ship, Charge, Skill, Implant, Subsystem, Structure.
@@ -120,6 +120,8 @@ pub struct Item {
     pub distance: Option<f64>,
     /// mutated (rolled) attributes: request overrides do not replace them (Pyfa reads mutators after overrides)
     pub rolled: Vec<u16>,
+    /// stable caller-chosen id (FitSpec `id` on modules/drones/fighters; projected-fit `select` refers to it)
+    pub id: Option<String>,
 }
 
 impl Item {
@@ -153,8 +155,8 @@ pub struct Fit {
     restrict: bool,
     /// published skills handled by compiled, level-folded code: (index into PUBLISHED_SKILLS, level)
     folded: Vec<(u16, u8)>,
-    /// projected fits: (fit, amount, distance)
-    ext: Vec<(Fit, u32, Option<f64>)>,
+    /// projected fits: (fit, amount, distance, item select whitelist)
+    ext: Vec<(Fit, u32, Option<f64>, Option<Select>)>,
     /// incoming remote repairs (Pyfa RR lists): kind 0 shield / 1 armor / 2 hull, amount per cycle, cycle s
     pub rr: Vec<(u8, f64, f64)>,
     /// incoming cap drains/fills (neuts, nos, transfers) for the cap simulation
@@ -273,6 +275,7 @@ impl Fit {
             spool: None,
             distance: None,
             rolled: Vec::new(),
+            id: None,
         });
         Ok(self.items.len() - 1)
     }
@@ -862,6 +865,7 @@ impl Fit {
         it.slot = slot;
         it.req_index = Some(i);
         it.spool = m.spool;
+        it.id = m.id.clone();
         it.state = m.state.unwrap_or(State::Online);
         if matches!(slot, Some(Slot::Rig) | Some(Slot::Subsystem)) && it.state != State::Offline {
             if it.state != State::Online {
@@ -1009,6 +1013,7 @@ impl Fit {
             it.active_count = dr.active.unwrap_or(0).min(it.quantity);
             it.state = if it.active_count > 0 { State::Active } else { State::Offline };
             it.req_index = Some(i);
+            it.id = dr.id.clone();
         }
         for (i, f) in req.fighters.iter().enumerate() {
             let idx = fit.new_item(f.type_id, Kind::Fighter, Loc::Space, &format!("/fighters/{i}"))?;
@@ -1030,6 +1035,7 @@ impl Fit {
             it.state = if f.active { State::Active } else { State::Offline };
             it.fighter_abilities = f.abilities.clone().unwrap_or_else(|| d::fighter_default_abilities(f.type_id).to_vec());
             it.req_index = Some(i);
+            it.id = f.id.clone();
         }
         // Pyfa HandledImplantList / HandledBoosterList.append: an entry whose implantness / boosterness slot is
         // already taken by an earlier entry is ignored completely (mutated-suite contract §3.1).
@@ -1087,6 +1093,9 @@ impl Fit {
             fit.items[idx].owned = false;
         }
         for (i, p) in req.projected.iter().enumerate() {
+            if p.kind != "fit" && p.select.is_some() {
+                fit.warnings.push(format!("projected select is only supported for kind 'fit' (index {i})"));
+            }
             match p.kind.as_str() {
                 "module" => {
                     if let Some(m) = &p.module {
@@ -1152,7 +1161,7 @@ impl Fit {
                         // sub-fit's own entries come after, so they win for the same (type, attribute)
                         sub.overrides = req.overrides.iter().chain(sub.overrides.iter()).cloned().collect();
                         match Fit::build(&sub) {
-                            Ok(sf) => fit.ext.push((sf, p.amount.max(1), p.distance_m)),
+                            Ok(sf) => fit.ext.push((sf, p.amount.max(1), p.distance_m, p.select.clone())),
                             Err(e) => {
                                 return Err(EngineError { code: e.code, message: e.message, path: format!("/projected/{i}/fit{}", e.path) });
                             }
@@ -1499,15 +1508,44 @@ impl Fit {
                 collect_projection(self, i, dist, 1, &mut acts);
             }
         }
-        for (sf, amount, dist) in &self.ext {
+        for (sf, amount, dist, select) in &self.ext {
+            // `select` = explicit whitelist of source items by their FitSpec id: a kind whose list is absent
+            // contributes nothing, a present list contributes only its active items whose id is in it. The
+            // source fit itself was built completely, so unselected items still shape the source's attributes.
+            let mut unmatched: Vec<(&'static str, &str)> = Vec::new();
+            if let Some(sel) = select {
+                unmatched.extend(sel.module_ids.iter().flatten().map(|id| ("module", id.as_str())));
+                unmatched.extend(sel.drone_ids.iter().flatten().map(|id| ("drone", id.as_str())));
+                unmatched.extend(sel.fighter_ids.iter().flatten().map(|id| ("fighter", id.as_str())));
+            }
             for i in 0..sf.items.len() {
                 let it = &sf.items[i];
+                let (kind, projectable, list) = match it.kind {
+                    Kind::Module => ("module", it.state >= State::Active, select.as_ref().and_then(|s| s.module_ids.as_ref())),
+                    Kind::Drone => ("drone", it.active_count > 0, select.as_ref().and_then(|s| s.drone_ids.as_ref())),
+                    Kind::Fighter => ("fighter", it.active_count > 0, select.as_ref().and_then(|s| s.fighter_ids.as_ref())),
+                    _ => continue,
+                };
+                if let Some(id) = it.id.as_deref() {
+                    unmatched.retain(|&(k, u)| !(k == kind && u == id));
+                }
+                let chosen = projectable
+                    && match select {
+                        None => true,
+                        Some(_) => list.map_or(false, |l| it.id.as_ref().map_or(false, |id| l.contains(id))),
+                    };
                 match it.kind {
-                    Kind::Module if it.state >= State::Active => collect_projection(sf, i, *dist, *amount, &mut acts),
+                    Kind::Module if chosen => collect_projection(sf, i, *dist, *amount, &mut acts),
                     // Pyfa projects a fit's drones at range 0
-                    Kind::Drone if it.active_count > 0 => collect_projection(sf, i, Some(0.0), *amount * it.active_count, &mut acts),
-                    Kind::Fighter if it.active_count > 0 => collect_projection(sf, i, *dist, *amount, &mut acts),
+                    Kind::Drone if chosen => collect_projection(sf, i, Some(0.0), *amount * it.active_count, &mut acts),
+                    Kind::Fighter if chosen => collect_projection(sf, i, *dist, *amount, &mut acts),
                     _ => {}
+                }
+            }
+            for (kind, id) in unmatched {
+                let w = format!("projected fit select: no {kind} item with id '{id}'");
+                if !self.warnings.contains(&w) {
+                    self.warnings.push(w);
                 }
             }
         }

@@ -9,10 +9,11 @@ const USAGE: &str = "exfa <command> [args]   (dataset compiled in; --dataset PAT
 
 Commands:
   calc [FILE]            FitRequest JSON (file or stdin) -> FitStats JSON
+  compute [FILE]         exfa/compute@1 envelope (file or stdin) -> one exfa/compute-result@1 JSON line
   batch                  JSONL FitRequests on stdin -> JSONL FitStats on stdout (a BatchRequest line -> one BatchResponse line)
   batch --request FILE|- BatchRequest JSON (docs/23: fits / variants / product / sweep) -> BatchResponse JSON
   optimize [FILE]        OptimizeRequest JSON (docs/21) -> ranked fits
-  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|batch|prices_load|version|sde_override|optimize|graph|search|type|meta|eft_parse|eft_export|format_import|format_export|fits.backup|item.variations|item.compare|market.group|market.search|implant_sets.list|character.import_evemon|names.resolve|pyfa_data_load|pyfa_data_status\",\"params\":..}
+  serve-stdio            JSONL RPC: {\"id\":..,\"method\":\"calc|batch|compute|prices_load|version|sde_override|optimize|graph|search|type|meta|eft_parse|eft_export|format_import|format_export|fits.backup|item.variations|item.compare|market.group|market.search|implant_sets.list|character.import_evemon|names.resolve|pyfa_data_load|pyfa_data_status\",\"params\":..}
   eft [FILE]             EFT text (file or stdin) -> FitRequest JSON (add --calc to compute, --skills N)
   search QUERY [--limit N] [--kinds ship,module,..]  search types by name (exact > prefix > substring)
   type ID|NAME           show type with base attributes
@@ -116,6 +117,15 @@ fn main() {
             writeln!(out, "{res}").or_pipe();
             out.flush().or_pipe();
             if res.starts_with("{\"error\"") {
+                std::process::exit(2);
+            }
+        }
+        "compute" => {
+            let s = read_input(args.get(1));
+            let res = exfa_core::compute_json(&s);
+            writeln!(out, "{res}").or_pipe();
+            out.flush().or_pipe();
+            if serde_json::from_str::<serde_json::Value>(&res).ok().and_then(|v| v.get("error").cloned()).is_some() {
                 std::process::exit(2);
             }
         }
