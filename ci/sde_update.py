@@ -180,13 +180,8 @@ def main():
     sha = hashlib.sha256(res.stdout).hexdigest()
     keys = [l for l in (ROOT / "ci/round1-new-keys.txt").read_text(encoding="utf-8").splitlines() if l and not l.startswith("#")]
     strip = run([sys.executable, "ci/strip_keys.py", *keys], capture=True, input=res.stdout)
-    # strip_keys.py writes text-mode stdout: on Windows that turns 
- into 
-; CI (Linux) hashes plain 
-
-    base = hashlib.sha256(strip.stdout.replace(b"
-", b"
-")).hexdigest()
+    # strip_keys.py writes text-mode stdout: on Windows that turns \n into \r\n; CI (Linux) hashes plain \n
+    base = hashlib.sha256(strip.stdout.replace(b"\r\n", b"\n")).hexdigest()
     (ROOT / "ci/round1.sha256").write_bytes((sha + "\n").encode())
     (ROOT / "ci/round1-base.sha256").write_bytes((base + "\n").encode())
     print(f"round1.sha256 = {sha}\nround1-base.sha256 = {base}")
