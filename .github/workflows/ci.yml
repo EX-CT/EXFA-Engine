@@ -1,6 +1,6 @@
 name: ci
 
-# Gate for EXFA-Engine. Also a reusable workflow: sde-update.yml calls this file via `workflow_call`
+# Gate for EXFA-Engine. Also a reusable workflow (`workflow_call`; SDE updates are prepared locally with ci/sde_update.py)
 # with `sde_tag` (override the tag pinned in sde.lock) and `skip_round1_sha` (new data legitimately
 # changes the round-1 byte checks).
 on:
@@ -167,7 +167,13 @@ jobs:
       - name: Build wasip1
         run: cargo build --release --locked --target wasm32-wasip1 -p exfa-cli
       - name: Install wasmtime
-        run: curl -fsSL https://wasmtime.dev/install.sh | bash -s -- --version v33.0.0
+        run: |
+          # wasmtime.dev / GitHub release downloads 504 now and then: retry instead of failing the whole job.
+          for i in 1 2 3 4 5; do
+            curl -fsSL https://wasmtime.dev/install.sh | bash -s -- --version v33.0.0 && break
+            echo "wasmtime install attempt $i failed; retrying"; sleep $((i*15))
+          done
+          test -x "$HOME/.wasmtime/bin/wasmtime"
       - name: Suites
         run: |
           export PATH="$HOME/.wasmtime/bin:$PATH"

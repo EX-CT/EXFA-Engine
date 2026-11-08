@@ -80,8 +80,10 @@ sha256 checks (`ci/round1.sha256` + `ci/round1-base.sha256` after stripping `ci/
 run first: `exfa-formats` (`crates/exfa-formats/tests/roundtrip.rs`: per format import→export and export→import
 round trips and error paths), `exfa-optimizer` property tests, then the whole workspace. Locally:
 `BENCH=/path/to/EXFA-Bench ci/run_suites.sh native ./target/release/exfa`. The dataset tag is pinned in `sde.lock`
-and downloaded from `EX-CT/EXFA-Data`; `sde-update.yml` consumes EXFA-Data `sde-release` dispatches, re-gates and
-releases automatically.
+and downloaded from `EX-CT/EXFA-Data`; new SDE builds are adopted **locally and by hand**: `python ci/sde_update.py` downloads the
+latest `sde-*` release, runs the gate (build, `cargo test`, `ci/run_suites.sh` against the pinned Bench), embeds the newest
+price snapshot, bumps `sde.lock`/version/round-1 shas and commits on `sde/<tag>`; push it as a PR (CI re-gates native +
+wasm), merge, then tag `v<version>` to release. There is no scheduled auto-update.
 
 ### Bench
 

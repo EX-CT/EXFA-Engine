@@ -4,3 +4,4 @@ target/
 ci-results/
 _suites/
 _data/
+_bench/
