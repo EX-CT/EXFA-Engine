@@ -33,12 +33,12 @@ pub struct Market {
 static MARKET: RwLock<Option<Arc<Market>>> = RwLock::new(None);
 
 /// Embedded release snapshot (docs/22 §3.1): eve-market-prices `prices-jita44-20261003T070857Z`.
-pub const EMBEDDED_SNAPSHOT: &[u8] = include_bytes!("../data/prices-jita44-20261008T063509Z.json.gz");
+pub const EMBEDDED_SNAPSHOT: &[u8] = include_bytes!("../data/prices-jita44-20261108T101226Z.json.gz");
 /// Identity of the embedded snapshot, for provenance without parsing it (checked by a test against the bytes).
-pub const EMBEDDED_ID: &str = "jita44-20261008T063509Z";
-pub const EMBEDDED_TIME: &str = "2026-10-08T06:35:09Z";
-pub const EMBEDDED_HASH: &str = "sha256:4476764c07843738b8937cf5a41fc8df36f0c3daf6f22a4e1fbd13817e990a7e";
-pub const EMBEDDED_TYPES: usize = 9076;
+pub const EMBEDDED_ID: &str = "jita44-20261108T101226Z";
+pub const EMBEDDED_TIME: &str = "2026-11-08T10:12:26Z";
+pub const EMBEDDED_HASH: &str = "sha256:175e40a4c1621076796b1e2f0a12fdaaa1cdcf730841df584adea7cbc8f64b23";
+pub const EMBEDDED_TYPES: usize = 9058;
 static EMBEDDED: std::sync::OnceLock<Option<Arc<Market>>> = std::sync::OnceLock::new();
 
 pub fn embedded() -> Option<Arc<Market>> {
