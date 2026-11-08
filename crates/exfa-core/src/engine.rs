@@ -120,7 +120,7 @@ pub struct Item {
     pub distance: Option<f64>,
     /// mutated (rolled) attributes: request overrides do not replace them (Pyfa reads mutators after overrides)
     pub rolled: Vec<u16>,
-    /// stable caller-chosen id (FitSpec `id` on modules/drones/fighters; projected-fit `select` refers to it)
+    /// stable caller-chosen id (`id` on modules/drones/fighters; projected-fit `select` refers to it)
     pub id: Option<String>,
 }
 
@@ -1509,7 +1509,7 @@ impl Fit {
             }
         }
         for (sf, amount, dist, select) in &self.ext {
-            // `select` = explicit whitelist of source items by their FitSpec id: a kind whose list is absent
+            // `select` = explicit whitelist of source items by their `id`: a kind whose list is absent
             // contributes nothing, a present list contributes only its active items whose id is in it. The
             // source fit itself was built completely, so unselected items still shape the source's attributes.
             let mut unmatched: Vec<(&'static str, &str)> = Vec::new();
