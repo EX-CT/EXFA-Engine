@@ -1,6 +1,6 @@
 name: ci
 
-# Gate for EXFA-Engine. Also a reusable workflow: sde-update.yml calls this file via `workflow_call`
+# Gate for EXFA-Engine. Also a reusable workflow (`workflow_call`; SDE updates are prepared locally with ci/sde_update.py)
 # with `sde_tag` (override the tag pinned in sde.lock) and `skip_round1_sha` (new data legitimately
 # changes the round-1 byte checks).
 on:
