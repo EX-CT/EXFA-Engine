@@ -111,7 +111,8 @@ def main():
 
     env = dict(os.environ, EXFA_DATASET=posix(dataset), EXFA_DATASET_R5=posix(dataset), EXFA_PYFA_DATA=posix(pyfa),
                BENCH=posix(bench), PYTHONUTF8="1")
-    exe = "target/release/exfa" + (".exe" if os.name == "nt" else "")
+    # absolute: Windows CreateProcess does not resolve a relative path with forward slashes
+    exe = posix(ROOT / "target/release/exfa") + (".exe" if os.name == "nt" else "")
 
     # --- gate ----------------------------------------------------------------------------------
     run(["cargo", "build", "--release", "--locked", "-p", "exfa-cli"], env=env)
