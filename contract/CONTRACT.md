@@ -349,50 +349,13 @@ incl. Pyfa's mass / capacity / volume / radius attributes), `effects` [{id, name
 (Pyfa Traits tab HTML), `required_skills` {skill id: level} (cases `type_*`; MKT-003, ENG-SHIP-006, CHR-008; a
 case's `_fields` param lists the fields it scores).
 
-## `compute` (unified entry, `exfa/compute@1`)
-
-One input object produces one output object; the engine stays workspace/group-agnostic and only sees fully
-resolved fits (no host-side `fit_id` / `character_id` references). Available as the `compute` RPC method
-(`params` = the request envelope), the `exfa compute [FILE]` CLI (file or stdin → one JSON line on stdout,
-exit 2 on an error envelope), and `exfa_core::compute_json` / `exfa_core::compute::compute` (WASM gets the RPC
-method for free).
-
-```jsonc
-// request
-{"format": "exfa/compute@1", "operation": "calc",  "fit":   { /* FitSpec */ }}
-{"format": "exfa/compute@1", "operation": "batch", "batch": { /* BatchSpec */ }}
-// response
-{"format": "exfa/compute-result@1", "operation": "calc",  "result": { /* FitStats */ }}
-{"format": "exfa/compute-result@1", "operation": "batch", "result": { /* BatchResponse */ }}
-{"format": "exfa/compute-result@1", "operation": "calc",  "error": {"code": "...", "message": "...", "path": "..."}}
-```
-
-- A missing or non-`"exfa/compute@1"` `format` → `UNSUPPORTED_FORMAT`; a missing or non-`"calc"`/`"batch"`
-  `operation` → `BAD_REQUEST`; inner calc/batch failures keep their `code`/`message`/`path` inside the error
-  envelope. A top-level JSON parse failure still answers with the error envelope (`BAD_JSON`; `operation`
-  echoed when recoverable from the raw text, else `"calc"`). `compute_json` never panics.
-- `batch` is exactly the docs/23 BatchRequest (`batch_version`, exactly one of `fits`/`variants`/`product`/
-  `sweep`, `fields`, `deltas`, `delta_ref`, `filter`, `sort_by`, `top_n`, `max_combinations`, price layers);
-  expansion, per-item errors and the `fits[]` item `id`/`label` echo behave as before.
-
-**FitSpec = FitRequest + stable ids + shorthand normalization.**
+## Item ids and `select`
 
 - `modules[]`, `drones[]` and `fighters[]` entries take an optional string `id` (a stable caller-chosen id;
   ignored everywhere except `select`, below).
-- Shorthand defaults (applied by the `compute` entry point only — `calc`/`batch`/`graph` keep the existing
-  FitRequest defaults; explicit values always win, so `default_level: 0` stays 0):
-  - `character.skills.default_level` omitted → `5` (an omitted `character` is the same);
-  - `modules[].state` omitted → `"active"` when the type can be activated (has an active or target effect and
-    `activationBlocked` ≤ 0 — the `type` RPC `allowed_states` rule), else `"online"`; an unknown type is left
-    alone so the usual error reports it;
-  - `drones[].active` omitted → `quantity` (every drone active); `fighters[].active` already defaults true;
-  - everything else uses the existing FitRequest defaults at build time.
-- Normalization recurses into every nested FitRequest (`projected[kind=fit].fit`, `fleet.booster_fits[]`,
-  `scenarios[].target.fit`). Under `operation=calc` each defaulted category is reported once as an
-  `adjustments[]` entry `{"code": "DEFAULTED", "path": "/character/skills/default_level" | "/modules/*/state" |
-  "/drones/*/active", "from": null, "to": <value | list of applied values>, "message": "compute shorthand
-  default applied"}` (top-level fit only). Under `operation=batch` the `base` and each `fits[].fit` are
-  normalized silently *before* expansion, so patches act on a fully normalized base.
+- The engine applies no input shorthand: an omitted `character.skills.default_level` is 0, an omitted module
+  `state` is `online`. Defaults, groups and other host-side conveniences are the caller's (EXFA Format)
+  concern; the engine only ever sees fully resolved fits.
 
 **`select` on `projected[kind=fit]`** chooses which of the source fit's items project onto this fit:
 
@@ -470,3 +433,5 @@ method for free).
   FIGHTER_TUBES for resource-bar overloads (Pyfa shows these as red bars, not fit problems).
 - v1.5.0: add top-level `adjustments[]` for silent request normalization and optional `scenarios[]` /
   `scenario_results[]` for fixed-target effective damage; scenario failures are isolated per result.
+- 2026-11-08: the `exfa/compute@1` envelope, the `compute` RPC method and the `exfa compute` CLI command are
+  removed (they only added shorthand defaults, now the caller's job). `select` and item `id`s are unchanged.

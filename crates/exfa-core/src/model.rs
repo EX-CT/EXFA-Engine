@@ -53,7 +53,7 @@ pub struct Mutation {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModuleReq {
     pub type_id: u32,
-    /// Stable caller-chosen id (exfa/compute@1 FitSpec): `projected[kind=fit].select.module_ids` refers to it.
+    /// Stable caller-chosen id: `projected[kind=fit].select.module_ids` refers to it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(default)]
@@ -71,7 +71,7 @@ pub struct ModuleReq {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DroneReq {
     pub type_id: u32,
-    /// Stable caller-chosen id (FitSpec): `projected[kind=fit].select.drone_ids` refers to it.
+    /// Stable caller-chosen id: `projected[kind=fit].select.drone_ids` refers to it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(default = "one")]
@@ -88,7 +88,7 @@ fn one() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FighterReq {
     pub type_id: u32,
-    /// Stable caller-chosen id (FitSpec): `projected[kind=fit].select.fighter_ids` refers to it.
+    /// Stable caller-chosen id: `projected[kind=fit].select.fighter_ids` refers to it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(default)]
@@ -153,7 +153,7 @@ pub struct Fleet {
     pub booster_fits: Vec<FitRequest>,
 }
 
-/// Whitelist of source items a `projected[kind=fit]` entry projects (FitSpec): present = explicit selection,
+/// Whitelist of source items a `projected[kind=fit]` entry projects: present = explicit selection,
 /// so a kind whose id list is absent contributes nothing. The source fit is still computed in full.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Select {
