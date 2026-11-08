@@ -34,6 +34,7 @@ concurrency:
 permissions:
   contents: write
   issues: write
+  actions: read      # blocked job: read the gate jobs' logs to put the actual regressions in the issue
 
 env:
   NEW_TAG: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.tag || inputs.tag }}
@@ -212,29 +213,36 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       NEW_TAG: ${{ needs.check.outputs.tag }}
     steps:
-      - name: Open a blocking issue with the gate summary
+      - name: Open (or update) the blocking issue with the gate summary
         run: |
           set -uo pipefail
           run_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          # find the reusable ci.yml run spawned by this workflow_call and pull its step summaries
+          title="SDE $NEW_TAG blocked by the gate"
+          # The gate is a reusable workflow, so its jobs ("gate / suites", ...) belong to THIS run: pull the
+          # regression lines out of each failed job's log instead of an (always empty) check-run summary.
           summary=""
-          cid=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --event workflow_call --limit 5 \
-                  --json databaseId,createdAt --jq 'sort_by(.createdAt) | last | .databaseId' 2>/dev/null || true)
-          if [ -n "$cid" ]; then
-            for cr in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$cid/jobs" --jq '.jobs[].check_run_url | split("/")[-1]' 2>/dev/null); do
-              t=$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$cr" --jq '.output.text // empty' 2>/dev/null || true)
-              [ -n "$t" ] && summary="$summary
-          $t"
-            done
-          fi
+          while IFS=$'	' read -r jid jname; do
+            [ -z "$jid" ] && continue
+            lines=$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$jid/logs" 2>/dev/null                     | sed -E 's/^[0-9T:.-]+Z //' | grep -E '^(REGRESSION|FAIL|##\[error\])|first failure|^note: .*improved' | sort -u | head -20 || true)
+            summary="$summary
+          **$jname**
+          \`\`\`
+          ${lines:-(no regression lines found in the log)}
+          \`\`\`"
+          done < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" --paginate                      --jq '.jobs[] | select(.conclusion=="failure") | [.id, .name] | @tsv' 2>/dev/null)
           {
             echo "EXFA-Data released SDE \`$NEW_TAG\` but the engine gate rejected it."
             echo ""
             echo "- sde-update run: $run_url"
-            [ -n "$cid" ] && echo "- gate run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$cid"
             echo ""
             echo "## Gate summary"
-            [ -n "$summary" ] && echo "$summary" || echo "(no step summaries found — see the gate run logs)"
+            [ -n "$summary" ] && echo "$summary" || echo "(no failed gate jobs found — see the run logs)"
           } > /tmp/issue.md
           cat /tmp/issue.md
-          gh issue create -R "$GITHUB_REPOSITORY" --title "SDE $NEW_TAG blocked by the gate" --body-file /tmp/issue.md
+          # one issue per SDE tag: the schedule polls every 6 h and would otherwise open a new issue each time
+          existing=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title"                        --json number,title --jq "[.[] | select(.title==\"$title\")][0].number // empty")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" -R "$GITHUB_REPOSITORY" --body "Still blocked on the latest scheduled run: $run_url"
+          else
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body-file /tmp/issue.md
+          fi
